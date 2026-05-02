@@ -1,0 +1,89 @@
+"""Schemas package – re-exports every Pydantic schema for backward-compatible
+``from app.schemas import X`` and ``from app import schemas`` usage."""
+
+from app.schemas.ai import AIAskRequest, AIAskResponse
+from app.schemas.device import DeviceBase, DeviceCreate, DeviceRead
+from app.schemas.game_result import (
+    GameResultBase,
+    GameResultCreate,
+    GameResultRead,
+    ResultsSummaryResponse,
+)
+from app.schemas.game_session import GameSessionBase, GameSessionCreate, GameSessionRead
+from app.schemas.health import HealthResponse
+from app.schemas.mission import MissionBase, MissionCreate, MissionRead
+from app.schemas.mission_control import (
+    MissionControlCreateMissionRequest,
+    MissionControlObjective,
+    MissionControlObjectiveStatusRequest,
+    MissionControlScoreRequest,
+    MissionControlStateResponse,
+)
+from app.schemas.prop import PropBase, PropCommandRequest, PropCreate, PropRead, PropUpdate
+from app.schemas.schedule import (
+    ScheduleItemBase,
+    ScheduleItemCreate,
+    ScheduleItemRead,
+    ScheduleItemUpdate,
+    ScheduleOverviewResponse,
+)
+from app.schemas.score_event import ScoreEventBase, ScoreEventCreate, ScoreEventRead
+from app.schemas.system import SystemStatusResponse
+from app.schemas.system_log import SystemLogBase, SystemLogCreate, SystemLogRead
+from app.schemas.team import TeamBase, TeamCreate, TeamRead
+from app.schemas.update_center import (
+    UpdateCenterActionResponse,
+    UpdateCenterStatusResponse,
+    UpdatePackagePlaceholderRequest,
+)
+from app.schemas.user_role import UserRoleBase, UserRoleCreate, UserRoleRead
+
+__all__ = [
+    "AIAskRequest",
+    "AIAskResponse",
+    "DeviceBase",
+    "DeviceCreate",
+    "DeviceRead",
+    "GameResultBase",
+    "GameResultCreate",
+    "GameResultRead",
+    "ResultsSummaryResponse",
+    "GameSessionBase",
+    "GameSessionCreate",
+    "GameSessionRead",
+    "HealthResponse",
+    "MissionBase",
+    "MissionCreate",
+    "MissionRead",
+    "MissionControlCreateMissionRequest",
+    "MissionControlObjective",
+    "MissionControlObjectiveStatusRequest",
+    "MissionControlScoreRequest",
+    "MissionControlStateResponse",
+    "PropBase",
+    "PropCommandRequest",
+    "PropCreate",
+    "PropRead",
+    "PropUpdate",
+    "ScheduleItemBase",
+    "ScheduleItemCreate",
+    "ScheduleItemRead",
+    "ScheduleItemUpdate",
+    "ScheduleOverviewResponse",
+    "ScoreEventBase",
+    "ScoreEventCreate",
+    "ScoreEventRead",
+    "SystemStatusResponse",
+    "SystemLogBase",
+    "SystemLogCreate",
+    "SystemLogRead",
+    "TeamBase",
+    "TeamCreate",
+    "TeamRead",
+    "UpdateCenterActionResponse",
+    "UpdateCenterStatusResponse",
+    "UpdatePackagePlaceholderRequest",
+    "UserRoleBase",
+    "UserRoleCreate",
+    "UserRoleRead",
+]
