@@ -4,6 +4,8 @@ from datetime import datetime
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+# NOTE: game_modes and users tables are referenced by FK; models imported via __init__.
+
 from app.database import Base
 
 
@@ -11,6 +13,7 @@ class MissionStatus(str, enum.Enum):
     planned = "planned"
     active = "active"
     complete = "complete"
+    cancelled = "cancelled"
 
 
 class Mission(Base):
@@ -22,13 +25,22 @@ class Mission(Base):
     status: Mapped[MissionStatus] = mapped_column(
         Enum(MissionStatus), default=MissionStatus.planned, nullable=False
     )
+    game_mode_id: Mapped[int | None] = mapped_column(ForeignKey("game_modes.id"), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
+    game_mode: Mapped["GameMode | None"] = relationship(back_populates="missions")
+    created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_id])
     game_sessions: Mapped[list["GameSession"]] = relationship(back_populates="mission")
     schedule_items: Mapped[list["ScheduleItem"]] = relationship(back_populates="mission")
     objectives: Mapped[list["MissionObjective"]] = relationship(back_populates="mission")
+    logs: Mapped[list["SystemLog"]] = relationship(back_populates="mission")
+    conversations: Mapped[list["AIConversation"]] = relationship(back_populates="mission")
 
 
 class MissionObjective(Base):

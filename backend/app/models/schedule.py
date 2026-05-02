@@ -11,6 +11,9 @@ class ScheduleItem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     mission_id: Mapped[int | None] = mapped_column(ForeignKey("missions.id"), nullable=True)
+    game_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_sessions.id"), nullable=True
+    )
     title: Mapped[str] = mapped_column(String(140), nullable=False)
     details: Mapped[str] = mapped_column(Text, default="")
     activity_type: Mapped[str] = mapped_column(String(32), default="Custom", nullable=False)
@@ -19,5 +22,10 @@ class ScheduleItem(Base):
     is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
-    mission: Mapped["Mission"] = relationship(back_populates="schedule_items")
+    mission: Mapped["Mission | None"] = relationship(back_populates="schedule_items")
+    game_session: Mapped["GameSession | None"] = relationship(back_populates="schedule_items")

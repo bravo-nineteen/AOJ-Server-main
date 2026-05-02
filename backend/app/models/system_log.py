@@ -1,8 +1,8 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -34,4 +34,18 @@ class SystemLog(Base):
     )
     source: Mapped[str] = mapped_column(String(80), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Optional context links
+    mission_id: Mapped[int | None] = mapped_column(ForeignKey("missions.id"), nullable=True)
+    game_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_sessions.id"), nullable=True
+    )
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    mission: Mapped["Mission | None"] = relationship(back_populates="logs")
+    game_session: Mapped["GameSession | None"] = relationship(back_populates="logs")
+    device: Mapped["Device | None"] = relationship(back_populates="logs")
+    user: Mapped["User | None"] = relationship(back_populates="logs")
