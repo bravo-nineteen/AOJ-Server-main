@@ -383,6 +383,22 @@ def _is_followup_message(text: str) -> bool:
     return bool(short and followup_cues)
 
 
+def _is_contextual_followup(text: str, last_assistant: str, active_topic: str | None) -> bool:
+    """Detect natural follow-ups that reference prior context without restating topic."""
+    if not last_assistant or not active_topic:
+        return False
+    if _is_explicit_topic_shift(text):
+        return False
+
+    reference_cues = re.search(
+        r"\b(that|this|it|those|same one|go ahead|let'?s do it|do it|run it|keep going|continue|tell me more|what about)\b",
+        text,
+        re.I,
+    )
+    short_reaction = re.fullmatch(r"\s*(yes|yeah|yep|ok|okay|sure|maybe|not sure|sounds good|works)\s*[!.?]*\s*", text, re.I)
+    return bool(reference_cues or short_reaction)
+
+
 def _extract_numbered_modes(text: str) -> list[str]:
     modes = re.findall(r"\d+\.\s+\*\*([^*]+)\*\*", text)
     return [m.strip() for m in modes if m.strip()]
@@ -861,7 +877,7 @@ def _handle_conversation(
                 used_ctx=[*used_ctx, "history:followup_direct_mode"],
             )
 
-    if _is_followup_message(lower) and last_assistant:
+    if (_is_followup_message(lower) or _is_contextual_followup(lower, last_assistant, active_topic)) and last_assistant:
         chosen_mode = _select_mode_from_followup(
             user_text=lower,
             last_assistant=last_assistant,
@@ -887,7 +903,7 @@ def _handle_conversation(
         answer = (
             "Got it, continuing from where we left off. "
             "Do you want me to expand the previous suggestion into a full plan, "
-            "or adjust players, timer, or balancing first?"
+            "or tune players, timer, or team balancing first?"
         )
         return _mk_response(
             answer,
@@ -920,6 +936,14 @@ def _handle_conversation(
                 "If you want, I'll now draft the exact round format for your 14 players.",
                 confidence=0.88,
                 used_ctx=[*used_ctx, "history:continuity_recommendation"],
+            )
+        if re.search(r"\b(what do you think|your call|you choose|pick one|which one now)\b", lower):
+            return _mk_response(
+                "My call based on our current plan: run **Capture The Flag** first. "
+                "It is easy to brief, keeps players moving, and scales well if teams are uneven. "
+                "If you want, I will now generate the full round script and scoring table.",
+                confidence=0.89,
+                used_ctx=[*used_ctx, "history:continuity_choice"],
             )
 
     # Advanced follow-up intents: compare/explain/summarize relative to prior answer

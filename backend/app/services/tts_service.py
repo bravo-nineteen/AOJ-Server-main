@@ -27,7 +27,7 @@ _FEMALE_VOICE_PREFS = [
 ]
 
 _tts_lock = threading.Lock()
-_BASE_RATE = 160
+_BASE_RATE = 166
 _DEFAULT_PIPER_LENGTH_SCALE = 1.08
 
 
@@ -103,17 +103,15 @@ def _normalize_for_speech(text: str) -> str:
 
     # Punctuation tuning for pauses.
     text = text.replace(";", ", ")
-    text = text.replace(":", ". ")
+    text = text.replace(":", ", ")
     text = re.sub(r"\s*-\s*", ", ", text)
     text = re.sub(r"\.{3,}", ".", text)
     text = re.sub(r"\s*/\s*", " over ", text)
 
-    # Ensure sentence endings are clean for intonation.
-    text = re.sub(r"([a-zA-Z0-9])\s+([A-Z])", r"\1. \2", text)
     # Convert list style phrasing to spoken connectors.
-    text = re.sub(r"\b1\.\s*", "First, ", text)
-    text = re.sub(r"\b2\.\s*", "Second, ", text)
-    text = re.sub(r"\b3\.\s*", "Third, ", text)
+    text = re.sub(r"(^|\s)1\.\s*", r"\1First, ", text)
+    text = re.sub(r"(^|\s)2\.\s*", r"\1Second, ", text)
+    text = re.sub(r"(^|\s)3\.\s*", r"\1Third, ", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = text.strip()
     if text and text[-1] not in ".!?":
@@ -129,22 +127,25 @@ def _adaptive_rate_for_text(text: str) -> int:
     question_count = text.count("?")
     sentence_count = len(re.findall(r"[.!?]", text))
 
-    if length > 450:
-        rate -= 10
-    elif length > 280:
-        rate -= 7
+    if length < 80:
+        rate += 4
+    elif length < 180:
+        rate += 2
+    elif length > 500:
+        rate -= 8
+    elif length > 320:
+        rate -= 5
 
     if comma_count >= 6:
-        rate -= 4
-    if question_count >= 2:
         rate -= 3
-    if sentence_count >= 8:
-        rate -= 4
+    if question_count >= 2:
+        rate -= 2
+    if sentence_count >= 10:
+        rate -= 2
+    if re.search(r"\b(alert|warning|urgent|now)\b", text, re.I):
+        rate += 2
 
-    # Gentle conversational default: slightly slower for a calmer voice.
-    rate -= 2
-
-    return max(140, min(164, rate))
+    return max(150, min(176, rate))
 
 
 def _piper_binary_path() -> str:
