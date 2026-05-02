@@ -841,22 +841,10 @@ def send_message(
     confidence = min(advisor_response.confidence, policy.confidence)
     if context_summary["missing_data"]:
         confidence = max(0.2, min(confidence, 0.62))
-    diagnostic_answer = _build_diagnostic_answer(payload.content, context_summary, db)
 
-    # Use the advisor's answer directly — it handles the conversational flow including
-    # confirmation requests. Only fall back to composed format for diagnostic queries.
-    if diagnostic_answer is not None:
-        answer = _compose_structured_answer(diagnostic_answer, context_summary)
-        used_context = list(dict.fromkeys([*used_context, "diagnostics:enabled"]))
-    else:
-        answer = advisor_response.answer
-
-    if "custom:knowledge_base_empty" in custom_knowledge_block["used_context"]:
-        custom_notice = (
-            "\n\n[NOTE: No relevant custom knowledge entries found. "
-            "Consider adding entries in Admin > Knowledge Base.]"
-        )
-        answer = answer + custom_notice
+    # The advisor handles all conversational logic including live context, confirm flow
+    # and diagnostic queries. Use its answer directly.
+    answer = advisor_response.answer
 
     # For confirmation-pending actions, log an action request for audit purposes
     # but do NOT override the AI's answer — it already asked the user to confirm.
