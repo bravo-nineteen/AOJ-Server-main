@@ -273,22 +273,25 @@ def _update_member_from_message(db: Session, user_text: str) -> None:
     for phrase in _STRENGTHS_KEYWORDS:
         val = _extract_free_text_after(phrase, user_text)
         if val:
-            if val not in existing.strengths:
-                existing.strengths = (existing.strengths + ", " + val).strip(", ")
+            current_strengths = existing.strengths or ""
+            if val not in current_strengths:
+                existing.strengths = (current_strengths + ", " + val).strip(", ")
             break
 
     # Weaknesses
     for phrase in _WEAKNESS_KEYWORDS:
         val = _extract_free_text_after(phrase, user_text)
         if val:
-            if val not in existing.weaknesses:
-                existing.weaknesses = (existing.weaknesses + ", " + val).strip(", ")
+            current_weaknesses = existing.weaknesses or ""
+            if val not in current_weaknesses:
+                existing.weaknesses = (current_weaknesses + ", " + val).strip(", ")
             break
 
     # Append a Christy memory note
     note = f"Mentioned in conversation: {user_text[:120].strip()}"
-    if note not in existing.christy_memory:
-        existing.christy_memory = (existing.christy_memory + "\n" + note).strip()
+    current_memory = existing.christy_memory or ""
+    if note not in current_memory:
+        existing.christy_memory = (current_memory + "\n" + note).strip()
 
     db.flush()
 

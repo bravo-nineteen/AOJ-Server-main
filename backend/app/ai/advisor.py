@@ -479,7 +479,7 @@ def _is_explicit_topic_shift(text: str) -> bool:
     """Detect when user clearly switches to a new topic."""
     return bool(
         re.search(
-            r"\b(score|timer|device|prop|schedule|member|player|announcement|briefing|logs?)\b",
+            r"\b(score|timer|device|prop|schedule|member|player|announcement|briefing|logs?|coach|role|loadout|tactic|safety)\b",
             text,
             re.I,
         )
@@ -527,7 +527,87 @@ def _topic_hint_from_text(text: str) -> str | None:
         return "tactics"
     if re.search(r"\b(safety|chrono|fps|joule|eye pro|face pro|minimum engagement|med|bang rule|hit call)\b", t):
         return "safety"
+    if re.search(r"\b(coach|role assign|squad assign|player brief|entry|anchor|rover|marksman)\b", t):
+        return "members"
     return None
+
+
+def _assign_roles(member_lines: list[str]) -> list[dict[str, str]]:
+    """Parse member profile lines and assign a field role to each player.
+
+    Role priority logic:
+    - expert/advanced/veteran      → entry (aggressive, first contact)
+    - beginner/novice              → anchor (hold spawn lane, lower risk)
+    - intermediate                 → rover (flexible, rotates between lanes)
+    - support keyword in strengths → support gunner
+    - sniper/dmr keyword           → designated marksman
+    - default untagged             → rover
+    """
+    role_map: list[dict[str, str]] = []
+    for line in member_lines:
+        lower = line.lower()
+        parts = [p.strip() for p in line.split(";")]
+        name = parts[0].split("aka")[0].strip() if parts else "Unknown"
+        skill = ""
+        strengths = ""
+        team = ""
+        for p in parts:
+            if p.startswith("skill="):
+                skill = p[6:].strip()
+            if p.startswith("strengths="):
+                strengths = p[10:].strip().lower()
+            if p.startswith("team="):
+                team = p[5:].strip()
+
+        if any(k in skill for k in ("expert", "advanced", "veteran", "pro")):
+            role = "Entry"
+            tip = "Lead first contact, call positions immediately, maintain aggression on flanks."
+        elif any(k in skill for k in ("beginner", "novice", "new")):
+            role = "Anchor"
+            tip = "Hold spawn lane, protect team base, avoid deep pushes — your job is to deny ground."
+        elif re.search(r"support|lmg|hpa|suppres", strengths):
+            role = "Support"
+            tip = "Lay down suppressing fire to pin the enemy while entry and rover push."
+        elif re.search(r"sniper|dmr|long range|marksman", strengths):
+            role = "Marksman"
+            tip = "Take elevated or flanking position early, call exact enemy positions over radio."
+        else:
+            role = "Rover"
+            tip = "Stay flexible — reinforce whichever lane needs pressure and relay intel."
+
+        role_map.append({"name": name, "team": team, "role": role, "tip": tip})
+
+    return role_map
+
+
+def _build_coaching_brief(member_lines: list[str], mode_hint: str | None = None) -> str:
+    """Build a per-player coaching brief from stored member profiles."""
+    if not member_lines:
+        return (
+            "I don't have any player profiles stored yet. "
+            "Tell me each player's name, skill level, strengths, and weaknesses "
+            "and I'll generate individual coaching instructions right away."
+        )
+
+    roles = _assign_roles(member_lines)
+    mode_line = f" for **{mode_hint}**" if mode_hint else ""
+    lines = [f"**Player coaching brief{mode_line}:**\n"]
+
+    teams: dict[str, list[dict]] = {}
+    for r in roles:
+        t = r["team"] or "Unassigned"
+        teams.setdefault(t, []).append(r)
+
+    for team_name, players in sorted(teams.items()):
+        lines.append(f"**{team_name}:**")
+        for p in players:
+            lines.append(f"- **{p['name']}** — {p['role']}: {p['tip']}")
+        lines.append("")
+
+    lines.append(
+        "Want me to also generate a radio callout plan or assign each player to a specific objective?"
+    )
+    return "\n".join(lines)
 
 
 def _is_true_greeting(text: str) -> bool:
@@ -1133,6 +1213,20 @@ def _handle_conversation(
     # 3. Live data queries — use the parsed context
     # -----------------------------------------------------------------------
 
+    # Per-player coaching / role assignment (uses stored member profiles)
+    if re.search(
+        r"\b(coach|coaching|role assign|who does what|squad assign|player brief|brief (?:the |each )?player|position|entry|anchor|rover|marksman|support gunner|give .{0,10}player.{0,10}instruction)\b",
+        lower,
+    ):
+        member_lines = ctx.get("member_lines", [])
+        mode = ctx.get("mission_title") or None
+        return _mk_response(
+            _build_coaching_brief(member_lines, mode_hint=mode),
+            confidence=0.91,
+            used_ctx=[*used_ctx, "advisor:per_player_coaching"],
+            suggested_actions=["Ask for a radio callout plan or objective assignments."],
+        )
+
     # Member recognition / profile query
     if re.search(r"\b(member|player|who is|recognize|recognise|strength|weakness|skill|team balance)\b", lower):
         member_lines = ctx.get("member_lines", [])
@@ -1141,16 +1235,16 @@ def _handle_conversation(
             answer = (
                 "I recognize the following members from stored profiles:\n\n"
                 f"{preview}\n\n"
-                "If you want, I can suggest balanced squad assignments based on these profiles."
+                "Want me to assign each player a field role with individual coaching tips? Just say 'coach the squad'."
             )
             return _mk_response(
                 answer,
                 confidence=0.9,
                 used_ctx=[*used_ctx, "context:members"],
-                suggested_actions=["Generate team balancing plan from member profiles."],
+                suggested_actions=["Say 'coach the squad' for per-player role assignments."],
             )
         return _mk_response(
-            "I don't have member profiles yet. Tell me each person's name, gender, team, skill level, strengths, and weaknesses, and I'll store them for future guidance.",
+            "I don't have member profiles yet. Tell me each person's name, skill level, strengths, and weaknesses and I'll store them for coaching and role assignments.",
             confidence=0.82,
             used_ctx=[*used_ctx, "context:members:none"],
         )
@@ -1368,6 +1462,19 @@ def _handle_conversation(
                 "Start a game in Mission Control and I'll fill this in with live data."
             )
         return _mk_response(answer, confidence=0.85, used_ctx=[*used_ctx, "context:results"])
+
+    # Coaching follow-up continuation
+    if active_topic == "members" and re.search(
+        r"\b(yes|do it|go ahead|assign|generate|brief them|let'?s do it|coach them|show me)\b", lower
+    ):
+        member_lines = ctx.get("member_lines", [])
+        mode = ctx.get("mission_title") or None
+        return _mk_response(
+            _build_coaching_brief(member_lines, mode_hint=mode),
+            confidence=0.91,
+            used_ctx=[*used_ctx, "history:coaching_followup"],
+            suggested_actions=["Ask for a radio callout plan or objective assignments."],
+        )
 
     if re.search(r"\bmarshal\b|\bbriefing\b", lower):
         mode = ctx.get("available_game_modes", [None])[0] if ctx["available_game_modes"] else None
