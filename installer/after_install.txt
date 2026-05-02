@@ -1,0 +1,9 @@
+AOJ Command OS has been installed successfully.
+
+After clicking Finish, you can:
+
+  - Open http://localhost:8000 in any browser on this machine.
+  - Use the Start Menu shortcut "AOJ Command OS" to start the server.
+  - Share http://YOUR_IP:8000 with tablets and phones on the same Wi-Fi network.
+
+To stop the server, close the console window or end the python.exe process in Task Manager.
