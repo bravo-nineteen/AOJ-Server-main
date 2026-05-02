@@ -12,7 +12,7 @@ FRONTEND_DIST_DIR="${PROJECT_ROOT}/frontend/dist"
 PORT="${AOJ_FRONTEND_PORT:-4173}"
 
 if [[ ! -d "${FRONTEND_DIST_DIR}" ]]; then
-  echo "[AOJ] Frontend build directory not found. Run scripts/install_pi.sh first." >&2
+  echo "[AOJ] Frontend build directory not found. Run scripts/install_linux.sh or scripts/install_pi.sh first." >&2
   exit 1
 fi
 
