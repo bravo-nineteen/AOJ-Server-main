@@ -388,6 +388,36 @@ def _extract_numbered_modes(text: str) -> list[str]:
     return [m.strip() for m in modes if m.strip()]
 
 
+def _extract_mode_from_text(text: str, available_modes: list[str]) -> str | None:
+    """Find a game mode mention in free text, including common shorthand."""
+    lower = text.lower()
+
+    alias_map = {
+        "ctf": "capture the flag",
+        "capture the flag": "capture the flag",
+        "capture flag": "capture the flag",
+        "dom": "domination",
+        "domination": "domination",
+        "koth": "king of the hill",
+        "king of the hill": "king of the hill",
+        "skirmish": "skirmish",
+        "hostage": "hostage rescue",
+        "hostage rescue": "hostage rescue",
+        "assault": "assault",
+        "siege": "siege",
+    }
+
+    for alias, canonical in alias_map.items():
+        if re.search(rf"\b{re.escape(alias)}\b", lower):
+            return canonical
+
+    for mode in available_modes:
+        if mode and mode.lower() in lower:
+            return mode
+
+    return None
+
+
 def _select_mode_from_followup(
     user_text: str,
     last_assistant: str,
@@ -410,10 +440,10 @@ def _select_mode_from_followup(
         if "third" in lower and len(options) >= 3:
             return options[2]
 
-    # Explicit mode name in user text
-    for mode in available_modes:
-        if mode and mode.lower() in lower:
-            return mode
+    # Explicit mode name/alias in user text
+    direct = _extract_mode_from_text(user_text, available_modes)
+    if direct:
+        return direct
 
     # If user says "that one" and we have options, default to first recommendation
     if options and re.search(r"\b(that one|go with it|sounds good|let's do it|do it)\b", lower):
@@ -722,6 +752,26 @@ def _handle_conversation(
     # 2. Follow-up continuation (prevents "restart" behavior)
     # -----------------------------------------------------------------------
     last_assistant = _last_message_by_role(history, "assistant")
+
+    # Direct mode reply after a recommendation prompt, e.g. user: "capture the flag"
+    if last_assistant and re.search(r"want me to build out the full rule set", last_assistant, re.I):
+        direct_mode = _extract_mode_from_text(lower, ctx.get("available_game_modes", []))
+        if direct_mode:
+            rules = _build_game_mode_rules(
+                mode_name=direct_mode,
+                players=nums.get("players") or (nums.get("per_team", 0) * 2) or None,
+                minutes=nums.get("minutes"),
+            )
+            answer = (
+                f"Great choice. Continuing from my last suggestion, here are the full **{direct_mode}** rules.\n\n"
+                + rules
+            )
+            return _mk_response(
+                answer,
+                confidence=0.92,
+                used_ctx=[*used_ctx, "history:followup_direct_mode"],
+            )
+
     if _is_followup_message(lower) and last_assistant:
         chosen_mode = _select_mode_from_followup(
             user_text=lower,
