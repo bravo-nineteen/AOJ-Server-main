@@ -889,6 +889,33 @@ function App() {
           setEvents(data.payload.event_feed ?? []);
           return;
         }
+        // Christy proactive announcements
+        if (data.event === 'christy.announcement' && data.payload?.content) {
+          const announcementText = data.payload.content;
+          setAiMessages((current) => [
+            ...current,
+            { role: 'assistant', text: announcementText, meta: 'announcement' },
+          ]);
+          // Auto-speak the announcement
+          const clean = announcementText
+            .replace(/\[CONFIRM_ACTION:[^\]]+\]/g, '')
+            .replace(/[*#_~`^|<>{}\\]/g, '')
+            .trim();
+          if (clean) {
+            fetch(`${apiBase}/tts/speak`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: clean }),
+            }).then((r) => r.ok ? r.blob() : null).then((blob) => {
+              if (!blob) return;
+              const url = URL.createObjectURL(blob);
+              const audio = new Audio(url);
+              audio.onended = () => URL.revokeObjectURL(url);
+              audio.play().catch(() => {});
+            }).catch(() => {});
+          }
+          return;
+        }
         const line = `${new Date().toLocaleTimeString()} :: ${JSON.stringify(data)}`;
         setEvents((previous) => [line, ...previous].slice(0, 12));
       } catch {

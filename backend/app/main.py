@@ -12,6 +12,7 @@ from app.database import init_db
 from app.lora.service import lora_service
 from app.routes import ai, health, logs, mission_control, prop_network, resources, results, schedule, system, update_center, custom_admin, tts
 from app.services.mission_control_service import mission_control_service
+from app.services.christy_service import christy_service
 
 app = FastAPI(title=APP_TITLE, version=APP_VERSION)
 
@@ -44,6 +45,7 @@ def on_startup() -> None:
     init_db()
     lora_service.start()
     asyncio.create_task(mission_control_service.ticker())
+    asyncio.create_task(christy_service.ticker())
 
 
 @app.on_event("shutdown")
