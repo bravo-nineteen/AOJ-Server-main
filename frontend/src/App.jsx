@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AdminCustomTeams } from './components/AdminCustomTeams';
 import { AdminGameModes } from './components/AdminGameModes';
 import { AdminKnowledgeBase } from './components/AdminKnowledgeBase';
@@ -133,7 +133,13 @@ function formatUptime(seconds) {
 
 function App() {
   const host = window.location.hostname || 'localhost';
-  const apiBase = useMemo(() => `http://${host}:8000/api`, [host]);
+  const apiBase = useMemo(() => {
+    // When frontend is served by backend on :8000, use same-origin API paths.
+    if (window.location.port === '8000') {
+      return '/api';
+    }
+    return `http://${host}:8000/api`;
+  }, [host]);
   const wsUrl = useMemo(() => {
     return `ws://${host}:8000/ws/live`;
   }, [host]);
@@ -145,6 +151,7 @@ function App() {
   const [deviceCount] = useState(8);
   const [alerts] = useState(2);
   const [currentTheme, setCurrentTheme] = useState(null);
+  const [customTeams, setCustomTeams] = useState([]);
   const [missionState, setMissionState] = useState(DEFAULT_MISSION_STATE);
   const [gameModeOptions, setGameModeOptions] = useState(DEFAULT_GAME_MODES);
   const [missionForm, setMissionForm] = useState({
@@ -215,6 +222,20 @@ function App() {
   const [updateCenterStatus, setUpdateCenterStatus] = useState(DEFAULT_UPDATE_CENTER_STATUS);
   const [updateMessage, setUpdateMessage] = useState('');
   const [selectedUpdatePackage, setSelectedUpdatePackage] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+  const [speechError, setSpeechError] = useState('');
+  const [voiceNote, setVoiceNote] = useState('');
+  const recognitionRef = useRef(null);
+
+  const speechRecognitionCtor = useMemo(() => {
+    return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  }, []);
+
+  const speechInputSupported = Boolean(speechRecognitionCtor);
+  const speechOutputSupported = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
+
+  const redTeamLabel = customTeams[0]?.name || 'Red Team';
+  const blueTeamLabel = customTeams[1]?.name || 'Blue Team';
 
   async function fetchMissionState() {
     const response = await fetch(`${apiBase}/mission-control/state`);
@@ -258,6 +279,21 @@ function App() {
     }
   }
 
+  async function fetchCustomTeams() {
+    try {
+      const response = await fetch(`${apiBase}/custom/teams`);
+      if (!response.ok) {
+        setCustomTeams([]);
+        return;
+      }
+      const rows = await response.json();
+      const activeTeams = rows.filter((team) => team.active);
+      setCustomTeams(activeTeams);
+    } catch {
+      setCustomTeams([]);
+    }
+  }
+
   async function postMissionAction(path, body) {
     const response = await fetch(`${apiBase}${path}`, {
       method: 'POST',
@@ -288,6 +324,85 @@ function App() {
     root.style.setProperty('--border-radius', theme.border_radius || '4px');
     root.style.setProperty('--font-family', theme.font_family || 'Arial, sans-serif');
     root.style.setProperty('--density', theme.density || 'normal');
+    // Keep legacy variables in sync for existing styles.
+    root.style.setProperty('--ink-0', theme.background_color || '#1a1a1a');
+    root.style.setProperty('--ink-1', theme.primary_color || '#000000');
+    root.style.setProperty('--ink-2', theme.panel_color || '#2a2a2a');
+    root.style.setProperty('--line', theme.secondary_color || '#ffffff');
+    root.style.setProperty('--line-bright', theme.accent_color || '#ff0000');
+    root.style.setProperty('--hud', theme.accent_color || '#ff0000');
+    root.style.setProperty('--warn', theme.warning_color || '#ffaa00');
+    root.style.setProperty('--text-main', theme.text_color || '#ffffff');
+  }
+
+  function startVoiceInput() {
+    if (!speechRecognitionCtor) {
+      setSpeechError('Speech input is not supported by this browser.');
+      return;
+    }
+
+    setSpeechError('');
+    setVoiceNote('Listening...');
+
+    const recognition = new speechRecognitionCtor();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => {
+      setIsListening(false);
+      setVoiceNote('');
+    };
+    recognition.onerror = (event) => {
+      setSpeechError(`Speech input error: ${event.error || 'unknown'}`);
+      setIsListening(false);
+      setVoiceNote('');
+    };
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim() || '';
+      if (!transcript) {
+        return;
+      }
+      setAiInput(transcript);
+      askAI(transcript);
+      setAiInput('');
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  }
+
+  function stopVoiceInput() {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+  }
+
+  function speakLatestAssistantMessage() {
+    if (!speechOutputSupported) {
+      setSpeechError('Speech output is not supported by this browser.');
+      return;
+    }
+
+    const latestAssistant = [...aiMessages].reverse().find((msg) => msg.role === 'assistant' && msg.text);
+    if (!latestAssistant) {
+      setSpeechError('No assistant response available to speak.');
+      return;
+    }
+
+    try {
+      setSpeechError('');
+      window.speechSynthesis.cancel();
+      const utterance = new window.SpeechSynthesisUtterance(latestAssistant.text);
+      utterance.lang = 'en-US';
+      utterance.onerror = () => {
+        setSpeechError('Speech output error occurred while speaking.');
+      };
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      setSpeechError('Speech output failed to start.');
+    }
   }
 
   async function fetchActiveTheme() {
@@ -662,6 +777,7 @@ function App() {
   useEffect(() => {
     fetchMissionState();
     fetchGameModeOptions();
+    fetchCustomTeams();
     fetchScheduleData();
     fetchResultsData();
     fetchPropsData();
@@ -673,8 +789,22 @@ function App() {
   useEffect(() => {
     if (selectedApp === 'mission-control') {
       fetchGameModeOptions();
+      fetchCustomTeams();
     }
   }, [selectedApp, apiBase]);
+
+  useEffect(() => {
+    const handleCustomDataChanged = () => {
+      fetchGameModeOptions();
+      fetchCustomTeams();
+      fetchActiveTheme();
+    };
+
+    window.addEventListener('custom-data-changed', handleCustomDataChanged);
+    return () => {
+      window.removeEventListener('custom-data-changed', handleCustomDataChanged);
+    };
+  }, [apiBase]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -892,7 +1022,7 @@ function App() {
 
                       <div className="score-row">
                         <div className="score-card score-red">
-                          <p>Red Team</p>
+                          <p>{redTeamLabel}</p>
                           <strong>{missionState.red_team_score}</strong>
                           <div>
                             <button
@@ -922,7 +1052,7 @@ function App() {
                           </div>
                         </div>
                         <div className="score-card score-blue">
-                          <p>Blue Team</p>
+                          <p>{blueTeamLabel}</p>
                           <strong>{missionState.blue_team_score}</strong>
                           <div>
                             <button
@@ -1220,12 +1350,12 @@ function App() {
                     <div className="results-card">
                       <h3>Totals</h3>
                       <div className="results-summary-grid">
-                        <p>Total Red Wins: {resultsSummary.total_red_wins}</p>
-                        <p>Total Blue Wins: {resultsSummary.total_blue_wins}</p>
+                        <p>Total {redTeamLabel} Wins: {resultsSummary.total_red_wins}</p>
+                        <p>Total {blueTeamLabel} Wins: {resultsSummary.total_blue_wins}</p>
                         <p>Total Draws: {resultsSummary.total_draws}</p>
                         <p>Total Cancelled: {resultsSummary.total_cancelled}</p>
-                        <p>Total Red Points: {resultsSummary.total_red_points}</p>
-                        <p>Total Blue Points: {resultsSummary.total_blue_points}</p>
+                        <p>Total {redTeamLabel} Points: {resultsSummary.total_red_points}</p>
+                        <p>Total {blueTeamLabel} Points: {resultsSummary.total_blue_points}</p>
                       </div>
                     </div>
 
@@ -1239,7 +1369,7 @@ function App() {
                             <span>{result.winner}</span>
                           </div>
                           <p className="results-meta">
-                            Red {result.red_points} (penalties {result.red_penalties}) | Blue {result.blue_points} (penalties {result.blue_penalties})
+                            {redTeamLabel} {result.red_points} (penalties {result.red_penalties}) | {blueTeamLabel} {result.blue_points} (penalties {result.blue_penalties})
                           </p>
                           <p className="results-meta">Notes: {result.notes || 'No notes'}</p>
                           <p className="results-meta">{new Date(result.created_at).toLocaleString()}</p>
@@ -1620,6 +1750,26 @@ function App() {
                       <p className="ai-safety-note">
                         Advisory-only mode is active. Hardware control requires admin confirmation.
                       </p>
+                      <div className="ai-prompt-grid" style={{ marginTop: '0.6rem' }}>
+                        <button
+                          type="button"
+                          onClick={isListening ? stopVoiceInput : startVoiceInput}
+                          disabled={!speechInputSupported}
+                        >
+                          {isListening ? 'Stop Voice Input' : 'Voice Input'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={speakLatestAssistantMessage}
+                          disabled={!speechOutputSupported}
+                        >
+                          Speak Last Reply
+                        </button>
+                      </div>
+                      {!speechInputSupported ? <p className="ai-safety-note">Speech input unsupported in this browser.</p> : null}
+                      {!speechOutputSupported ? <p className="ai-safety-note">Speech output unsupported in this browser.</p> : null}
+                      {voiceNote ? <p className="ai-safety-note">{voiceNote}</p> : null}
+                      {speechError ? <p className="ai-safety-note">{speechError}</p> : null}
                     </div>
 
                     <div className="ai-card ai-chat-card">

@@ -111,6 +111,21 @@ def _ensure_system_log_columns() -> None:
             )
         )
 
+        connection.execute(
+            text(
+                "UPDATE system_logs SET category = CASE "
+                "WHEN category = 'system' THEN 'SYSTEM' "
+                "WHEN category = 'mission' THEN 'MISSION' "
+                "WHEN category = 'prop' THEN 'PROP' "
+                "WHEN category = 'lora' THEN 'LORA' "
+                "WHEN category = 'wifi' THEN 'WIFI' "
+                "WHEN category = 'ai' THEN 'AI' "
+                "WHEN category = 'update' THEN 'UPDATE' "
+                "WHEN category IS NULL OR category = '' THEN 'SYSTEM' "
+                "ELSE category END"
+            )
+        )
+
 
 def _ensure_ai_columns() -> None:
     ai_message_required_columns = {

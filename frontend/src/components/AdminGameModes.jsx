@@ -136,6 +136,7 @@ export function AdminGameModes({ apiBase }) {
         });
         setEditingId(null);
         await fetchModes();
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'game-modes' } }));
       } else {
         setError(`Error: ${resp.statusText}`);
       }
@@ -150,6 +151,7 @@ export function AdminGameModes({ apiBase }) {
       const resp = await fetch(`${apiBase}/custom/game-modes/${id}`, { method: 'DELETE' });
       if (resp.ok) {
         await fetchModes();
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'game-modes' } }));
       } else {
         setError(`Delete failed: ${resp.statusText}`);
       }

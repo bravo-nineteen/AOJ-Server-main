@@ -48,6 +48,7 @@ export function AdminCustomTeams({ apiBase }) {
         setForm({ name: '', short_name: '', color: '#ffffff', icon: '', description: '', active: true });
         setEditingId(null);
         await fetchTeams();
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'teams' } }));
       } else {
         setError(`Error: ${resp.statusText}`);
       }
@@ -62,6 +63,7 @@ export function AdminCustomTeams({ apiBase }) {
       const resp = await fetch(`${apiBase}/custom/teams/${id}`, { method: 'DELETE' });
       if (resp.ok) {
         await fetchTeams();
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'teams' } }));
       } else {
         setError(`Delete failed: ${resp.statusText}`);
       }

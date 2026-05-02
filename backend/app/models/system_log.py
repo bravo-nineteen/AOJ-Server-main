@@ -28,9 +28,23 @@ class SystemLog(Base):
     __tablename__ = "system_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    level: Mapped[LogLevel] = mapped_column(Enum(LogLevel), default=LogLevel.info)
+    level: Mapped[LogLevel] = mapped_column(
+        Enum(
+            LogLevel,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        default=LogLevel.info,
+    )
     category: Mapped[LogCategory] = mapped_column(
-        Enum(LogCategory), default=LogCategory.system
+        Enum(
+            LogCategory,
+            native_enum=False,
+            validate_strings=True,
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        default=LogCategory.system,
     )
     source: Mapped[str] = mapped_column(String(80), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)

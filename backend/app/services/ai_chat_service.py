@@ -694,9 +694,6 @@ def _build_custom_knowledge_block(db: Session, prompt: str) -> dict[str, str | l
         if re.search(pattern, prompt_lower):
             detected_topics.add(topic)
 
-    if not detected_topics:
-        return result
-
     context_snapshot = collect_context(db, prompt=prompt)
 
     lines: list[str] = []
@@ -725,10 +722,26 @@ def _build_custom_knowledge_block(db: Session, prompt: str) -> dict[str, str | l
                 lines.append(f"  {entry['content']}")
         result["used_context"].append("custom:knowledge_base")
         result["has_custom_data"] = True
-    elif detected_topics:
-        lines.append("[CUSTOM KNOWLEDGE]")
-        lines.append("- No relevant custom knowledge entries found for this query.")
-        result["used_context"].append("custom:knowledge_base_empty")
+    else:
+        fallback_entries = (
+            db.query(models.CustomKnowledgeEntry)
+            .filter(models.CustomKnowledgeEntry.active.is_(True))
+            .order_by(models.CustomKnowledgeEntry.updated_at.desc(), models.CustomKnowledgeEntry.id.desc())
+            .limit(3)
+            .all()
+        )
+        if fallback_entries:
+            lines.append("[CUSTOM KNOWLEDGE BASE (Active Entries)]")
+            for entry in fallback_entries:
+                lines.append(f"- [{entry.category}] {entry.title}")
+                if entry.content:
+                    lines.append(f"  {entry.content[:200]}")
+            result["used_context"].append("custom:knowledge_base_active_fallback")
+            result["has_custom_data"] = True
+        elif detected_topics:
+            lines.append("[CUSTOM KNOWLEDGE]")
+            lines.append("- No relevant custom knowledge entries found for this query.")
+            result["used_context"].append("custom:knowledge_base_empty")
 
     result["block_text"] = "\n".join(lines)
     return result

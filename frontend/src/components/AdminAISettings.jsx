@@ -42,17 +42,34 @@ export function AdminAISettings({ apiBase }) {
     setSuccess('');
 
     try {
+      const payload = {
+        enabled: settings.enabled,
+        provider: settings.provider,
+        model: settings.model,
+        voice_enabled: settings.voice_enabled,
+        speech_to_text_enabled: settings.speech_to_text_enabled,
+        text_to_speech_enabled: settings.text_to_speech_enabled,
+        system_personality: settings.system_personality,
+        response_style: settings.response_style,
+        max_context_entries: Number(settings.max_context_entries) || 24,
+        safety_mode: settings.safety_mode,
+      };
+
       const resp = await fetch(`${apiBase}/ai/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       });
 
       if (resp.ok) {
+        const saved = await resp.json();
+        setSettings(saved);
         setSuccess('Settings saved successfully');
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'ai-settings' } }));
         setTimeout(() => setSuccess(''), 3000);
       } else {
-        setError(`Error: ${resp.statusText}`);
+        const errorText = await resp.text();
+        setError(`Error: ${resp.status} ${resp.statusText}${errorText ? ` - ${errorText}` : ''}`);
       }
     } catch (err) {
       setError(`Submit failed: ${err.message}`);

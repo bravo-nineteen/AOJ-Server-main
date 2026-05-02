@@ -64,6 +64,7 @@ export function AdminThemeEditor({ apiBase }) {
         resetForm();
         setEditingId(null);
         await fetchThemes();
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'theme' } }));
       } else {
         setError(`Error: ${resp.statusText}`);
       }
@@ -82,6 +83,7 @@ export function AdminThemeEditor({ apiBase }) {
 
       if (resp.ok) {
         await fetchThemes();
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'theme' } }));
       } else {
         setError(`Failed to set active theme: ${resp.statusText}`);
       }
@@ -96,6 +98,7 @@ export function AdminThemeEditor({ apiBase }) {
       const resp = await fetch(`${apiBase}/custom/themes/${id}`, { method: 'DELETE' });
       if (resp.ok) {
         await fetchThemes();
+        window.dispatchEvent(new CustomEvent('custom-data-changed', { detail: { type: 'theme' } }));
       } else {
         setError(`Delete failed: ${resp.statusText}`);
       }
