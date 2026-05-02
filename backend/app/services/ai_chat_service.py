@@ -773,15 +773,32 @@ def send_message(
     policy = evaluate_ai_prompt(payload.content)
     context_summary = _build_operational_context(db, conversation)
     custom_knowledge_block = _build_custom_knowledge_block(db, payload.content)
-    
+
     injected_prompt_parts = [
         context_summary['context_block'],
         custom_knowledge_block['block_text'],
         f"[USER REQUEST]\n{payload.content}",
     ]
     injected_prompt = "\n\n".join([part for part in injected_prompt_parts if part])
-    
-    advisor_response = ask_ai(payload.content, injected_context=injected_prompt)
+
+    # Collect conversation history for the advisor (last 12 turns).
+    recent_rows = (
+        db.query(models.AIMessage)
+        .filter(models.AIMessage.conversation_id == conversation_id)
+        .order_by(models.AIMessage.created_at.desc(), models.AIMessage.id.desc())
+        .limit(12)
+        .all()
+    )
+    conv_history = [
+        {"role": row.role.value, "content": row.content}
+        for row in reversed(recent_rows)
+    ]
+
+    advisor_response = ask_ai(
+        payload.content,
+        injected_context=injected_prompt,
+        conversation_history=conv_history,
+    )
 
     used_context = list(
         dict.fromkeys(
