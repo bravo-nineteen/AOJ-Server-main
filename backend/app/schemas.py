@@ -294,3 +294,37 @@ class PropRead(PropBase):
 
 class PropCommandRequest(BaseModel):
     command: Literal["arm", "disarm", "reset", "status_request", "trigger_alarm"]
+
+
+class AIAskRequest(BaseModel):
+    prompt: str
+
+
+class AIAskResponse(BaseModel):
+    answer: str
+    advisory_only: bool = True
+    requires_admin_confirmation: bool = False
+    blocked_action: bool = False
+    safety_notice: str
+    model: str
+
+
+class UpdateCenterStatusResponse(BaseModel):
+    system_version: str
+    frontend_version: str
+    backend_version: str
+    database_version: str
+    database_path: str
+    latest_backup: str | None = None
+    changelog: list[str]
+
+
+class UpdateCenterActionResponse(BaseModel):
+    status: str
+    message: str
+    placeholder: bool
+
+
+class UpdatePackagePlaceholderRequest(BaseModel):
+    filename: str
+    size_bytes: int = 0

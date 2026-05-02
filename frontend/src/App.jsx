@@ -58,6 +58,14 @@ const PROP_TYPES = [
 ];
 const LOG_LEVELS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const LOG_CATEGORIES = ['ALL', 'SYSTEM', 'MISSION', 'PROP', 'LORA', 'WIFI', 'AI', 'UPDATE'];
+const AI_QUICK_PROMPTS = [
+  'Suggest next game',
+  'Summarize results',
+  'Create marshal briefing',
+  'Explain prop issue',
+  'Check schedule delay',
+  'Generate team announcement',
+];
 
 const DEFAULT_SYSTEM_STATUS = {
   status: 'online',
@@ -73,6 +81,16 @@ const DEFAULT_SYSTEM_STATUS = {
   disk_usage_percent: 0,
   lora_service_status: 'unknown',
   database_status: 'unknown',
+};
+
+const DEFAULT_UPDATE_CENTER_STATUS = {
+  system_version: '0.1.0',
+  frontend_version: 'unknown',
+  backend_version: 'unknown',
+  database_version: 'unknown',
+  database_path: '',
+  latest_backup: null,
+  changelog: [],
 };
 
 function formatDuration(totalSeconds) {
@@ -174,6 +192,17 @@ function App() {
   const [systemLogs, setSystemLogs] = useState([]);
   const [logFilters, setLogFilters] = useState({ level: 'ALL', category: 'ALL' });
   const [systemStatus, setSystemStatus] = useState(DEFAULT_SYSTEM_STATUS);
+  const [aiInput, setAiInput] = useState('');
+  const [aiMessages, setAiMessages] = useState([
+    {
+      role: 'assistant',
+      text: 'Mock local advisor online. Advisory only mode is enforced.',
+      meta: 'safety: admin confirmation required for operational commands',
+    },
+  ]);
+  const [updateCenterStatus, setUpdateCenterStatus] = useState(DEFAULT_UPDATE_CENTER_STATUS);
+  const [updateMessage, setUpdateMessage] = useState('');
+  const [selectedUpdatePackage, setSelectedUpdatePackage] = useState(null);
 
   async function fetchMissionState() {
     const response = await fetch(`${apiBase}/mission-control/state`);
@@ -266,6 +295,73 @@ function App() {
     }
     const payload = await response.json();
     setSystemStatus(payload);
+  }
+
+  async function fetchUpdateCenterStatus() {
+    const response = await fetch(`${apiBase}/update-center/status`);
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setUpdateCenterStatus(payload);
+  }
+
+  async function runUpdateCenterAction(path, body) {
+    const response = await fetch(`${apiBase}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!response.ok) {
+      setUpdateMessage('Update Center action failed.');
+      return;
+    }
+    const payload = await response.json();
+    setUpdateMessage(payload.message);
+    fetchUpdateCenterStatus();
+  }
+
+  async function askAI(prompt) {
+    const cleanedPrompt = prompt.trim();
+    if (!cleanedPrompt) {
+      return;
+    }
+
+    setAiMessages((current) => [
+      ...current,
+      {
+        role: 'user',
+        text: cleanedPrompt,
+      },
+    ]);
+
+    const response = await fetch(`${apiBase}/ai/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: cleanedPrompt }),
+    });
+
+    if (!response.ok) {
+      setAiMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          text: 'AI route unavailable. Check backend connectivity.',
+          meta: 'error',
+        },
+      ]);
+      return;
+    }
+
+    const payload = await response.json();
+    setAiMessages((current) => [
+      ...current,
+      {
+        role: 'assistant',
+        text: payload.answer,
+        meta: `${payload.model} | ${payload.safety_notice}`,
+      },
+    ]);
   }
 
   async function clearSystemLogs() {
@@ -485,6 +581,7 @@ function App() {
     fetchPropsData();
     fetchSystemLogs();
     fetchSystemStatus();
+    fetchUpdateCenterStatus();
   }, [apiBase]);
 
   useEffect(() => {
@@ -531,6 +628,8 @@ function App() {
   const isPropNetwork = activeApp.id === 'prop-network';
   const isLogs = activeApp.id === 'logs';
   const isSystemMonitor = activeApp.id === 'system-monitor';
+  const isAIAssistant = activeApp.id === 'ai-assistant';
+  const isUpdateCenter = activeApp.id === 'update-center';
 
   function handleCreateMission() {
     const objectives = missionForm.objectivesText
@@ -1332,6 +1431,127 @@ function App() {
                           <strong>{value}</strong>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                </section>
+              ) : isUpdateCenter ? (
+                <section className="update-module">
+                  <div className="update-grid">
+                    <div className="update-card">
+                      <h3>Versions</h3>
+                      <p className="update-meta">System Version: {updateCenterStatus.system_version}</p>
+                      <p className="update-meta">Frontend Version: {updateCenterStatus.frontend_version}</p>
+                      <p className="update-meta">Backend Version: {updateCenterStatus.backend_version}</p>
+                      <p className="update-meta">Database Version: {updateCenterStatus.database_version}</p>
+                      <p className="update-meta">Database Path: {updateCenterStatus.database_path}</p>
+                      <p className="update-meta">Latest Backup: {updateCenterStatus.latest_backup || 'None'}</p>
+                    </div>
+
+                    <div className="update-card">
+                      <h3>Safe Actions</h3>
+                      <label>
+                        Offline Update Package Placeholder
+                        <input
+                          type="file"
+                          onChange={(event) => setSelectedUpdatePackage(event.target.files?.[0] ?? null)}
+                        />
+                      </label>
+                      <div className="update-actions">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            runUpdateCenterAction('/update-center/upload-placeholder', {
+                              filename: selectedUpdatePackage?.name || 'no-file-selected.pkg',
+                              size_bytes: selectedUpdatePackage?.size || 0,
+                            })
+                          }
+                        >
+                          Upload Placeholder
+                        </button>
+                        <button type="button" onClick={() => runUpdateCenterAction('/update-center/backup')}>
+                          Backup Database
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runUpdateCenterAction('/update-center/restore-placeholder')}
+                        >
+                          Restore Placeholder
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => runUpdateCenterAction('/update-center/rollback-placeholder')}
+                        >
+                          Rollback Placeholder
+                        </button>
+                      </div>
+                      <p className="update-warning">
+                        Safe mode only. No file replacement or rollback is performed yet.
+                      </p>
+                      {updateMessage ? <p className="update-status-message">{updateMessage}</p> : null}
+                    </div>
+
+                    <div className="update-card update-changelog-card">
+                      <h3>Changelog</h3>
+                      {updateCenterStatus.changelog.length === 0 ? <p className="muted">No changelog entries.</p> : null}
+                      {updateCenterStatus.changelog.map((item) => (
+                        <div className="update-log-entry" key={item}>
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ) : isAIAssistant ? (
+                <section className="ai-module">
+                  <div className="ai-grid">
+                    <div className="ai-card">
+                      <h3>Quick Prompts</h3>
+                      <div className="ai-prompt-grid">
+                        {AI_QUICK_PROMPTS.map((prompt) => (
+                          <button
+                            key={prompt}
+                            type="button"
+                            onClick={() => {
+                              setAiInput(prompt);
+                              askAI(prompt);
+                            }}
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="ai-safety-note">
+                        Advisory-only mode is active. Hardware control requires admin confirmation.
+                      </p>
+                    </div>
+
+                    <div className="ai-card ai-chat-card">
+                      <h3>AI Assistant Chat</h3>
+                      <div className="ai-chat-log">
+                        {aiMessages.map((item, index) => (
+                          <div key={`${item.role}-${index}`} className={`ai-bubble ai-${item.role}`}>
+                            <p>{item.text}</p>
+                            {item.meta ? <small>{item.meta}</small> : null}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="ai-chat-input-row">
+                        <textarea
+                          value={aiInput}
+                          onChange={(event) => setAiInput(event.target.value)}
+                          placeholder="Ask for operational advice, summaries, or briefing text..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            askAI(aiInput);
+                            setAiInput('');
+                          }}
+                        >
+                          Send
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </section>

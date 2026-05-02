@@ -788,6 +788,174 @@ body {
   align-items: center;
 }
 
+.update-module {
+  display: block;
+}
+
+.update-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.update-card {
+  border: 1px solid rgba(76, 125, 92, 0.5);
+  border-radius: 8px;
+  background: rgba(14, 29, 17, 0.9);
+  padding: 0.65rem;
+}
+
+.update-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  color: var(--hud);
+  font-size: 0.85rem;
+}
+
+.update-meta,
+.update-warning,
+.update-status-message {
+  margin: 0.22rem 0;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.update-warning {
+  color: var(--warn);
+}
+
+.update-card input,
+.update-card button {
+  width: 100%;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(10, 21, 13, 0.92);
+  color: var(--text-main);
+  padding: 0.45rem 0.5rem;
+  font-family: inherit;
+}
+
+.update-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.update-changelog-card {
+  grid-column: 1 / -1;
+}
+
+.update-log-entry {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 7px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.45rem;
+  margin-bottom: 0.4rem;
+}
+
+.ai-module {
+  display: block;
+}
+
+.ai-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 0.75rem;
+}
+
+.ai-card {
+  border: 1px solid rgba(76, 125, 92, 0.5);
+  border-radius: 8px;
+  background: rgba(14, 29, 17, 0.9);
+  padding: 0.65rem;
+}
+
+.ai-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  color: var(--hud);
+  font-size: 0.85rem;
+}
+
+.ai-prompt-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.4rem;
+}
+
+.ai-prompt-grid button,
+.ai-chat-input-row button,
+.ai-chat-input-row textarea {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(10, 21, 13, 0.92);
+  color: var(--text-main);
+  padding: 0.45rem 0.5rem;
+  font-family: inherit;
+}
+
+.ai-safety-note {
+  margin-top: 0.6rem;
+  color: var(--warn);
+  font-size: 0.76rem;
+}
+
+.ai-chat-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-chat-log {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.5rem;
+  min-height: 280px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.ai-bubble {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  padding: 0.45rem;
+  margin-bottom: 0.4rem;
+}
+
+.ai-user {
+  background: rgba(24, 43, 26, 0.95);
+}
+
+.ai-assistant {
+  background: rgba(12, 22, 15, 0.92);
+}
+
+.ai-bubble p {
+  margin: 0;
+}
+
+.ai-bubble small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+}
+
+.ai-chat-input-row {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+}
+
+.ai-chat-input-row textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
 @media (max-width: 1080px) {
   .desktop-grid {
     grid-template-columns: 1fr;
@@ -818,7 +986,11 @@ body {
   .prop-command-grid,
   .logs-filter-grid,
   .logs-actions,
-  .monitor-grid {
+  .monitor-grid,
+  .update-grid,
+  .update-actions,
+  .ai-grid,
+  .ai-chat-input-row {
     grid-template-columns: 1fr;
   }
 }
