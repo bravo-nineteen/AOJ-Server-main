@@ -1,4 +1,7 @@
-"""AI advisory module – conversational advisor with game suggestion engine."""
+"""AI advisory module – conversational advisor with game suggestion engine.
+
+Uses the injected operational context block to give live, data-aware answers.
+"""
 
 from __future__ import annotations
 
