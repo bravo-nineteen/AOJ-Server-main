@@ -1,6 +1,7 @@
-"""Offline TTS service using Piper neural TTS (primary) with pyttsx3/SAPI fallback on Windows.
+"""Offline TTS service using pyttsx3/SAPI on Windows, with optional Piper.
 
-Generates speech audio as WAV bytes. Piper works cross-platform; pyttsx3 is Windows-only.
+Generates speech audio as WAV bytes. pyttsx3 is the default voice engine to keep
+legacy behavior and pacing. Piper can be enabled explicitly with PIPER_ENABLED.
 """
 from __future__ import annotations
 
@@ -28,6 +29,10 @@ _FEMALE_VOICE_PREFS = [
 _tts_lock = threading.Lock()
 _BASE_RATE = 160
 _DEFAULT_PIPER_LENGTH_SCALE = 1.08
+
+
+def _piper_enabled() -> bool:
+    return os.getenv("PIPER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _project_root() -> Path:
@@ -266,13 +271,12 @@ def generate_speech_wav(text: str) -> bytes | None:
             pass
 
     with _tts_lock:
-        # Prefer Piper voice if configured/available.
-        piper_wav = _generate_with_piper(clean)
-        if piper_wav is not None:
-            return piper_wav
-
         if pyttsx3 is None:
-            logger.warning("Neither Piper nor pyttsx3 are available for TTS.")
+            if _piper_enabled():
+                piper_wav = _generate_with_piper(clean)
+                if piper_wav is not None:
+                    return piper_wav
+            logger.warning("No TTS engine available (pyttsx3 unavailable, Piper disabled/unavailable).")
             return None
 
         tmp_path: str | None = None
@@ -295,7 +299,10 @@ def generate_speech_wav(text: str) -> bytes | None:
 
             return Path(tmp_path).read_bytes()
         except Exception as exc:
-            logger.exception("TTS generation failed: %s", exc)
+            logger.exception("pyttsx3 TTS generation failed: %s", exc)
+            if _piper_enabled():
+                logger.info("Attempting Piper fallback after pyttsx3 failure")
+                return _generate_with_piper(clean)
             return None
         finally:
             if tmp_path:
@@ -304,15 +311,6 @@ def generate_speech_wav(text: str) -> bytes | None:
 
 def tts_engine_status() -> dict[str, str | bool | None]:
     """Expose active TTS engine availability and config for API status route."""
-    piper_ok, piper_reason = _is_piper_available()
-    if piper_ok:
-        return {
-            "available": True,
-            "engine": "piper",
-            "voice": Path(_piper_model_path()).name,
-            "reason": "ok",
-        }
-
     try:
         import pyttsx3
         engine = pyttsx3.init()
@@ -320,16 +318,33 @@ def tts_engine_status() -> dict[str, str | bool | None]:
         voices = engine.getProperty("voices")
         voice_name = next((v.name for v in voices if v.id == voice_id), None)
         engine.stop()
+        if _piper_enabled():
+            piper_ok, piper_reason = _is_piper_available()
+            reason = "piper_enabled" if piper_ok else f"piper_enabled_but_unavailable: {piper_reason}"
+        else:
+            reason = "piper_disabled"
         return {
             "available": True,
             "engine": "pyttsx3",
             "voice": voice_name or "default",
-            "reason": f"piper_unavailable: {piper_reason}",
+            "reason": reason,
         }
     except Exception as exc:
+        if _piper_enabled():
+            piper_ok, piper_reason = _is_piper_available()
+            if piper_ok:
+                return {
+                    "available": True,
+                    "engine": "piper",
+                    "voice": Path(_piper_model_path()).name,
+                    "reason": "pyttsx3_unavailable; piper_enabled",
+                }
+            piper_part = f"piper_enabled_but_unavailable: {piper_reason}"
+        else:
+            piper_part = "piper_disabled"
         return {
             "available": False,
             "engine": None,
             "voice": None,
-            "reason": f"piper_unavailable: {piper_reason}; pyttsx3_error: {exc}",
+            "reason": f"{piper_part}; pyttsx3_error: {exc}",
         }
