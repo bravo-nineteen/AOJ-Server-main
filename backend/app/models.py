@@ -1,0 +1,138 @@
+import enum
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
+
+class DeviceStatus(str, enum.Enum):
+    online = "online"
+    offline = "offline"
+    maintenance = "maintenance"
+
+
+class MissionStatus(str, enum.Enum):
+    planned = "planned"
+    active = "active"
+    complete = "complete"
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    device_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    ip_address: Mapped[str] = mapped_column(String(45), nullable=False, unique=True)
+    status: Mapped[DeviceStatus] = mapped_column(
+        Enum(DeviceStatus), default=DeviceStatus.offline, nullable=False
+    )
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    score_events: Mapped[list["ScoreEvent"]] = relationship(back_populates="device")
+
+
+class Mission(Base):
+    __tablename__ = "missions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(140), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[MissionStatus] = mapped_column(
+        Enum(MissionStatus), default=MissionStatus.planned, nullable=False
+    )
+    start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    game_sessions: Mapped[list["GameSession"]] = relationship(back_populates="mission")
+    schedule_items: Mapped[list["ScheduleItem"]] = relationship(back_populates="mission")
+
+
+class GameSession(Base):
+    __tablename__ = "game_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    mission_id: Mapped[int | None] = mapped_column(ForeignKey("missions.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    mission: Mapped["Mission"] = relationship(back_populates="game_sessions")
+    teams: Mapped[list["Team"]] = relationship(back_populates="game_session")
+    score_events: Mapped[list["ScoreEvent"]] = relationship(back_populates="game_session")
+
+
+class Team(Base):
+    __tablename__ = "teams"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    game_session_id: Mapped[int] = mapped_column(ForeignKey("game_sessions.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    callsign: Mapped[str] = mapped_column(String(40), nullable=False)
+
+    game_session: Mapped["GameSession"] = relationship(back_populates="teams")
+    score_events: Mapped[list["ScoreEvent"]] = relationship(back_populates="team")
+
+
+class ScoreEvent(Base):
+    __tablename__ = "score_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    game_session_id: Mapped[int] = mapped_column(ForeignKey("game_sessions.id"), nullable=False)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
+    points: Mapped[int] = mapped_column(Integer, default=0)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    happened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    game_session: Mapped["GameSession"] = relationship(back_populates="score_events")
+    team: Mapped["Team"] = relationship(back_populates="score_events")
+    device: Mapped["Device"] = relationship(back_populates="score_events")
+
+
+class ScheduleItem(Base):
+    __tablename__ = "schedule_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    mission_id: Mapped[int | None] = mapped_column(ForeignKey("missions.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String(140), nullable=False)
+    details: Mapped[str] = mapped_column(Text, default="")
+    activity_type: Mapped[str] = mapped_column(String(32), default="Custom", nullable=False)
+    start_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    end_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    mission: Mapped["Mission"] = relationship(back_populates="schedule_items")
+
+
+class LogLevel(str, enum.Enum):
+    info = "info"
+    warning = "warning"
+    error = "error"
+
+
+class SystemLog(Base):
+    __tablename__ = "system_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    level: Mapped[LogLevel] = mapped_column(Enum(LogLevel), default=LogLevel.info)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    role_name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    permissions: Mapped[str] = mapped_column(Text, default="[]")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
