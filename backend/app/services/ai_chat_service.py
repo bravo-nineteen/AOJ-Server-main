@@ -14,6 +14,7 @@ from app.ai.advisor import ask_ai
 from app.ai.context_engine import collect_context
 from app.core.ai_safety import ai_policy
 from app.core.ai_safety import evaluate_ai_prompt
+from app.models.member_profile import MemberProfile
 from app.services.ai_diagnostics_service import (
     analyze_device_status,
     analyze_logs,
@@ -186,6 +187,136 @@ def _update_conversation_learning(
     conversation.memory_summary = "; ".join(summary_parts)
 
 
+# ---------------------------------------------------------------------------
+# Member profile learning
+# ---------------------------------------------------------------------------
+
+# Patterns for extracting member introductions from chat messages
+# e.g. "this is Alex, he plays for Red Team, intermediate, good at flanking, struggles with CQB"
+_MEMBER_INTRO_PATTERN = re.compile(
+    r"(?:this is|meet|player|member|add|register|remember)\s+([A-Z][a-z]+'?[a-z]*)",
+    re.IGNORECASE,
+)
+_GENDER_WORDS = {
+    "he": "male", "him": "male", "his": "male", "guy": "male", "man": "male",
+    "she": "female", "her": "female", "hers": "female", "girl": "female", "woman": "female",
+}
+_SKILL_WORDS = {"beginner", "novice", "new", "intermediate", "experienced", "advanced", "expert", "veteran", "pro"}
+_STRENGTHS_KEYWORDS = {"good at", "great at", "strength", "strong", "skilled at", "excels", "best at"}
+_WEAKNESS_KEYWORDS = {"struggles", "weakness", "weak at", "bad at", "poor at", "needs work"}
+
+
+def _extract_free_text_after(phrase: str, text: str) -> str:
+    idx = text.lower().find(phrase.lower())
+    if idx == -1:
+        return ""
+    rest = text[idx + len(phrase):].strip(" .,;:")
+    # Take up to first sentence break
+    for sep in [",", ";", "."]:
+        if sep in rest:
+            return rest[:rest.index(sep)].strip()
+    return rest[:80].strip()
+
+
+def _update_member_from_message(db: Session, user_text: str) -> None:
+    """
+    Parse user messages for member introductions / corrections and upsert
+    MemberProfile rows. Handles patterns like:
+      "This is Alex, he's on Red Team, intermediate, good at flanking, bad at CQB"
+      "Alex plays for Blue Team"
+      "Update Alex: she's now expert level"
+      "Alex's weakness is reloading under pressure"
+    """
+    # Try to extract a name from the message
+    match = _MEMBER_INTRO_PATTERN.search(user_text)
+    if not match:
+        # Also check "Alex is|plays|on" patterns
+        name_match = re.search(r"\b([A-Z][a-z]{1,20})\b\s+(?:is|plays|on\s+)", user_text)
+        if not name_match:
+            return
+        name = name_match.group(1)
+    else:
+        name = match.group(1)
+
+    # Avoid false positives on common non-name words
+    _NON_NAMES = {"Red", "Blue", "Team", "Game", "Mission", "Field", "Round"}
+    if name in _NON_NAMES:
+        return
+
+    lower = user_text.lower()
+    existing = db.query(MemberProfile).filter(
+        func.lower(MemberProfile.name) == name.lower()
+    ).first()
+
+    if existing is None:
+        existing = MemberProfile(name=name)
+        db.add(existing)
+
+    # Gender
+    for word, gender_val in _GENDER_WORDS.items():
+        if re.search(rf"\b{word}\b", lower):
+            existing.gender = gender_val
+            break
+
+    # Team
+    team_match = re.search(r"(?:on|for|team)\s+(red|blue|alpha|bravo|[\w]+\s*team)", lower)
+    if team_match:
+        existing.team = team_match.group(1).strip().title()
+
+    # Skill level
+    for skill in _SKILL_WORDS:
+        if skill in lower:
+            existing.skill_level = skill
+            break
+
+    # Strengths
+    for phrase in _STRENGTHS_KEYWORDS:
+        val = _extract_free_text_after(phrase, user_text)
+        if val:
+            if val not in existing.strengths:
+                existing.strengths = (existing.strengths + ", " + val).strip(", ")
+            break
+
+    # Weaknesses
+    for phrase in _WEAKNESS_KEYWORDS:
+        val = _extract_free_text_after(phrase, user_text)
+        if val:
+            if val not in existing.weaknesses:
+                existing.weaknesses = (existing.weaknesses + ", " + val).strip(", ")
+            break
+
+    # Append a Christy memory note
+    note = f"Mentioned in conversation: {user_text[:120].strip()}"
+    if note not in existing.christy_memory:
+        existing.christy_memory = (existing.christy_memory + "\n" + note).strip()
+
+    db.flush()
+
+
+def _build_members_context_block(db: Session) -> list[str]:
+    """Return a compact summary of all known members for the context block."""
+    members = db.query(MemberProfile).order_by(MemberProfile.name).all()
+    if not members:
+        return ["none"]
+    lines = []
+    for m in members[:12]:  # cap at 12 to avoid bloating context
+        parts = [m.name]
+        if m.callsign:
+            parts.append(f"aka {m.callsign}")
+        if m.gender:
+            parts.append(m.gender)
+        if m.team:
+            parts.append(f"team={m.team}")
+        if m.skill_level:
+            parts.append(f"skill={m.skill_level}")
+        if m.strengths:
+            parts.append(f"strengths={m.strengths[:60]}")
+        if m.weaknesses:
+            parts.append(f"weaknesses={m.weaknesses[:60]}")
+        lines.append("; ".join(parts))
+    return lines
+
+
 def _format_schedule_item(item: models.ScheduleItem | None) -> str:
     if item is None:
         return "none"
@@ -195,8 +326,9 @@ def _format_schedule_item(item: models.ScheduleItem | None) -> str:
     )
 
 
+
 def _build_context_block(sections: dict[str, list[str]]) -> str:
-    ordered = ["CURRENT STATE", "MISSION", "SCHEDULE", "DEVICES", "LOGS", "MEMORY"]
+    ordered = ["CURRENT STATE", "MISSION", "SCHEDULE", "DEVICES", "LOGS", "MEMBERS", "MEMORY"]
     lines: list[str] = []
     for name in ordered:
         lines.append(f"[{name}]")
@@ -378,6 +510,7 @@ def _build_operational_context(db: Session, conversation: models.AIConversation)
             for row in critical_logs
         ]
         or ["none"],
+        "MEMBERS": _build_members_context_block(db),
         "MEMORY": memory_ctx["lines"] or [f"none (retention={MEMORY_RETENTION_DAYS} days)"],
     }
 
@@ -887,6 +1020,9 @@ def send_message(
         .all()
     )
     _update_conversation_learning(conversation, retained_messages)
+
+    # Scan the user's message for member introductions and update profiles
+    _update_member_from_message(db, payload.content)
 
     conversation.updated_at = datetime.utcnow()
 

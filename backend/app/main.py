@@ -10,7 +10,7 @@ from app.core.ai_safety import AISafetyMiddleware
 from app.core.websocket import websocket_manager
 from app.database import init_db
 from app.lora.service import lora_service
-from app.routes import ai, health, logs, mission_control, prop_network, resources, results, schedule, system, update_center, custom_admin, tts
+from app.routes import ai, health, logs, members, mission_control, prop_network, resources, results, schedule, system, update_center, custom_admin, tts
 from app.services.mission_control_service import mission_control_service
 from app.services.christy_service import christy_service
 
@@ -38,6 +38,7 @@ app.include_router(mission_control.router)
 app.include_router(update_center.router)
 app.include_router(custom_admin.router)
 app.include_router(tts.router)
+app.include_router(members.router)
 
 
 @app.on_event("startup")
