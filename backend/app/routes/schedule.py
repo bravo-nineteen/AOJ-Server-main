@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import models, schemas
 from app.database import get_db
+from app.services.log_service import log_action
 
 router = APIRouter(prefix="/api/schedule", tags=["Schedule"])
 
@@ -37,6 +38,13 @@ def add_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depends
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.update,
+        source="schedule",
+        message=f"Schedule item added: {item.title} ({item.activity_type})",
+    )
     return _normalize_schedule_item(item)
 
 
@@ -56,6 +64,13 @@ def edit_schedule_item(
     item.completed_at = datetime.utcnow() if payload.is_complete else None
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.update,
+        source="schedule",
+        message=f"Schedule item edited: id={item.id} title={item.title}",
+    )
     return _normalize_schedule_item(item)
 
 
@@ -64,8 +79,16 @@ def delete_schedule_item(item_id: int, db: Session = Depends(get_db)):
     item = db.query(models.ScheduleItem).filter(models.ScheduleItem.id == item_id).first()
     if item is None:
         raise HTTPException(status_code=404, detail="Schedule item not found")
+    title = item.title
     db.delete(item)
     db.commit()
+    log_action(
+        db,
+        level=models.LogLevel.warning,
+        category=models.LogCategory.update,
+        source="schedule",
+        message=f"Schedule item deleted: id={item_id} title={title}",
+    )
     return {"status": "deleted", "item_id": item_id}
 
 
@@ -78,6 +101,13 @@ def mark_schedule_item_complete(item_id: int, db: Session = Depends(get_db)):
     item.completed_at = datetime.utcnow()
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.update,
+        source="schedule",
+        message=f"Schedule item completed: id={item.id} title={item.title}",
+    )
     return _normalize_schedule_item(item)
 
 

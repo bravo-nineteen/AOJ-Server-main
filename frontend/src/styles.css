@@ -663,6 +663,131 @@ body {
   margin-top: 0.45rem;
 }
 
+.logs-module {
+  display: block;
+}
+
+.logs-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.logs-card {
+  border: 1px solid rgba(76, 125, 92, 0.5);
+  border-radius: 8px;
+  background: rgba(14, 29, 17, 0.9);
+  padding: 0.65rem;
+}
+
+.logs-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  color: var(--hud);
+  font-size: 0.85rem;
+}
+
+.logs-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.logs-card label {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-soft);
+}
+
+.logs-card select,
+.logs-card button {
+  width: 100%;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(10, 21, 13, 0.92);
+  color: var(--text-main);
+  padding: 0.45rem 0.5rem;
+  font-family: inherit;
+}
+
+.logs-actions {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.45rem;
+}
+
+.log-item {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.log-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.log-item-header span,
+.log-meta {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.log-meta,
+.log-message {
+  margin: 0.2rem 0;
+}
+
+.monitor-module {
+  display: block;
+}
+
+.monitor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.monitor-card {
+  border: 1px solid rgba(76, 125, 92, 0.5);
+  border-radius: 8px;
+  background: rgba(14, 29, 17, 0.9);
+  padding: 0.65rem;
+}
+
+.monitor-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  color: var(--hud);
+  font-size: 0.85rem;
+}
+
+.monitor-meta {
+  margin: 0.22rem 0;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.monitor-entities-card {
+  grid-column: 1 / -1;
+}
+
+.monitor-entity-row {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 7px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.45rem;
+  margin-bottom: 0.4rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 @media (max-width: 1080px) {
   .desktop-grid {
     grid-template-columns: 1fr;
@@ -690,7 +815,10 @@ body {
   .prop-input-grid,
   .prop-actions,
   .prop-item-actions,
-  .prop-command-grid {
+  .prop-command-grid,
+  .logs-filter-grid,
+  .logs-actions,
+  .monitor-grid {
     grid-template-columns: 1fr;
   }
 }

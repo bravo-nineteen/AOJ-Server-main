@@ -56,6 +56,24 @@ const PROP_TYPES = [
   'Sensor',
   'Custom',
 ];
+const LOG_LEVELS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
+const LOG_CATEGORIES = ['ALL', 'SYSTEM', 'MISSION', 'PROP', 'LORA', 'WIFI', 'AI', 'UPDATE'];
+
+const DEFAULT_SYSTEM_STATUS = {
+  status: 'online',
+  uptime_seconds: 0,
+  connected_clients: 0,
+  active_game_sessions: 0,
+  entity_counts: {},
+  backend_version: '0.1.0',
+  platform_mode: 'mock',
+  cpu_temperature_c: 0,
+  cpu_usage_percent: 0,
+  ram_usage_percent: 0,
+  disk_usage_percent: 0,
+  lora_service_status: 'unknown',
+  database_status: 'unknown',
+};
 
 function formatDuration(totalSeconds) {
   const safe = Math.max(0, Number(totalSeconds) || 0);
@@ -71,6 +89,18 @@ function toDateTimeInputValue(isoDate) {
   const date = new Date(isoDate);
   const pad = (value) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatUptime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m ${secs}s`;
+  }
+  return `${hours}h ${minutes}m ${secs}s`;
 }
 
 function App() {
@@ -141,6 +171,9 @@ function App() {
     last_seen: '',
     firmware_version: '',
   });
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [logFilters, setLogFilters] = useState({ level: 'ALL', category: 'ALL' });
+  const [systemStatus, setSystemStatus] = useState(DEFAULT_SYSTEM_STATUS);
 
   async function fetchMissionState() {
     const response = await fetch(`${apiBase}/mission-control/state`);
@@ -207,6 +240,52 @@ function App() {
     }
     const payload = await response.json();
     setPropsList(payload);
+  }
+
+  async function fetchSystemLogs(filters = logFilters) {
+    const params = new URLSearchParams();
+    if (filters.level !== 'ALL') {
+      params.set('level', filters.level);
+    }
+    if (filters.category !== 'ALL') {
+      params.set('category', filters.category);
+    }
+    const query = params.toString();
+    const response = await fetch(`${apiBase}/logs${query ? `?${query}` : ''}`);
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setSystemLogs(payload);
+  }
+
+  async function fetchSystemStatus() {
+    const response = await fetch(`${apiBase}/system/status`);
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setSystemStatus(payload);
+  }
+
+  async function clearSystemLogs() {
+    const response = await fetch(`${apiBase}/logs`, { method: 'DELETE' });
+    if (!response.ok) {
+      return;
+    }
+    fetchSystemLogs();
+  }
+
+  function exportSystemLogsCsv() {
+    const params = new URLSearchParams();
+    if (logFilters.level !== 'ALL') {
+      params.set('level', logFilters.level);
+    }
+    if (logFilters.category !== 'ALL') {
+      params.set('category', logFilters.category);
+    }
+    const query = params.toString();
+    window.open(`${apiBase}/logs/export/csv${query ? `?${query}` : ''}`, '_blank');
   }
 
   async function saveProp() {
@@ -404,7 +483,20 @@ function App() {
     fetchScheduleData();
     fetchResultsData();
     fetchPropsData();
+    fetchSystemLogs();
+    fetchSystemStatus();
   }, [apiBase]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      fetchSystemStatus();
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [apiBase]);
+
+  useEffect(() => {
+    fetchSystemLogs(logFilters);
+  }, [logFilters]);
 
   useEffect(() => {
     const socket = new WebSocket(wsUrl);
@@ -437,6 +529,8 @@ function App() {
   const isSchedule = activeApp.id === 'schedule';
   const isResultsBoard = activeApp.id === 'results-board';
   const isPropNetwork = activeApp.id === 'prop-network';
+  const isLogs = activeApp.id === 'logs';
+  const isSystemMonitor = activeApp.id === 'system-monitor';
 
   function handleCreateMission() {
     const objectives = missionForm.objectivesText
@@ -1128,6 +1222,114 @@ function App() {
                               Trigger Alarm
                             </button>
                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ) : isLogs ? (
+                <section className="logs-module">
+                  <div className="logs-grid">
+                    <div className="logs-card">
+                      <h3>System Log Filters</h3>
+                      <div className="logs-filter-grid">
+                        <label>
+                          Level
+                          <select
+                            value={logFilters.level}
+                            onChange={(event) =>
+                              setLogFilters((current) => ({
+                                ...current,
+                                level: event.target.value,
+                              }))
+                            }
+                          >
+                            {LOG_LEVELS.map((level) => (
+                              <option key={level} value={level}>
+                                {level}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Category
+                          <select
+                            value={logFilters.category}
+                            onChange={(event) =>
+                              setLogFilters((current) => ({
+                                ...current,
+                                category: event.target.value,
+                              }))
+                            }
+                          >
+                            {LOG_CATEGORIES.map((category) => (
+                              <option key={category} value={category}>
+                                {category}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="logs-actions">
+                        <button type="button" onClick={() => fetchSystemLogs()}>
+                          Refresh
+                        </button>
+                        <button type="button" onClick={exportSystemLogsCsv}>Export CSV</button>
+                        <button type="button" onClick={clearSystemLogs}>Clear Logs</button>
+                      </div>
+                    </div>
+
+                    <div className="logs-card logs-list-card">
+                      <h3>System Logs</h3>
+                      {systemLogs.length === 0 ? <p className="muted">No logs found for current filter.</p> : null}
+                      {systemLogs.map((log) => (
+                        <div className="log-item" key={log.id}>
+                          <div className="log-item-header">
+                            <strong>{log.level}</strong>
+                            <span>{log.category}</span>
+                          </div>
+                          <p className="log-meta">Source: {log.source}</p>
+                          <p className="log-message">{log.message}</p>
+                          <p className="log-meta">{new Date(log.created_at).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ) : isSystemMonitor ? (
+                <section className="monitor-module">
+                  <div className="monitor-grid">
+                    <div className="monitor-card">
+                      <h3>Runtime</h3>
+                      <p className="monitor-meta">Backend Version: {systemStatus.backend_version}</p>
+                      <p className="monitor-meta">Mode: {systemStatus.platform_mode}</p>
+                      <p className="monitor-meta">Uptime: {formatUptime(systemStatus.uptime_seconds)}</p>
+                      <p className="monitor-meta">WebSocket Clients: {systemStatus.connected_clients}</p>
+                      <p className="monitor-meta">Active Sessions: {systemStatus.active_game_sessions}</p>
+                    </div>
+
+                    <div className="monitor-card">
+                      <h3>Pi Telemetry</h3>
+                      <p className="monitor-meta">CPU Temp: {systemStatus.cpu_temperature_c.toFixed(1)} C</p>
+                      <p className="monitor-meta">CPU Usage: {systemStatus.cpu_usage_percent.toFixed(1)}%</p>
+                      <p className="monitor-meta">RAM Usage: {systemStatus.ram_usage_percent.toFixed(1)}%</p>
+                      <p className="monitor-meta">Disk Usage: {systemStatus.disk_usage_percent.toFixed(1)}%</p>
+                    </div>
+
+                    <div className="monitor-card">
+                      <h3>Services</h3>
+                      <p className="monitor-meta">Database: {systemStatus.database_status}</p>
+                      <p className="monitor-meta">LoRa Service: {systemStatus.lora_service_status}</p>
+                      <p className="monitor-meta">Backend Status: {systemStatus.status}</p>
+                    </div>
+
+                    <div className="monitor-card monitor-entities-card">
+                      <h3>Entity Counters</h3>
+                      {Object.entries(systemStatus.entity_counts).map(([name, value]) => (
+                        <div className="monitor-entity-row" key={name}>
+                          <span>{name}</span>
+                          <strong>{value}</strong>
                         </div>
                       ))}
                     </div>

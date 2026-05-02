@@ -34,14 +34,14 @@ async def start_game(db: Session = Depends(get_db)) -> MissionControlStateRespon
 
 
 @router.post("/pause", response_model=MissionControlStateResponse)
-async def pause_game() -> MissionControlStateResponse:
-    state = await mission_control_service.pause_game()
+async def pause_game(db: Session = Depends(get_db)) -> MissionControlStateResponse:
+    state = await mission_control_service.pause_game(db)
     return MissionControlStateResponse(**state)
 
 
 @router.post("/resume", response_model=MissionControlStateResponse)
-async def resume_game() -> MissionControlStateResponse:
-    state = await mission_control_service.resume_game()
+async def resume_game(db: Session = Depends(get_db)) -> MissionControlStateResponse:
+    state = await mission_control_service.resume_game(db)
     return MissionControlStateResponse(**state)
 
 
@@ -54,8 +54,9 @@ async def end_game(db: Session = Depends(get_db)) -> MissionControlStateResponse
 @router.post("/score", response_model=MissionControlStateResponse)
 async def adjust_score(
     payload: MissionControlScoreRequest,
+    db: Session = Depends(get_db),
 ) -> MissionControlStateResponse:
-    state = await mission_control_service.adjust_score(payload)
+    state = await mission_control_service.adjust_score(payload, db)
     return MissionControlStateResponse(**state)
 
 
@@ -63,6 +64,7 @@ async def adjust_score(
 async def set_objective_status(
     objective_id: int,
     payload: MissionControlObjectiveStatusRequest,
+    db: Session = Depends(get_db),
 ) -> MissionControlStateResponse:
-    state = await mission_control_service.set_objective_status(objective_id, payload)
+    state = await mission_control_service.set_objective_status(objective_id, payload, db)
     return MissionControlStateResponse(**state)

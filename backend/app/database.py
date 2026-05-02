@@ -27,6 +27,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _ensure_schedule_columns()
+    _ensure_system_log_columns()
 
 
 def _ensure_schedule_columns() -> None:
@@ -55,5 +56,29 @@ def _ensure_schedule_columns() -> None:
                 "UPDATE schedule_items "
                 "SET start_time = COALESCE(start_time, scheduled_for), "
                 "end_time = COALESCE(end_time, scheduled_for)"
+            )
+        )
+
+
+def _ensure_system_log_columns() -> None:
+    with engine.begin() as connection:
+        rows = connection.execute(text("PRAGMA table_info(system_logs)"))
+        existing = {row[1] for row in rows}
+
+        if "category" not in existing:
+            connection.execute(
+                text(
+                    "ALTER TABLE system_logs ADD COLUMN category TEXT NOT NULL DEFAULT 'SYSTEM'"
+                )
+            )
+
+        connection.execute(
+            text(
+                "UPDATE system_logs SET level = CASE "
+                "WHEN level = 'info' THEN 'INFO' "
+                "WHEN level = 'warning' THEN 'WARNING' "
+                "WHEN level = 'error' THEN 'ERROR' "
+                "WHEN level IS NULL OR level = '' THEN 'INFO' "
+                "ELSE level END"
             )
         )

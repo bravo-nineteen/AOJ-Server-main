@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import models, schemas
 from app.database import get_db
+from app.services.log_service import log_action
 from app.websocket_manager import websocket_manager
 
 router = APIRouter(prefix="/api/props", tags=["Prop Network"])
@@ -22,6 +23,13 @@ def add_prop(payload: schemas.PropCreate, db: Session = Depends(get_db)):
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_network",
+        message=f"Prop added: {item.device_id} ({item.name})",
+    )
     return item
 
 
@@ -36,6 +44,13 @@ def edit_prop(prop_id: int, payload: schemas.PropUpdate, db: Session = Depends(g
 
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_network",
+        message=f"Prop updated: {item.device_id} ({item.name})",
+    )
     return item
 
 
@@ -45,8 +60,17 @@ def delete_prop(prop_id: int, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(status_code=404, detail="Prop not found")
 
+    device_id = item.device_id
+    name = item.name
     db.delete(item)
     db.commit()
+    log_action(
+        db,
+        level=models.LogLevel.warning,
+        category=models.LogCategory.prop,
+        source="prop_network",
+        message=f"Prop deleted: {device_id} ({name})",
+    )
     return {"status": "deleted", "prop_id": prop_id}
 
 
@@ -70,12 +94,12 @@ async def send_prop_command(
     if payload.command == "trigger_alarm":
         item.status = "alarm"
 
-    db.add(
-        models.SystemLog(
-            level=models.LogLevel.info,
-            source="prop_network",
-            message=f"Prop {item.device_id} command executed: {payload.command}",
-        )
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_network",
+        message=f"Prop {item.device_id} command executed: {payload.command}",
     )
     db.commit()
     db.refresh(item)

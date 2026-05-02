@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app import models, schemas
 from app.database import get_db
+from app.services.log_service import log_action
 
 router = APIRouter(prefix="/api", tags=["Resources"])
 
@@ -19,6 +20,13 @@ def create_device(payload: schemas.DeviceCreate, db: Session = Depends(get_db)):
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.system,
+        source="resources",
+        message=f"Device created: {item.name} ({item.ip_address})",
+    )
     return item
 
 
@@ -33,6 +41,13 @@ def create_mission(payload: schemas.MissionCreate, db: Session = Depends(get_db)
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.mission,
+        source="resources",
+        message=f"Mission created: {item.title}",
+    )
     return item
 
 
@@ -47,6 +62,13 @@ def create_game_session(payload: schemas.GameSessionCreate, db: Session = Depend
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.mission,
+        source="resources",
+        message=f"Game session created: {item.name}",
+    )
     return item
 
 
@@ -61,6 +83,13 @@ def create_team(payload: schemas.TeamCreate, db: Session = Depends(get_db)):
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.mission,
+        source="resources",
+        message=f"Team created: {item.name} ({item.callsign})",
+    )
     return item
 
 
@@ -75,6 +104,13 @@ def create_score_event(payload: schemas.ScoreEventCreate, db: Session = Depends(
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.mission,
+        source="resources",
+        message=f"Score event created: team_id={item.team_id} points={item.points}",
+    )
     return item
 
 
@@ -89,6 +125,13 @@ def create_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depe
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.update,
+        source="resources",
+        message=f"Schedule item created: {item.title}",
+    )
     return item
 
 
@@ -117,4 +160,11 @@ def create_user_role(payload: schemas.UserRoleCreate, db: Session = Depends(get_
     db.add(item)
     db.commit()
     db.refresh(item)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.system,
+        source="resources",
+        message=f"User role created: {item.role_name}",
+    )
     return item

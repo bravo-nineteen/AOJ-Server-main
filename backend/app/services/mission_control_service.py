@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.services.log_service import log_action
 from app.websocket_manager import websocket_manager
 
 
@@ -71,6 +72,13 @@ class MissionControlService:
             )
 
             self._push_event_locked(f"Mission created: {payload.title}")
+            log_action(
+                db,
+                level=models.LogLevel.info,
+                category=models.LogCategory.mission,
+                source="mission_control",
+                message=f"Mission created: {payload.title} ({payload.game_mode})",
+            )
             snapshot = self.get_state()
 
         await self.broadcast_state(snapshot)
@@ -90,28 +98,51 @@ class MissionControlService:
                 models.GameSession.mission_id == self._state["mission_id"]
             ).update({"is_active": True, "start_time": datetime.utcnow()})
             db.commit()
+            log_action(
+                db,
+                level=models.LogLevel.info,
+                category=models.LogCategory.mission,
+                source="mission_control",
+                message=f"Game started for mission_id={self._state['mission_id']}",
+            )
             snapshot = self.get_state()
 
         await self.broadcast_state(snapshot)
         return snapshot
 
-    async def pause_game(self) -> dict:
+    async def pause_game(self, db: Session | None = None) -> dict:
         async with self._lock:
             if self._state["state"] == "running":
                 self._state["state"] = "paused"
                 self._state["updated_at"] = datetime.utcnow().isoformat()
                 self._push_event_locked("Game paused")
+                if db is not None:
+                    log_action(
+                        db,
+                        level=models.LogLevel.warning,
+                        category=models.LogCategory.mission,
+                        source="mission_control",
+                        message=f"Game paused for mission_id={self._state['mission_id']}",
+                    )
             snapshot = self.get_state()
 
         await self.broadcast_state(snapshot)
         return snapshot
 
-    async def resume_game(self) -> dict:
+    async def resume_game(self, db: Session | None = None) -> dict:
         async with self._lock:
             if self._state["state"] == "paused":
                 self._state["state"] = "running"
                 self._state["updated_at"] = datetime.utcnow().isoformat()
                 self._push_event_locked("Game resumed")
+                if db is not None:
+                    log_action(
+                        db,
+                        level=models.LogLevel.info,
+                        category=models.LogCategory.mission,
+                        source="mission_control",
+                        message=f"Game resumed for mission_id={self._state['mission_id']}",
+                    )
             snapshot = self.get_state()
 
         await self.broadcast_state(snapshot)
@@ -133,12 +164,21 @@ class MissionControlService:
                 models.GameSession.mission_id == self._state["mission_id"]
             ).update({"is_active": False, "end_time": datetime.utcnow()})
             db.commit()
+            log_action(
+                db,
+                level=models.LogLevel.info,
+                category=models.LogCategory.mission,
+                source="mission_control",
+                message=f"Game ended for mission_id={self._state['mission_id']}",
+            )
             snapshot = self.get_state()
 
         await self.broadcast_state(snapshot)
         return snapshot
 
-    async def adjust_score(self, payload: schemas.MissionControlScoreRequest) -> dict:
+    async def adjust_score(
+        self, payload: schemas.MissionControlScoreRequest, db: Session | None = None
+    ) -> dict:
         async with self._lock:
             if payload.team == "red":
                 self._state["red_team_score"] = max(
@@ -152,13 +192,27 @@ class MissionControlService:
             self._push_event_locked(
                 f"Score update {payload.team.upper()} {payload.delta:+d} ({payload.reason})"
             )
+            if db is not None:
+                log_action(
+                    db,
+                    level=models.LogLevel.info,
+                    category=models.LogCategory.mission,
+                    source="mission_control",
+                    message=(
+                        f"Score update team={payload.team} delta={payload.delta} "
+                        f"reason={payload.reason}"
+                    ),
+                )
             snapshot = self.get_state()
 
         await self.broadcast_state(snapshot)
         return snapshot
 
     async def set_objective_status(
-        self, objective_id: int, payload: schemas.MissionControlObjectiveStatusRequest
+        self,
+        objective_id: int,
+        payload: schemas.MissionControlObjectiveStatusRequest,
+        db: Session | None = None,
     ) -> dict:
         async with self._lock:
             for objective in self._state["objectives"]:
@@ -167,6 +221,17 @@ class MissionControlService:
                     self._push_event_locked(
                         f"Objective {objective['label']} -> {payload.status.upper()}"
                     )
+                    if db is not None:
+                        log_action(
+                            db,
+                            level=models.LogLevel.info,
+                            category=models.LogCategory.mission,
+                            source="mission_control",
+                            message=(
+                                f"Objective update id={objective_id} "
+                                f"label={objective['label']} status={payload.status}"
+                            ),
+                        )
                     break
             self._state["updated_at"] = datetime.utcnow().isoformat()
             snapshot = self.get_state()

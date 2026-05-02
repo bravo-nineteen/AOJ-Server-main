@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app import models, schemas
 from app.database import get_db
+from app.services.log_service import log_action
 
 router = APIRouter(prefix="/api/results", tags=["Results"])
 
@@ -24,6 +25,16 @@ def record_game_result(payload: schemas.GameResultCreate, db: Session = Depends(
     db.add(result)
     db.commit()
     db.refresh(result)
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.mission,
+        source="results",
+        message=(
+            f"Result recorded: session={result.session_name} winner={result.winner.value} "
+            f"red={result.red_points} blue={result.blue_points}"
+        ),
+    )
     return result
 
 

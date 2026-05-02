@@ -137,7 +137,8 @@ class ScheduleOverviewResponse(BaseModel):
 
 
 class SystemLogBase(BaseModel):
-    level: Literal["info", "warning", "error"] = "info"
+    level: Literal["INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    category: Literal["SYSTEM", "MISSION", "PROP", "LORA", "WIFI", "AI", "UPDATE"] = "SYSTEM"
     source: str
     message: str
 
@@ -181,6 +182,14 @@ class SystemStatusResponse(BaseModel):
     connected_clients: int
     active_game_sessions: int
     entity_counts: dict[str, int]
+    backend_version: str
+    platform_mode: Literal["raspberry_pi", "mock"]
+    cpu_temperature_c: float
+    cpu_usage_percent: float
+    ram_usage_percent: float
+    disk_usage_percent: float
+    lora_service_status: str
+    database_status: str
 
 
 class MissionControlObjective(BaseModel):
