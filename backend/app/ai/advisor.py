@@ -123,7 +123,7 @@ def _ollama_chat(
             "content": f"[OPERATIONAL CONTEXT]\n{context}",
         })
 
-    for entry in history[-12:]:  # last 12 turns
+    for entry in history[-20:]:  # last 20 turns for better continuity
         role = entry.get("role", "user")
         content = entry.get("content", "")
         if role in ("user", "assistant") and content:
@@ -386,6 +386,52 @@ def _is_followup_message(text: str) -> bool:
 def _extract_numbered_modes(text: str) -> list[str]:
     modes = re.findall(r"\d+\.\s+\*\*([^*]+)\*\*", text)
     return [m.strip() for m in modes if m.strip()]
+
+
+def _plain_lines(text: str) -> list[str]:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return [re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", ln) for ln in lines]
+
+
+def _summarize_previous_answer(last_assistant: str) -> str:
+    lines = _plain_lines(last_assistant)
+    if not lines:
+        return "Here is the short version: continue with the selected mode and I will tailor timers, scoring, and balance for your field."
+    picks = [ln for ln in lines if re.match(r"^\d+\.\s+", ln)]
+    if picks:
+        return "Short version: " + "; ".join(picks[:3]) + ". Tell me one and I will build full rules."
+    return "Short version: " + " ".join(lines[:2])[:240]
+
+
+def _compare_recommended_modes(last_assistant: str) -> str | None:
+    modes = _extract_numbered_modes(last_assistant)
+    if not modes:
+        return None
+    top = modes[:3]
+    guidance: list[str] = []
+    for mode in top:
+        m = mode.lower()
+        if "domination" in m:
+            guidance.append("Domination: best for tactical control play and balanced team pressure.")
+        elif "capture" in m or "flag" in m or "ctf" in m:
+            guidance.append("Capture The Flag: best for movement, flanking, and objective-focused rounds.")
+        elif "king" in m or "hill" in m or "koth" in m:
+            guidance.append("King of the Hill: best for intense central fights and fast momentum swings.")
+        elif "skirmish" in m:
+            guidance.append("Skirmish: best for simple setup and quick back-to-back rounds.")
+        else:
+            guidance.append(f"{mode}: adaptable mode; I can tune it to your field and player mix.")
+    return "Comparison from my previous suggestion:\n\n- " + "\n- ".join(guidance)
+
+
+def _followup_intent(text: str) -> str | None:
+    if re.search(r"\b(compare|difference|which is better|pros and cons|vs\.?|versus)\b", text, re.I):
+        return "compare"
+    if re.search(r"\b(why|reason|because|explain)\b", text, re.I):
+        return "explain"
+    if re.search(r"\b(short|brief|summary|quick version|tldr)\b", text, re.I):
+        return "summarize"
+    return None
 
 
 def _extract_mode_from_text(text: str, available_modes: list[str]) -> str | None:
@@ -752,6 +798,7 @@ def _handle_conversation(
     # 2. Follow-up continuation (prevents "restart" behavior)
     # -----------------------------------------------------------------------
     last_assistant = _last_message_by_role(history, "assistant")
+    followup_intent = _followup_intent(lower)
 
     # Direct mode reply after a recommendation prompt, e.g. user: "capture the flag"
     if last_assistant and re.search(r"want me to build out the full rule set", last_assistant, re.I):
@@ -805,6 +852,33 @@ def _handle_conversation(
             confidence=0.84,
             used_ctx=[*used_ctx, "history:followup"],
         )
+
+    # Advanced follow-up intents: compare/explain/summarize relative to prior answer
+    if followup_intent and last_assistant:
+        if followup_intent == "compare":
+            comp = _compare_recommended_modes(last_assistant)
+            if comp:
+                return _mk_response(
+                    comp + "\n\nTell me your priority (speed, fairness, objective complexity), and I will pick the best one.",
+                    confidence=0.9,
+                    used_ctx=[*used_ctx, "history:followup_compare"],
+                )
+        if followup_intent == "summarize":
+            return _mk_response(
+                _summarize_previous_answer(last_assistant),
+                confidence=0.88,
+                used_ctx=[*used_ctx, "history:followup_summarize"],
+            )
+        if followup_intent == "explain":
+            modes = _extract_numbered_modes(last_assistant)
+            if modes:
+                return _mk_response(
+                    "I recommended those because your player count and field size favor objective modes that keep everyone involved. "
+                    "Domination gives stable scoring, Capture The Flag encourages movement, and King of the Hill creates high-intensity control battles. "
+                    "If you want, I can choose one now based on your top priority.",
+                    confidence=0.9,
+                    used_ctx=[*used_ctx, "history:followup_explain"],
+                )
 
     # -----------------------------------------------------------------------
     # 3. Live data queries — use the parsed context

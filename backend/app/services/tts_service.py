@@ -25,6 +25,7 @@ _FEMALE_VOICE_PREFS = [
 ]
 
 _tts_lock = threading.Lock()
+_BASE_RATE = 160
 
 
 def _strip_symbols(text: str) -> str:
@@ -73,6 +74,26 @@ def _normalize_for_speech(text: str) -> str:
     return text
 
 
+def _adaptive_rate_for_text(text: str) -> int:
+    """Adaptive rate from punctuation and length for smoother, less rushed delivery."""
+    rate = _BASE_RATE
+    length = len(text)
+    comma_count = text.count(",")
+    question_count = text.count("?")
+
+    if length > 450:
+        rate -= 8
+    elif length > 280:
+        rate -= 5
+
+    if comma_count >= 6:
+        rate -= 4
+    if question_count >= 2:
+        rate -= 3
+
+    return max(146, min(170, rate))
+
+
 def _find_female_voice(engine) -> str | None:
     """Return the voice ID of the best available female voice, or None."""
     voices = engine.getProperty("voices")
@@ -113,36 +134,26 @@ def generate_speech_wav(text: str) -> bytes | None:
     with _tts_lock:
         tmp_path: str | None = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp_path = tmp.name
-
             engine = pyttsx3.init()
 
             female_id = _find_female_voice(engine)
             if female_id:
                 engine.setProperty("voice", female_id)
 
-            # Natural pacing: slightly slower than default, adaptive for long text.
-            rate = 162
-            if len(clean) > 450:
-                rate = 154
-            elif len(clean) > 260:
-                rate = 158
-            engine.setProperty("rate", rate)
             engine.setProperty("volume", 0.96)
+            engine.setProperty("rate", _adaptive_rate_for_text(clean))
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_path = tmp.name
 
             engine.save_to_file(clean, tmp_path)
             engine.runAndWait()
             engine.stop()
 
-            wav_bytes = Path(tmp_path).read_bytes()
-            return wav_bytes
+            return Path(tmp_path).read_bytes()
         except Exception as exc:
             logger.exception("TTS generation failed: %s", exc)
             return None
         finally:
             if tmp_path:
-                try:
-                    Path(tmp_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
+                Path(tmp_path).unlink(missing_ok=True)

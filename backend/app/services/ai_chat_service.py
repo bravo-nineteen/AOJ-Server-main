@@ -914,12 +914,12 @@ def send_message(
     ]
     injected_prompt = "\n\n".join([part for part in injected_prompt_parts if part])
 
-    # Collect conversation history for the advisor (last 12 turns).
+    # Collect conversation history for the advisor (last 20 turns).
     recent_rows = (
         db.query(models.AIMessage)
         .filter(models.AIMessage.conversation_id == conversation_id)
         .order_by(models.AIMessage.created_at.desc(), models.AIMessage.id.desc())
-        .limit(12)
+        .limit(20)
         .all()
     )
     conv_history = [
