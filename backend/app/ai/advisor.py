@@ -464,7 +464,13 @@ def _infer_active_topic(history: list[dict[str, Any]]) -> str | None:
         return "schedule"
     if re.search(r"score|points|winning|timer|remaining", recent):
         return "live_state"
-    if re.search(r"member|player|team balance|strength|weakness", recent):
+    if re.search(r"loadout|primary|secondary|bb|hop-up|hpa|aeg|gbb|dmr|sniper", recent):
+        return "loadout"
+    if re.search(r"tactic|flank|push|defend|anchor|squad|communication|comms", recent):
+        return "tactics"
+    if re.search(r"chrono|fps|joule|safety|eye pro|face pro|bang rule|minimum engagement", recent):
+        return "safety"
+    if re.search(r"member profile|member|player profile|team balance|strength|weakness", recent):
         return "members"
     return None
 
@@ -478,6 +484,50 @@ def _is_explicit_topic_shift(text: str) -> bool:
             re.I,
         )
     )
+
+
+def _airsoft_loadout_advice(players: int | None = None) -> str:
+    player_band = "small" if (players or 0) and players <= 12 else "medium-large"
+    spacing_note = "tight lanes and quick peeks" if player_band == "small" else "longer sightlines and rotating fronts"
+    return (
+        "For a balanced field loadout, prioritize consistency over max power. "
+        "Run a reliable AEG as primary, keep hop-up tuned for flat flight, and use 0.25g to 0.28g BBs for most outdoor games. "
+        "Carry a light sidearm only if your role needs fast transitions. "
+        "For your current environment, optimize for "
+        f"{spacing_note}. "
+        "If you want, I can give a role-based setup for entry, support, and anchor players."
+    )
+
+
+def _airsoft_tactics_advice(mode_hint: str | None = None) -> str:
+    mode_line = "For objective play" if not mode_hint else f"For {mode_hint}"
+    return (
+        f"{mode_line}, split each team into three jobs: entry pair, anchor, and rover. "
+        "Entry pair gains first contact and calls positions, anchor protects spawn lanes and denies flanks, rover rotates to pressure weak zones. "
+        "Use short radio calls: contact, count, direction, movement. "
+        "Every 2 to 3 minutes, force a micro-reset: confirm ammo, spacing, and objective priority. "
+        "If you want, I can build a minute-by-minute round plan."
+    )
+
+
+def _airsoft_safety_advice() -> str:
+    return (
+        "Safety baseline for smooth games: chrono every replica at start, enforce eye protection at all times in active zones, "
+        "brief minimum engagement distance per class, and make hit-calling rules explicit before each round. "
+        "Use one universal emergency phrase like 'CODE RED, ALL STOP' and make every marshal repeat it in briefing. "
+        "If you want, I can generate a printable pre-game safety checklist for your marshals."
+    )
+
+
+def _topic_hint_from_text(text: str) -> str | None:
+    t = text.lower()
+    if re.search(r"\b(loadout|gear|aeg|hpa|gbb|bb|hop[- ]?up|primary|secondary)\b", t):
+        return "loadout"
+    if re.search(r"\b(tactic|strategy|flank|push|anchor|rotate|squad|comms?|communication)\b", t):
+        return "tactics"
+    if re.search(r"\b(safety|chrono|fps|joule|eye pro|face pro|minimum engagement|med|bang rule|hit call)\b", t):
+        return "safety"
+    return None
 
 
 def _is_true_greeting(text: str) -> bool:
@@ -878,11 +928,46 @@ def _handle_conversation(
             )
 
     if (_is_followup_message(lower) or _is_contextual_followup(lower, last_assistant, active_topic)) and last_assistant:
+        topic_hint = active_topic or _topic_hint_from_text(last_assistant)
         chosen_mode = _select_mode_from_followup(
             user_text=lower,
             last_assistant=last_assistant,
             available_modes=ctx.get("available_game_modes", []),
         )
+
+        if re.search(r"\b(safety|chrono|fps|joule|eye pro|face pro|minimum engagement|med|bang rule|hit call)\b", lower):
+            return _mk_response(
+                _airsoft_safety_advice(),
+                confidence=0.9,
+                used_ctx=[*used_ctx, "history:followup_airsoft_safety"],
+                suggested_actions=["Generate a printable marshal safety checklist."],
+            )
+
+        if topic_hint in ("loadout", "tactics", "safety") and re.search(
+            r"\b(more|expand|deeper|details?|next|continue|go on|example)\b",
+            lower,
+        ):
+            if topic_hint == "loadout":
+                return _mk_response(
+                    "Continuing your loadout planning. Start with role split: 40 percent riflemen, 30 percent objective runners, 20 percent anchors, and 10 percent flex support. "
+                    "Set each player to one primary role for the round to reduce confusion. Want me to assign this by player skill level?",
+                    confidence=0.87,
+                    used_ctx=[*used_ctx, "history:followup_loadout"],
+                )
+            if topic_hint == "tactics":
+                return _mk_response(
+                    "Continuing tactics: open with a 90-second information phase instead of full commit. "
+                    "Probe both lanes, identify weak side, then mass 60 percent of force there while 40 percent pins. "
+                    "This keeps pressure high without overextending. Want a callout template for comms discipline?",
+                    confidence=0.88,
+                    used_ctx=[*used_ctx, "history:followup_tactics"],
+                )
+            return _mk_response(
+                "Continuing safety planning: add two quick marshal checks mid-round at fixed times to catch mask lifts, unsafe distances, and dead-rag confusion early. "
+                "That usually prevents most escalation incidents before they spread.",
+                confidence=0.88,
+                used_ctx=[*used_ctx, "history:followup_safety"],
+            )
 
         if chosen_mode and re.search(r"\b(yes|ok|okay|go with|that one|do it|build|rules?)\b", lower):
             rules = _build_game_mode_rules(
@@ -898,6 +983,53 @@ def _handle_conversation(
                 answer,
                 confidence=0.9,
                 used_ctx=[*used_ctx, "history:followup_mode"],
+            )
+
+        if followup_intent == "compare":
+            comp = _compare_recommended_modes(last_assistant)
+            if comp:
+                return _mk_response(
+                    comp + "\n\nTell me your priority (speed, fairness, objective complexity), and I will pick the best one.",
+                    confidence=0.9,
+                    used_ctx=[*used_ctx, "history:followup_compare"],
+                )
+        if followup_intent == "summarize":
+            return _mk_response(
+                _summarize_previous_answer(last_assistant),
+                confidence=0.88,
+                used_ctx=[*used_ctx, "history:followup_summarize"],
+            )
+        if followup_intent == "explain":
+            modes = _extract_numbered_modes(last_assistant)
+            if modes:
+                return _mk_response(
+                    "I recommended those because your player count and field size favor objective modes that keep everyone involved. "
+                    "Domination gives stable scoring, Capture The Flag encourages movement, and King of the Hill creates high-intensity control battles. "
+                    "If you want, I can choose one now based on your top priority.",
+                    confidence=0.9,
+                    used_ctx=[*used_ctx, "history:followup_explain"],
+                )
+            mode_hint = _extract_mode_from_text(last_assistant, ctx.get("available_game_modes", []))
+            if not mode_hint:
+                if re.search(r"capture\s+the\s+flag", last_assistant, re.I):
+                    mode_hint = "Capture The Flag"
+                elif re.search(r"domination", last_assistant, re.I):
+                    mode_hint = "Domination"
+                elif re.search(r"king\s+of\s+the\s+hill", last_assistant, re.I):
+                    mode_hint = "King of the Hill"
+            if mode_hint:
+                return _mk_response(
+                    f"I suggested **{mode_hint}** because it fits your current player count and keeps the round structure easy to run under marshal control. "
+                    "It balances action with clear objectives, which usually gives smoother games and fewer rule disputes. "
+                    "If you want, I can tune respawns and scoring to your exact field layout.",
+                    confidence=0.9,
+                    used_ctx=[*used_ctx, "history:followup_explain_mode"],
+                )
+            return _mk_response(
+                "I suggested that because it is reliable for your current player count and easier to marshal cleanly. "
+                "The objective flow is clear, the scoring is simple, and it keeps both teams engaged throughout the round.",
+                confidence=0.86,
+                used_ctx=[*used_ctx, "history:followup_explain_general"],
             )
 
         answer = (
@@ -944,6 +1076,30 @@ def _handle_conversation(
                 "If you want, I will now generate the full round script and scoring table.",
                 confidence=0.89,
                 used_ctx=[*used_ctx, "history:continuity_choice"],
+            )
+
+    if active_topic in ("loadout", "tactics", "safety") and not _is_explicit_topic_shift(lower):
+        if re.search(r"\b(more|expand|deeper|details?|next|continue|go on|example)\b", lower):
+            if active_topic == "loadout":
+                return _mk_response(
+                    "Continuing your loadout planning. Start with role split: 40% riflemen, 30% objective runners, 20% anchors, 10% flex support. "
+                    "Set each player to one primary role for the round to reduce confusion. Want me to assign this by player skill level?",
+                    confidence=0.87,
+                    used_ctx=[*used_ctx, "history:continuity_loadout"],
+                )
+            if active_topic == "tactics":
+                return _mk_response(
+                    "Continuing tactics: open with a 90-second information phase instead of full commit. "
+                    "Probe both lanes, identify weak side, then mass 60% of force there while 40% pins. "
+                    "This keeps pressure high without overextending. Want a callout template for comms discipline?",
+                    confidence=0.88,
+                    used_ctx=[*used_ctx, "history:continuity_tactics"],
+                )
+            return _mk_response(
+                "Continuing safety planning: add two quick marshal checks mid-round at fixed times to catch mask lifts, unsafe distances, and dead-rag confusion early. "
+                "That usually prevents most escalation incidents before they spread.",
+                confidence=0.88,
+                used_ctx=[*used_ctx, "history:continuity_safety"],
             )
 
     # Advanced follow-up intents: compare/explain/summarize relative to prior answer
@@ -1106,6 +1262,33 @@ def _handle_conversation(
                 answer = "The schedule is clear — no current or upcoming activities."
         return _mk_response(answer, confidence=0.88,
                              used_ctx=[*used_ctx, "context:schedule"])
+
+    # Airsoft loadouts and gear guidance
+    if re.search(r"\b(loadout|gear|aeg|hpa|gbb|bb\s*weight|hop\s*-?up|primary|secondary|mag setup)\b", lower):
+        return _mk_response(
+            _airsoft_loadout_advice(players=nums.get("players") or (nums.get("per_team", 0) * 2) or None),
+            confidence=0.88,
+            used_ctx=[*used_ctx, "advisor:airsoft_loadout"],
+            suggested_actions=["Ask for a role-based loadout template."],
+        )
+
+    # Airsoft tactics and team movement guidance
+    if re.search(r"\b(tactics?|strategy|flank|push|defend|rotate|anchor|squad|comms?|communication)\b", lower):
+        return _mk_response(
+            _airsoft_tactics_advice(mode_hint=ctx.get("mission_title") or None),
+            confidence=0.89,
+            used_ctx=[*used_ctx, "advisor:airsoft_tactics"],
+            suggested_actions=["Ask for a 5-minute opening plan for your mode."],
+        )
+
+    # Airsoft safety and chrono guidance
+    if re.search(r"\b(safety|chrono|fps|joule|eye pro|face pro|minimum engagement|med|bang rule|hit call)\b", lower):
+        return _mk_response(
+            _airsoft_safety_advice(),
+            confidence=0.9,
+            used_ctx=[*used_ctx, "advisor:airsoft_safety"],
+            suggested_actions=["Generate a printable marshal safety checklist."],
+        )
 
     # -----------------------------------------------------------------------
     # 3. Game suggestion flow
