@@ -118,16 +118,10 @@ Name: "{userstartup}\{#AppName}";               Filename: "{app}\launch.vbs";   
 
 [Run]
 ; Step 1 — install Python packages and build React frontend
-Filename: "powershell.exe"; \
-  Parameters: "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Normal -File ""{app}\scripts\install_windows.ps1"""; \
-  WorkingDir: "{app}"; \
-  StatusMsg: "Installing dependencies and building frontend (may take 2-5 minutes)..."; \
-  Flags: waitprogress shellexec
+Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Normal -File ""{app}\scripts\install_windows.ps1"""; WorkingDir: "{app}"; StatusMsg: "Installing dependencies and building frontend (may take 2-5 minutes)..."; Flags: waituntilterminated
 
 ; Step 2 — offer to launch immediately after install
-Filename: "{app}\launch.vbs"; \
-  Description: "Launch {#AppName} now"; \
-  Flags: postinstall nowait skipifsilent unchecked
+Filename: "wscript.exe"; Parameters: """{app}\launch.vbs"""; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
 ; Stop any running instance before uninstall
@@ -182,7 +176,7 @@ begin
   if Missing <> '' then begin
     MsgBox(
       'AOJ Command OS requires the following software to be installed first:' +
-      #13#10 + Missing + #13#10 + #13#10 +
+      Chr(13)+Chr(10) + Missing + Chr(13)+Chr(10)+Chr(13)+Chr(10) +
       'Please install the missing software and re-run this installer.',
       mbError, MB_OK
     );
