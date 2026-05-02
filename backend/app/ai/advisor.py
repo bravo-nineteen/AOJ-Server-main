@@ -434,6 +434,47 @@ def _followup_intent(text: str) -> str | None:
     return None
 
 
+def _infer_active_topic(history: list[dict[str, Any]]) -> str | None:
+    """Infer the current conversation topic from recent turns."""
+    recent = "\n".join(
+        [str(h.get("content", "") or "") for h in history[-8:]]
+    ).lower()
+
+    if re.search(r"top picks|suggest a game|best game|build out the full rule set", recent):
+        return "game_planning"
+    if re.search(r"device status|offline|prop network|sensor", recent):
+        return "devices"
+    if re.search(r"schedule|next activity|behind schedule", recent):
+        return "schedule"
+    if re.search(r"score|points|winning|timer|remaining", recent):
+        return "live_state"
+    if re.search(r"member|player|team balance|strength|weakness", recent):
+        return "members"
+    return None
+
+
+def _is_explicit_topic_shift(text: str) -> bool:
+    """Detect when user clearly switches to a new topic."""
+    return bool(
+        re.search(
+            r"\b(score|timer|device|prop|schedule|member|player|announcement|briefing|logs?)\b",
+            text,
+            re.I,
+        )
+    )
+
+
+def _is_true_greeting(text: str) -> bool:
+    """Greeting detector that avoids capturing normal follow-up requests."""
+    return bool(
+        re.fullmatch(
+            r"\s*(hello|hi|hey|howdy|good morning|good afternoon|good evening|what can you do)\s*[!?\.]*\s*",
+            text,
+            re.I,
+        )
+    )
+
+
 def _extract_mode_from_text(text: str, available_modes: list[str]) -> str | None:
     """Find a game mode mention in free text, including common shorthand."""
     lower = text.lower()
@@ -799,6 +840,7 @@ def _handle_conversation(
     # -----------------------------------------------------------------------
     last_assistant = _last_message_by_role(history, "assistant")
     followup_intent = _followup_intent(lower)
+    active_topic = _infer_active_topic(history)
 
     # Direct mode reply after a recommendation prompt, e.g. user: "capture the flag"
     if last_assistant and re.search(r"want me to build out the full rule set", last_assistant, re.I):
@@ -852,6 +894,33 @@ def _handle_conversation(
             confidence=0.84,
             used_ctx=[*used_ctx, "history:followup"],
         )
+
+    # Keep continuity for ambiguous turns inside active planning context.
+    if active_topic == "game_planning" and not _is_explicit_topic_shift(lower):
+        chosen_mode = _select_mode_from_followup(
+            user_text=lower,
+            last_assistant=last_assistant,
+            available_modes=ctx.get("available_game_modes", []),
+        )
+        if chosen_mode:
+            rules = _build_game_mode_rules(
+                mode_name=chosen_mode,
+                players=nums.get("players") or (nums.get("per_team", 0) * 2) or None,
+                minutes=nums.get("minutes"),
+            )
+            return _mk_response(
+                f"Continuing our plan: we'll run **{chosen_mode}**.\n\n" + rules,
+                confidence=0.9,
+                used_ctx=[*used_ctx, "history:continuity_game_planning"],
+            )
+        if re.search(r"\b(easiest|simple|beginner|quickest|fastest)\b", lower):
+            return _mk_response(
+                "For easiest execution on a small field, go with **Capture The Flag** or **Skirmish**. "
+                "CTF gives clear objectives with minimal setup, while Skirmish is fastest to start. "
+                "If you want, I'll now draft the exact round format for your 14 players.",
+                confidence=0.88,
+                used_ctx=[*used_ctx, "history:continuity_recommendation"],
+            )
 
     # Advanced follow-up intents: compare/explain/summarize relative to prior answer
     if followup_intent and last_assistant:
@@ -1150,7 +1219,7 @@ def _handle_conversation(
         )
         return _mk_response(answer, confidence=0.85, used_ctx=[*used_ctx, "advisor:handicap"])
 
-    if re.search(r"\b(hello|hi|hey|howdy|good morning|good afternoon|what can you do|help)\b", lower):
+    if _is_true_greeting(text):
         state = ctx["game_state"]
         r, b = ctx["red_score"], ctx["blue_score"]
         status_line = ""
