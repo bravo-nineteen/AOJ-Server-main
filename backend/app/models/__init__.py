@@ -36,6 +36,7 @@ from app.models.score_event import ScoreEvent
 from app.models.system_log import LogCategory, LogLevel, SystemLog
 from app.models.team import Team, TeamSide
 from app.models.user_role import UserRole  # legacy CRUD table kept for backward compat
+from app.models.christy_announcement import ChristyAnnouncement
 
 __all__ = [
     # New
