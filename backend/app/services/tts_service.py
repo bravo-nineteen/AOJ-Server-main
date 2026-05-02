@@ -6,7 +6,6 @@ gracefully on non-Windows platforms.
 """
 from __future__ import annotations
 
-import io
 import logging
 import platform
 import re
@@ -53,6 +52,27 @@ def _strip_symbols(text: str) -> str:
     return text.strip()
 
 
+def _normalize_for_speech(text: str) -> str:
+    """Shape text for more natural rhythm and intonation in SAPI voices."""
+    # Expand common abbreviations/acronyms that sound clipped otherwise.
+    text = re.sub(r"\bAOJ\b", "A O J", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bETA\b", "E T A", text, flags=re.IGNORECASE)
+
+    # Punctuation tuning for pauses.
+    text = text.replace(";", ", ")
+    text = text.replace(":", ". ")
+    text = re.sub(r"\s*-\s*", ", ", text)
+    text = re.sub(r"\.{3,}", ".", text)
+
+    # Ensure sentence endings are clean for intonation.
+    text = re.sub(r"([a-zA-Z0-9])\s+([A-Z])", r"\1. \2", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    text = text.strip()
+    if text and text[-1] not in ".!?":
+        text += "."
+    return text
+
+
 def _find_female_voice(engine) -> str | None:
     """Return the voice ID of the best available female voice, or None."""
     voices = engine.getProperty("voices")
@@ -80,6 +100,7 @@ def generate_speech_wav(text: str) -> bytes | None:
         return None
 
     clean = _strip_symbols(text)
+    clean = _normalize_for_speech(clean)
     if not clean:
         return None
 
@@ -101,9 +122,14 @@ def generate_speech_wav(text: str) -> bytes | None:
             if female_id:
                 engine.setProperty("voice", female_id)
 
-            # Natural-sounding rate and volume
-            engine.setProperty("rate", 175)   # words per minute
-            engine.setProperty("volume", 1.0)
+            # Natural pacing: slightly slower than default, adaptive for long text.
+            rate = 162
+            if len(clean) > 450:
+                rate = 154
+            elif len(clean) > 260:
+                rate = 158
+            engine.setProperty("rate", rate)
+            engine.setProperty("volume", 0.96)
 
             engine.save_to_file(clean, tmp_path)
             engine.runAndWait()

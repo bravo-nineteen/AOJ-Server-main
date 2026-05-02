@@ -925,6 +925,7 @@ def send_message(
     conv_history = [
         {"role": row.role.value, "content": row.content}
         for row in reversed(recent_rows)
+        if row.id != user_message.id
     ]
 
     advisor_response = ask_ai(
