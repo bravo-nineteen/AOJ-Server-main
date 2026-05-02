@@ -218,7 +218,7 @@ function App() {
   const [aiMessages, setAiMessages] = useState([
     {
       role: 'assistant',
-      text: "Hi! I'm your AOJ field advisor. Ask me to suggest a game, build rules, or generate a briefing. What are we working on today?",
+      text: "Hi! I'm Christy, your AOJ field advisor. Ask me to suggest a game, build rules, or generate a player briefing. What are we working on today?",
       meta: null,
     },
   ]);
@@ -378,29 +378,45 @@ function App() {
     }
   }
 
-  function speakLatestAssistantMessage() {
-    if (!speechOutputSupported) {
-      setSpeechError('Speech output is not supported by this browser.');
-      return;
-    }
+  function stripSpeechSymbols(text) {
+    return text
+      .replace(/\[CONFIRM_ACTION:[^\]]+\]/g, '')
+      .replace(/\*{1,3}([^*]*)\*{1,3}/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/^\s*[-*+•]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/[*#_~`^|<>{}\\]/g, '')
+      .replace(/\n{2,}/g, '. ')
+      .replace(/\n/g, ', ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
 
+  async function speakLatestAssistantMessage() {
     const latestAssistant = [...aiMessages].reverse().find((msg) => msg.role === 'assistant' && msg.text);
     if (!latestAssistant) {
       setSpeechError('No assistant response available to speak.');
       return;
     }
-
+    const clean = stripSpeechSymbols(latestAssistant.text);
+    if (!clean) return;
+    setSpeechError('');
     try {
-      setSpeechError('');
-      window.speechSynthesis.cancel();
-      const utterance = new window.SpeechSynthesisUtterance(latestAssistant.text);
-      utterance.lang = 'en-US';
-      utterance.onerror = () => {
-        setSpeechError('Speech output error occurred while speaking.');
-      };
-      window.speechSynthesis.speak(utterance);
+      const resp = await fetch(`${apiBase}/tts/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clean }),
+      });
+      if (!resp.ok) throw new Error('tts_unavailable');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
     } catch {
-      setSpeechError('Speech output failed to start.');
+      setSpeechError('Christy voice unavailable. Check backend TTS service.');
     }
   }
 
@@ -559,6 +575,21 @@ function App() {
           awaiting_confirm: payload.requires_admin_confirmation && payload.blocked_actions.length === 0,
         },
       ]);
+      // Auto-speak Christy's response (fire and forget — don't block UI)
+      const clean = stripSpeechSymbols(displayText);
+      if (clean) {
+        fetch(`${apiBase}/tts/speak`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: clean }),
+        }).then((r) => r.ok ? r.blob() : null).then((blob) => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audio.onended = () => URL.revokeObjectURL(url);
+          audio.play().catch(() => {});
+        }).catch(() => {});
+      }
     } catch {
       setAiMessages((current) => [
         ...current,
@@ -571,7 +602,7 @@ function App() {
 
   function clearAiConversation() {
     setAiMessages([
-      { role: 'assistant', text: "New session started. What can I help you with today?", meta: null },
+      { role: 'assistant', text: "New session started. I'm Christy. What can I help you with today?", meta: null },
     ]);
     setAiConversationId(null);
   }
@@ -1805,7 +1836,7 @@ function App() {
                     </div>
 
                     <div className="ai-card ai-chat-card">
-                      <h3>AI Assistant Chat</h3>
+                      <h3>Christy — AOJ Field Advisor</h3>
                       <div className="ai-chat-log">
                         {aiMessages.map((item, index) => (
                           <div key={`${item.role}-${index}`} className={`ai-bubble ai-${item.role}`}>

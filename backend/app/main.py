@@ -10,7 +10,7 @@ from app.core.ai_safety import AISafetyMiddleware
 from app.core.websocket import websocket_manager
 from app.database import init_db
 from app.lora.service import lora_service
-from app.routes import ai, health, logs, mission_control, prop_network, resources, results, schedule, system, update_center, custom_admin
+from app.routes import ai, health, logs, mission_control, prop_network, resources, results, schedule, system, update_center, custom_admin, tts
 from app.services.mission_control_service import mission_control_service
 
 app = FastAPI(title=APP_TITLE, version=APP_VERSION)
@@ -36,6 +36,7 @@ app.include_router(results.router)
 app.include_router(mission_control.router)
 app.include_router(update_center.router)
 app.include_router(custom_admin.router)
+app.include_router(tts.router)
 
 
 @app.on_event("startup")

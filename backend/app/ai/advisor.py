@@ -1,23 +1,149 @@
-"""AI advisory module – conversational advisor with game suggestion engine.
+"""AI advisory module – Christy, the AOJ field advisor.
 
-Uses the injected operational context block to give live, data-aware answers.
+Uses Ollama (local offline LLM) when available; falls back to built-in
+conversational rules engine so the system always works without internet.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
+import httpx
+
 from app.schemas.ai import AIAskResponse
 
-MOCK_MODEL_NAME = "mock-local-advisor-v1"
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Ollama configuration
+# ---------------------------------------------------------------------------
+
+OLLAMA_BASE = "http://localhost:11434"
+# Preferred models in order — first one found wins.
+OLLAMA_MODEL_PREFERENCE = [
+    "llama3.2:3b",
+    "llama3.2",
+    "llama3:8b",
+    "llama3",
+    "mistral",
+    "phi3:mini",
+    "gemma2:2b",
+    "gemma:2b",
+]
+
+CHRISTY_SYSTEM_PROMPT = """You are Christy, the intelligent field operations advisor for AOJ Command OS — an airsoft command platform.
+
+Your personality: calm, professional, friendly, and knowledgeable. You speak in a natural, conversational tone. You DO NOT use bullet-point walls unless specifically asked for a list. You write in short, clear paragraphs.
+
+Your capabilities:
+- Give live game status from the context block provided (scores, timer, devices, schedule)
+- Suggest appropriate game modes based on player count, field size, session length, and team handicap
+- Draft complete rule sets for any game mode
+- Write marshal briefings and team announcements
+- Help with schedule management and delay recovery
+- Diagnose device/prop issues
+- For operational actions (start/stop game, arm/reset devices), always ask for confirmation first
+
+CRITICAL rules:
+- NEVER execute an operational action without explicit user confirmation — ask "Can you confirm?" first
+- When confirming an action, embed the tag [CONFIRM_ACTION:action_key] at the end of your message (hidden from display)
+- If the user says yes/confirm/proceed, provide step-by-step guidance
+- Keep answers under 200 words unless building a detailed rule set
+- Do NOT use excessive markdown symbols in responses — use plain, natural language
+- Do NOT start every message with "Certainly!" or similar filler phrases
+
+Context block format: The operational context is provided as a structured block with sections [CURRENT STATE], [MISSION], [SCHEDULE], [DEVICES], [LOGS], [MEMORY]. Use this to give accurate, live answers.
+
+Your name is Christy. You work for the AOJ field team."""
+
+MOCK_MODEL_NAME = "christy-rules-engine-v2"
 
 SAFETY_NOTICE = (
-    "Advisory mode active. I will ask for your confirmation before any operational action."
+    "Advisory mode active. Christy will ask for your confirmation before any operational action."
 )
 
 # ---------------------------------------------------------------------------
+# Ollama client
+# ---------------------------------------------------------------------------
+
+_ollama_available: bool | None = None  # None = not yet checked
+_ollama_model: str | None = None
+
+
+def _check_ollama() -> tuple[bool, str | None]:
+    """Probe Ollama and return (available, best_model_name)."""
+    global _ollama_available, _ollama_model
+    try:
+        resp = httpx.get(f"{OLLAMA_BASE}/api/tags", timeout=2.0)
+        if resp.status_code != 200:
+            _ollama_available = False
+            return False, None
+        data = resp.json()
+        installed = [m["name"] for m in data.get("models", [])]
+        # Find first preferred model that is installed
+        for pref in OLLAMA_MODEL_PREFERENCE:
+            for inst in installed:
+                if inst.startswith(pref.split(":")[0]):
+                    _ollama_available = True
+                    _ollama_model = inst
+                    return True, inst
+        # No preferred model — use whatever is installed
+        if installed:
+            _ollama_available = True
+            _ollama_model = installed[0]
+            return True, installed[0]
+        _ollama_available = False
+        return False, None
+    except Exception:
+        _ollama_available = False
+        return False, None
+
+
+def _ollama_chat(
+    prompt: str,
+    context: str | None,
+    history: list[dict[str, Any]],
+    model: str,
+) -> str | None:
+    """
+    Call Ollama /api/chat and return the assistant text, or None on failure.
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": CHRISTY_SYSTEM_PROMPT}]
+
+    if context:
+        messages.append({
+            "role": "system",
+            "content": f"[OPERATIONAL CONTEXT]\n{context}",
+        })
+
+    for entry in history[-12:]:  # last 12 turns
+        role = entry.get("role", "user")
+        content = entry.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        resp = httpx.post(
+            f"{OLLAMA_BASE}/api/chat",
+            json={"model": model, "messages": messages, "stream": False},
+            timeout=60.0,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("message", {}).get("content", "").strip()
+        logger.warning("Ollama returned status %d", resp.status_code)
+        return None
+    except Exception as exc:
+        logger.warning("Ollama call failed: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Confirmation / operational patterns
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
 _CONFIRM_PATTERNS = re.compile(
@@ -856,9 +982,42 @@ def ask_ai(
     injected_context: str | None = None,
     conversation_history: list[dict[str, Any]] | None = None,
 ) -> AIAskResponse:
-    """Entry point for the conversational advisor."""
+    """Entry point for the conversational advisor.
+
+    Tries Ollama (local LLM) first; falls back to the built-in rules engine
+    so the system always works even without Ollama installed.
+    """
+    history = conversation_history or []
+
+    # ------------------------------------------------------------------
+    # Attempt Ollama (re-check once per cold start, then cache result)
+    # ------------------------------------------------------------------
+    global _ollama_available, _ollama_model
+    if _ollama_available is None:
+        _check_ollama()
+
+    if _ollama_available:
+        llm_answer = _ollama_chat(
+            prompt=prompt,
+            context=injected_context,
+            history=history,
+            model=_ollama_model,
+        )
+        if llm_answer:
+            return AIAskResponse(
+                answer=llm_answer,
+                model=f"ollama/{_ollama_model}",
+                context_used=bool(injected_context),
+            )
+        # Ollama request failed at runtime — mark unavailable until restart
+        logger.warning("Ollama request failed; falling back to rules engine.")
+        _ollama_available = False
+
+    # ------------------------------------------------------------------
+    # Fallback: built-in rules engine
+    # ------------------------------------------------------------------
     return _handle_conversation(
         prompt=prompt,
-        history=conversation_history or [],
+        history=history,
         injected_context=injected_context,
     )
