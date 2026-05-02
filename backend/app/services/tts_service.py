@@ -58,15 +58,42 @@ def _normalize_for_speech(text: str) -> str:
     # Expand common abbreviations/acronyms that sound clipped otherwise.
     text = re.sub(r"\bAOJ\b", "A O J", text, flags=re.IGNORECASE)
     text = re.sub(r"\bETA\b", "E T A", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bCTF\b", "capture the flag", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bKOTH\b", "king of the hill", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bLoRa\b", "low rah", text, flags=re.IGNORECASE)
+
+    # Humanize score and time notations for cleaner pronunciation.
+    text = re.sub(
+        r"\b(Red|Blue)\s*(\d+)\s*/\s*(\d+)\b",
+        lambda m: f"{m.group(1)} {m.group(2)} to {m.group(3)}",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\b(\d{1,2}):(\d{2})\b",
+        lambda m: f"{int(m.group(1))} minutes {int(m.group(2))} seconds",
+        text,
+    )
+    text = re.sub(
+        r"\b(\d+)m\b",
+        lambda m: f"{m.group(1)} meters",
+        text,
+        flags=re.IGNORECASE,
+    )
 
     # Punctuation tuning for pauses.
     text = text.replace(";", ", ")
     text = text.replace(":", ". ")
     text = re.sub(r"\s*-\s*", ", ", text)
     text = re.sub(r"\.{3,}", ".", text)
+    text = re.sub(r"\s*/\s*", " over ", text)
 
     # Ensure sentence endings are clean for intonation.
     text = re.sub(r"([a-zA-Z0-9])\s+([A-Z])", r"\1. \2", text)
+    # Convert list style phrasing to spoken connectors.
+    text = re.sub(r"\b1\.\s*", "First, ", text)
+    text = re.sub(r"\b2\.\s*", "Second, ", text)
+    text = re.sub(r"\b3\.\s*", "Third, ", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = text.strip()
     if text and text[-1] not in ".!?":
@@ -80,18 +107,24 @@ def _adaptive_rate_for_text(text: str) -> int:
     length = len(text)
     comma_count = text.count(",")
     question_count = text.count("?")
+    sentence_count = len(re.findall(r"[.!?]", text))
 
     if length > 450:
-        rate -= 8
+        rate -= 10
     elif length > 280:
-        rate -= 5
+        rate -= 7
 
     if comma_count >= 6:
         rate -= 4
     if question_count >= 2:
         rate -= 3
+    if sentence_count >= 8:
+        rate -= 4
 
-    return max(146, min(170, rate))
+    # Gentle conversational default: slightly slower for a calmer voice.
+    rate -= 2
+
+    return max(140, min(164, rate))
 
 
 def _find_female_voice(engine) -> str | None:
