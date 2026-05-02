@@ -32,6 +32,8 @@ def init_db() -> None:
     _ensure_game_session_columns()
     _ensure_device_columns()
     _ensure_ai_columns()
+    _ensure_custom_game_mode_columns()
+    _seed_preset_themes()
 
 
 def _ensure_schedule_columns() -> None:
@@ -251,3 +253,53 @@ def _ensure_device_columns() -> None:
             connection.execute(
                 text("UPDATE devices SET updated_at = COALESCE(updated_at, created_at)")
             )
+
+
+def _ensure_custom_game_mode_columns() -> None:
+    required_columns = {
+        "team_setup_json": "TEXT NOT NULL DEFAULT '{}'",
+        "objectives_json": "TEXT NOT NULL DEFAULT '[]'",
+        "win_conditions_json": "TEXT NOT NULL DEFAULT '[]'",
+        "required_props_json": "TEXT NOT NULL DEFAULT '[]'",
+        "briefing_text": "TEXT NOT NULL DEFAULT ''",
+        "marshal_notes": "TEXT NOT NULL DEFAULT ''",
+    }
+
+    with engine.begin() as connection:
+        rows = connection.execute(text("PRAGMA table_info(custom_game_modes)"))
+        existing = {row[1] for row in rows}
+        for column_name, column_sql in required_columns.items():
+            if column_name in existing:
+                continue
+            connection.execute(
+                text(f"ALTER TABLE custom_game_modes ADD COLUMN {column_name} {column_sql}")
+            )
+
+
+
+def _seed_preset_themes() -> None:
+    """Initialize preset themes if they don't already exist in the database."""
+    from app.presets.themes import PRESET_THEMES
+    from app.models import VisualTheme
+    
+    db = SessionLocal()
+    try:
+        # Check which preset themes already exist
+        existing_names = {row[0] for row in db.query(VisualTheme.name).all()}
+        
+        # Create only preset themes that don't exist yet
+        themes_to_create = [theme for theme in PRESET_THEMES if theme["name"] not in existing_names]
+        
+        if not themes_to_create:
+            return  # All preset themes already exist
+        
+        for theme_data in themes_to_create:
+            theme = VisualTheme(**theme_data)
+            db.add(theme)
+        
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Warning: Failed to seed preset themes: {e}")
+    finally:
+        db.close()

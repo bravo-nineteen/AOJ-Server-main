@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.ai.advisor import ask_ai
+from app.ai.context_engine import collect_context
 from app.core.ai_safety import ai_policy
 from app.core.ai_safety import evaluate_ai_prompt
 from app.services.ai_diagnostics_service import (
@@ -668,6 +669,71 @@ def _enforce_final_action_safety(
     return filtered_suggestions, final_blocked_actions, final_requires_admin, enforcement_warnings
 
 
+def _build_custom_knowledge_block(db: Session, prompt: str) -> dict[str, str | list[str]]:
+    """Build custom knowledge block from CustomKnowledgeEntry, CustomTeam, CustomGameMode if relevant."""
+    result = {
+        "block_text": "",
+        "used_context": [],
+        "has_custom_data": False,
+    }
+
+    custom_keywords = {
+        "teams": r"\b(team|group|red|blue|neutral|callsign|side)\b",
+        "rules": r"\b(rule|regulation|policy|scoring|objective|respawn|mechanic)\b",
+        "game_modes": r"\b(game\s+mode|mode|challenge|variant|competition|competitive)\b",
+        "schedule": r"\b(schedule|activity|event|timing|start|end|duration|timetable)\b",
+        "prop_issues": r"\b(prop|device|sensor|radio|lora|arm|disarm|trigger|alert|problem|issue|malfunction|fix|repair)\b",
+        "event_management": r"\b(event|manager|coordinate|marshal|briefing|debrief|checkpoint|station)\b",
+        "briefings": r"\b(brief|briefing|prepare|preparation|overview|introduction|explain|instruction)\b",
+        "announcements": r"\b(announce|announcement|alert|notify|notification|update|bulletin|news)\b",
+    }
+
+    prompt_lower = prompt.lower()
+    detected_topics: set[str] = set()
+    for topic, pattern in custom_keywords.items():
+        if re.search(pattern, prompt_lower):
+            detected_topics.add(topic)
+
+    if not detected_topics:
+        return result
+
+    context_snapshot = collect_context(db, prompt=prompt)
+
+    lines: list[str] = []
+
+    if "teams" in detected_topics and context_snapshot.active_teams:
+        lines.append("[ACTIVE TEAMS (Custom Data)]")
+        for team in context_snapshot.active_teams:
+            lines.append(f"- {team['name']} ({team['callsign']}, side: {team['side']})")
+        result["used_context"].append("custom:teams")
+        result["has_custom_data"] = True
+
+    if ("rules" in detected_topics or "game_modes" in detected_topics) and context_snapshot.active_game_modes:
+        lines.append("[ACTIVE GAME MODES (Custom Rules)]")
+        for mode in context_snapshot.active_game_modes:
+            lines.append(f"- {mode['name']} ({mode['category']})")
+            if mode["description"]:
+                lines.append(f"  {mode['description']}")
+        result["used_context"].append("custom:game_modes")
+        result["has_custom_data"] = True
+
+    if context_snapshot.relevant_knowledge:
+        lines.append("[RELEVANT KNOWLEDGE BASE (Custom Entries)]")
+        for entry in context_snapshot.relevant_knowledge:
+            lines.append(f"- [{entry['category']}] {entry['title']} (relevance: {entry['relevance_score']})")
+            if entry["content"]:
+                lines.append(f"  {entry['content']}")
+        result["used_context"].append("custom:knowledge_base")
+        result["has_custom_data"] = True
+    elif detected_topics:
+        lines.append("[CUSTOM KNOWLEDGE]")
+        lines.append("- No relevant custom knowledge entries found for this query.")
+        result["used_context"].append("custom:knowledge_base_empty")
+
+    result["block_text"] = "\n".join(lines)
+    return result
+
+
 def send_message(
     db: Session,
     conversation_id: int,
@@ -693,10 +759,15 @@ def send_message(
 
     policy = evaluate_ai_prompt(payload.content)
     context_summary = _build_operational_context(db, conversation)
-    injected_prompt = (
-        f"{context_summary['context_block']}\n\n"
-        f"[USER REQUEST]\n{payload.content}"
-    )
+    custom_knowledge_block = _build_custom_knowledge_block(db, payload.content)
+    
+    injected_prompt_parts = [
+        context_summary['context_block'],
+        custom_knowledge_block['block_text'],
+        f"[USER REQUEST]\n{payload.content}",
+    ]
+    injected_prompt = "\n\n".join([part for part in injected_prompt_parts if part])
+    
     advisor_response = ask_ai(payload.content, injected_context=injected_prompt)
 
     used_context = list(
@@ -705,6 +776,7 @@ def send_message(
                 *advisor_response.used_context,
                 *policy.used_context,
                 *context_summary["used_context"],
+                *custom_knowledge_block["used_context"],
             ]
         )
     )
@@ -747,6 +819,13 @@ def send_message(
 
     if diagnostic_answer is not None:
         used_context = list(dict.fromkeys([*used_context, "diagnostics:enabled"]))
+
+    if "custom:knowledge_base_empty" in custom_knowledge_block["used_context"]:
+        custom_notice = (
+            "\n\n[NOTE: This query matches custom knowledge topics, but no relevant custom knowledge entries were found in the knowledge base. "
+            "Consider adding entries for teams, rules, game modes, or other custom configuration.]"
+        )
+        answer = answer + custom_notice
 
     action_request: models.AIActionRequest | None = None
     if requires_admin_confirmation:

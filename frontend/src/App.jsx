@@ -1,4 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AdminCustomTeams } from './components/AdminCustomTeams';
+import { AdminGameModes } from './components/AdminGameModes';
+import { AdminKnowledgeBase } from './components/AdminKnowledgeBase';
+import { AdminThemeEditor } from './components/AdminThemeEditor';
+import { AdminAISettings } from './components/AdminAISettings';
 
 const APPS = [
   { id: 'mission-control', title: 'Mission Control', subtitle: 'Live objectives and squad directives' },
@@ -10,6 +15,11 @@ const APPS = [
   { id: 'update-center', title: 'Update Center', subtitle: 'Node sync, package state, firmware rollout' },
   { id: 'logs', title: 'Logs', subtitle: 'Audit stream and anomaly events' },
   { id: 'settings', title: 'Settings', subtitle: 'Network, access, and interface controls' },
+  { id: 'admin-teams', title: 'Admin: Teams', subtitle: 'Manage custom team configurations' },
+  { id: 'admin-game-modes', title: 'Admin: Game Modes', subtitle: 'Manage custom game modes' },
+  { id: 'admin-knowledge', title: 'Admin: Knowledge Base', subtitle: 'Manage custom knowledge entries' },
+  { id: 'admin-theme', title: 'Admin: Theme', subtitle: 'Customize interface colors and appearance' },
+  { id: 'admin-ai-settings', title: 'Admin: AI Settings', subtitle: 'Configure AI assistant behavior' },
 ];
 
 const WINDOW_CONTENT = {
@@ -37,7 +47,7 @@ const DEFAULT_MISSION_STATE = {
   updated_at: '',
 };
 
-const GAME_MODES = ['Skirmish', 'Domination', 'Capture Point', 'Hostage Rescue'];
+const DEFAULT_GAME_MODES = ['Skirmish', 'Domination', 'Capture Point', 'Hostage Rescue'];
 const ACTIVITY_TYPES = [
   'Safety Brief',
   'Game',
@@ -134,11 +144,13 @@ function App() {
   const [clock, setClock] = useState(new Date());
   const [deviceCount] = useState(8);
   const [alerts] = useState(2);
+  const [currentTheme, setCurrentTheme] = useState(null);
   const [missionState, setMissionState] = useState(DEFAULT_MISSION_STATE);
+  const [gameModeOptions, setGameModeOptions] = useState(DEFAULT_GAME_MODES);
   const [missionForm, setMissionForm] = useState({
     title: 'Operation Echo',
     description: 'Field objective sequence for Sector Echo.',
-    game_mode: GAME_MODES[0],
+    game_mode: DEFAULT_GAME_MODES[0],
     main_timer_seconds: 1800,
     phase_timer_seconds: 300,
     objectivesText: 'Capture Relay,Hold HQ,Extract VIP',
@@ -214,6 +226,38 @@ function App() {
     setEvents(payload.event_feed ?? []);
   }
 
+  async function fetchGameModeOptions() {
+    try {
+      const response = await fetch(`${apiBase}/custom/game-modes`);
+      if (!response.ok) {
+        setGameModeOptions(DEFAULT_GAME_MODES);
+        return;
+      }
+
+      const rows = await response.json();
+      const activeCustomModes = rows
+        .filter((mode) => mode.active)
+        .map((mode) => mode.name)
+        .filter((name) => typeof name === 'string' && name.trim().length > 0);
+
+      if (activeCustomModes.length === 0) {
+        setGameModeOptions(DEFAULT_GAME_MODES);
+        return;
+      }
+
+      const merged = Array.from(new Set([...activeCustomModes, ...DEFAULT_GAME_MODES]));
+      setGameModeOptions(merged);
+      setMissionForm((current) => {
+        if (merged.includes(current.game_mode)) {
+          return current;
+        }
+        return { ...current, game_mode: merged[0] };
+      });
+    } catch {
+      setGameModeOptions(DEFAULT_GAME_MODES);
+    }
+  }
+
   async function postMissionAction(path, body) {
     const response = await fetch(`${apiBase}${path}`, {
       method: 'POST',
@@ -226,6 +270,38 @@ function App() {
     const payload = await response.json();
     setMissionState(payload);
     setEvents(payload.event_feed ?? []);
+  }
+
+  function applyThemeToDOM(theme) {
+    if (!theme) return;
+    
+    const root = document.documentElement;
+    root.style.setProperty('--primary-color', theme.primary_color || '#000000');
+    root.style.setProperty('--secondary-color', theme.secondary_color || '#ffffff');
+    root.style.setProperty('--accent-color', theme.accent_color || '#ff0000');
+    root.style.setProperty('--background-color', theme.background_color || '#1a1a1a');
+    root.style.setProperty('--panel-color', theme.panel_color || '#2a2a2a');
+    root.style.setProperty('--text-color', theme.text_color || '#ffffff');
+    root.style.setProperty('--warning-color', theme.warning_color || '#ffaa00');
+    root.style.setProperty('--danger-color', theme.danger_color || '#ff3333');
+    root.style.setProperty('--success-color', theme.success_color || '#00ff00');
+    root.style.setProperty('--border-radius', theme.border_radius || '4px');
+    root.style.setProperty('--font-family', theme.font_family || 'Arial, sans-serif');
+    root.style.setProperty('--density', theme.density || 'normal');
+  }
+
+  async function fetchActiveTheme() {
+    try {
+      const response = await fetch(`${apiBase}/custom/themes/active`);
+      if (!response.ok) {
+        return;
+      }
+      const theme = await response.json();
+      setCurrentTheme(theme);
+      applyThemeToDOM(theme);
+    } catch (err) {
+      console.warn('Failed to load active theme:', err);
+    }
   }
 
   async function fetchScheduleData() {
@@ -575,7 +651,17 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // Load active theme on app startup
+    fetchActiveTheme();
+    
+    // Refresh theme every 30 seconds in case it was changed in admin panel
+    const themeInterval = setInterval(fetchActiveTheme, 30000);
+    return () => clearInterval(themeInterval);
+  }, [apiBase]);
+
+  useEffect(() => {
     fetchMissionState();
+    fetchGameModeOptions();
     fetchScheduleData();
     fetchResultsData();
     fetchPropsData();
@@ -583,6 +669,12 @@ function App() {
     fetchSystemStatus();
     fetchUpdateCenterStatus();
   }, [apiBase]);
+
+  useEffect(() => {
+    if (selectedApp === 'mission-control') {
+      fetchGameModeOptions();
+    }
+  }, [selectedApp, apiBase]);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -630,6 +722,11 @@ function App() {
   const isSystemMonitor = activeApp.id === 'system-monitor';
   const isAIAssistant = activeApp.id === 'ai-assistant';
   const isUpdateCenter = activeApp.id === 'update-center';
+  const isAdminTeams = activeApp.id === 'admin-teams';
+  const isAdminGameModes = activeApp.id === 'admin-game-modes';
+  const isAdminKnowledge = activeApp.id === 'admin-knowledge';
+  const isAdminTheme = activeApp.id === 'admin-theme';
+  const isAdminAISettings = activeApp.id === 'admin-ai-settings';
 
   function handleCreateMission() {
     const objectives = missionForm.objectivesText
@@ -713,7 +810,7 @@ function App() {
                             setMissionForm((current) => ({ ...current, game_mode: event.target.value }))
                           }
                         >
-                          {GAME_MODES.map((mode) => (
+                          {gameModeOptions.map((mode) => (
                             <option key={mode} value={mode}>
                               {mode}
                             </option>
@@ -1555,6 +1652,16 @@ function App() {
                     </div>
                   </div>
                 </section>
+              ) : isAdminTeams ? (
+                <AdminCustomTeams apiBase={apiBase} />
+              ) : isAdminGameModes ? (
+                <AdminGameModes apiBase={apiBase} />
+              ) : isAdminKnowledge ? (
+                <AdminKnowledgeBase apiBase={apiBase} />
+              ) : isAdminTheme ? (
+                <AdminThemeEditor apiBase={apiBase} />
+              ) : isAdminAISettings ? (
+                <AdminAISettings apiBase={apiBase} />
               ) : (
                 <ul>
                   {WINDOW_CONTENT[activeApp.id].map((item) => (

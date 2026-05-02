@@ -27,9 +27,15 @@ class CustomGameMode(Base):
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     rules_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     default_duration_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    team_setup_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    objectives_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     scoring_rules_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     objective_rules_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     respawn_rules_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    win_conditions_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    required_props_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    briefing_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    marshal_notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 

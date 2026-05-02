@@ -33,9 +33,15 @@ class CustomGameModeBase(BaseModel):
     description: str = Field(default="", max_length=4000)
     rules_text: str = Field(default="", max_length=20000)
     default_duration_minutes: int = Field(default=30, ge=1, le=720)
+    team_setup_json: dict[str, Any] = Field(default_factory=dict)
+    objectives_json: list[str] = Field(default_factory=list)
     scoring_rules_json: dict[str, Any] = Field(default_factory=dict)
     objective_rules_json: dict[str, Any] = Field(default_factory=dict)
     respawn_rules_text: str = Field(default="", max_length=10000)
+    win_conditions_json: list[str] = Field(default_factory=list)
+    required_props_json: list[str] = Field(default_factory=list)
+    briefing_text: str = Field(default="", max_length=20000)
+    marshal_notes: str = Field(default="", max_length=20000)
     active: bool = True
 
 

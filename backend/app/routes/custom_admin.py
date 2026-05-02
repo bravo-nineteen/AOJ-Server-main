@@ -37,6 +37,20 @@ def _write_log(
 
 def _serialize_game_mode(item: models.CustomGameMode) -> schemas.CustomGameModeRead:
     try:
+        team_setup = json.loads(item.team_setup_json) if item.team_setup_json else {}
+        if not isinstance(team_setup, dict):
+            team_setup = {}
+    except json.JSONDecodeError:
+        team_setup = {}
+
+    try:
+        objectives = json.loads(item.objectives_json) if item.objectives_json else []
+        if not isinstance(objectives, list):
+            objectives = []
+    except json.JSONDecodeError:
+        objectives = []
+
+    try:
         scoring = json.loads(item.scoring_rules_json) if item.scoring_rules_json else {}
         if not isinstance(scoring, dict):
             scoring = {}
@@ -50,6 +64,20 @@ def _serialize_game_mode(item: models.CustomGameMode) -> schemas.CustomGameModeR
     except json.JSONDecodeError:
         objective = {}
 
+    try:
+        win_conditions = json.loads(item.win_conditions_json) if item.win_conditions_json else []
+        if not isinstance(win_conditions, list):
+            win_conditions = []
+    except json.JSONDecodeError:
+        win_conditions = []
+
+    try:
+        required_props = json.loads(item.required_props_json) if item.required_props_json else []
+        if not isinstance(required_props, list):
+            required_props = []
+    except json.JSONDecodeError:
+        required_props = []
+
     return schemas.CustomGameModeRead(
         id=item.id,
         name=item.name,
@@ -57,9 +85,15 @@ def _serialize_game_mode(item: models.CustomGameMode) -> schemas.CustomGameModeR
         description=item.description,
         rules_text=item.rules_text,
         default_duration_minutes=item.default_duration_minutes,
+        team_setup_json=team_setup,
+        objectives_json=[str(obj) for obj in objectives if str(obj).strip()],
         scoring_rules_json=scoring,
         objective_rules_json=objective,
         respawn_rules_text=item.respawn_rules_text,
+        win_conditions_json=[str(item) for item in win_conditions if str(item).strip()],
+        required_props_json=[str(item) for item in required_props if str(item).strip()],
+        briefing_text=item.briefing_text,
+        marshal_notes=item.marshal_notes,
         active=item.active,
     )
 
@@ -196,9 +230,22 @@ def create_custom_game_mode(
 ) -> schemas.CustomGameModeRead:
     item = models.CustomGameMode(
         **{
-            **payload.model_dump(exclude={"scoring_rules_json", "objective_rules_json"}),
+            **payload.model_dump(
+                exclude={
+                    "team_setup_json",
+                    "objectives_json",
+                    "scoring_rules_json",
+                    "objective_rules_json",
+                    "win_conditions_json",
+                    "required_props_json",
+                }
+            ),
+            "team_setup_json": json.dumps(payload.team_setup_json, ensure_ascii=True),
+            "objectives_json": json.dumps(payload.objectives_json, ensure_ascii=True),
             "scoring_rules_json": json.dumps(payload.scoring_rules_json, ensure_ascii=True),
             "objective_rules_json": json.dumps(payload.objective_rules_json, ensure_ascii=True),
+            "win_conditions_json": json.dumps(payload.win_conditions_json, ensure_ascii=True),
+            "required_props_json": json.dumps(payload.required_props_json, ensure_ascii=True),
         }
     )
     try:
@@ -233,11 +280,24 @@ def update_custom_game_mode(
     if item is None:
         raise _error(404, "GAME_MODE_NOT_FOUND", "Custom game mode not found.")
 
-    item_data = payload.model_dump(exclude={"scoring_rules_json", "objective_rules_json"})
+    item_data = payload.model_dump(
+        exclude={
+            "team_setup_json",
+            "objectives_json",
+            "scoring_rules_json",
+            "objective_rules_json",
+            "win_conditions_json",
+            "required_props_json",
+        }
+    )
     for key, value in item_data.items():
         setattr(item, key, value)
+    item.team_setup_json = json.dumps(payload.team_setup_json, ensure_ascii=True)
+    item.objectives_json = json.dumps(payload.objectives_json, ensure_ascii=True)
     item.scoring_rules_json = json.dumps(payload.scoring_rules_json, ensure_ascii=True)
     item.objective_rules_json = json.dumps(payload.objective_rules_json, ensure_ascii=True)
+    item.win_conditions_json = json.dumps(payload.win_conditions_json, ensure_ascii=True)
+    item.required_props_json = json.dumps(payload.required_props_json, ensure_ascii=True)
 
     try:
         db.commit()

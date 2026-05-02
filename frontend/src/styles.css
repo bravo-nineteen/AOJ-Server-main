@@ -1,24 +1,40 @@
-:root {
-  --ink-0: #070a07;
-  --ink-1: #0d150f;
-  --ink-2: #17241b;
-  --line: #2f4f3b;
-  --line-bright: #4c7d5c;
-  --hud: #b6f784;
-  --warn: #ffc246;
-  --danger: #f36b6b;
-  --text-main: #edf9e8;
-  --text-soft: #9cb59f;
-}
 
+:root {
+  /* Theme variables (set dynamically by JavaScript) */
+  --primary-color: #0d150f;
+  --secondary-color: #2f4f3b;
+  --accent-color: #b6f784;
+  --background-color: #070a07;
+  --panel-color: #17241b;
+  --text-color: #edf9e8;
+  --warning-color: #ffc246;
+  --danger-color: #f36b6b;
+  --success-color: #4ade80;
+  --border-radius: 6px;
+  --font-family: 'Space Grotesk', sans-serif;
+  --density: normal;
+
+  /* Legacy variables (derived from theme) */
+  --ink-0: var(--background-color);
+  --ink-1: var(--primary-color);
+  --ink-2: var(--panel-color);
+  --line: var(--secondary-color);
+  --line-bright: var(--accent-color);
+  --hud: var(--accent-color);
+  --warn: var(--warning-color);
+  --danger: var(--danger-color);
+  --text-main: var(--text-color);
+  --text-soft: rgba(255, 255, 255, 0.6);
+}
 * {
   box-sizing: border-box;
 }
 
+
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: var(--font-family);
   color: var(--text-main);
   background:
     radial-gradient(circle at 12% 24%, rgba(66, 105, 68, 0.25), transparent 40%),
@@ -32,7 +48,6 @@ body {
     ),
     linear-gradient(140deg, var(--ink-0), var(--ink-1) 52%, var(--ink-2));
 }
-
 #root {
   min-height: 100vh;
 }

@@ -1,5 +1,6 @@
 from app.routes import (
 	ai,
+	custom_admin,
 	health,
 	logs,
 	mission_control,
@@ -13,6 +14,7 @@ from app.routes import (
 
 __all__ = [
 	"ai",
+	"custom_admin",
 	"health",
 	"logs",
 	"mission_control",
