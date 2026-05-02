@@ -842,23 +842,26 @@ def send_message(
     if context_summary["missing_data"]:
         confidence = max(0.2, min(confidence, 0.62))
     diagnostic_answer = _build_diagnostic_answer(payload.content, context_summary, db)
-    answer = _compose_structured_answer(
-        diagnostic_answer if diagnostic_answer is not None else advisor_response.answer,
-        context_summary,
-    )
 
+    # Use the advisor's answer directly — it handles the conversational flow including
+    # confirmation requests. Only fall back to composed format for diagnostic queries.
     if diagnostic_answer is not None:
+        answer = _compose_structured_answer(diagnostic_answer, context_summary)
         used_context = list(dict.fromkeys([*used_context, "diagnostics:enabled"]))
+    else:
+        answer = advisor_response.answer
 
     if "custom:knowledge_base_empty" in custom_knowledge_block["used_context"]:
         custom_notice = (
-            "\n\n[NOTE: This query matches custom knowledge topics, but no relevant custom knowledge entries were found in the knowledge base. "
-            "Consider adding entries for teams, rules, game modes, or other custom configuration.]"
+            "\n\n[NOTE: No relevant custom knowledge entries found. "
+            "Consider adding entries in Admin > Knowledge Base.]"
         )
         answer = answer + custom_notice
 
+    # For confirmation-pending actions, log an action request for audit purposes
+    # but do NOT override the AI's answer — it already asked the user to confirm.
     action_request: models.AIActionRequest | None = None
-    if requires_admin_confirmation:
+    if requires_admin_confirmation and blocked_actions:
         action_request = _create_action_request(
             db,
             conversation_id=conversation_id,
@@ -867,20 +870,6 @@ def send_message(
             blocked_actions=blocked_actions,
             prompt=payload.content,
         )
-        suggested_actions = list(
-            dict.fromkeys(
-                [
-                    *suggested_actions,
-                    f"Admin review required: action request #{action_request.id} is pending.",
-                ]
-            )
-        )
-        answer = (
-            "I can provide guidance, but I cannot execute that request directly. "
-            "An admin confirmation request has been created for review. "
-            f"\n{answer}"
-        )
-        warnings = list(dict.fromkeys([*warnings, "Operational action was blocked pending admin approval."]))
 
     assistant_message = models.AIMessage(
         conversation_id=conversation_id,

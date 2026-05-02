@@ -69,12 +69,12 @@ const PROP_TYPES = [
 const LOG_LEVELS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const LOG_CATEGORIES = ['ALL', 'SYSTEM', 'MISSION', 'PROP', 'LORA', 'WIFI', 'AI', 'UPDATE'];
 const AI_QUICK_PROMPTS = [
-  'Suggest next game',
-  'Summarize results',
+  'Suggest a game for 16 players',
+  'Build domination rules for 20 players',
   'Create marshal briefing',
-  'Explain prop issue',
+  'Summarize results',
   'Check schedule delay',
-  'Generate team announcement',
+  'Handle team handicap of 30%',
 ];
 
 const DEFAULT_SYSTEM_STATUS = {
@@ -212,11 +212,14 @@ function App() {
   const [logFilters, setLogFilters] = useState({ level: 'ALL', category: 'ALL' });
   const [systemStatus, setSystemStatus] = useState(DEFAULT_SYSTEM_STATUS);
   const [aiInput, setAiInput] = useState('');
+  const [aiConversationId, setAiConversationId] = useState(null);
+  const [aiTyping, setAiTyping] = useState(false);
+  const aiChatEndRef = useRef(null);
   const [aiMessages, setAiMessages] = useState([
     {
       role: 'assistant',
-      text: 'Mock local advisor online. Advisory only mode is enforced.',
-      meta: 'safety: admin confirmation required for operational commands',
+      text: "Hi! I'm your AOJ field advisor. Ask me to suggest a game, build rules, or generate a briefing. What are we working on today?",
+      meta: null,
     },
   ]);
   const [updateCenterStatus, setUpdateCenterStatus] = useState(DEFAULT_UPDATE_CENTER_STATUS);
@@ -361,12 +364,8 @@ function App() {
     };
     recognition.onresult = (event) => {
       const transcript = event.results?.[0]?.[0]?.transcript?.trim() || '';
-      if (!transcript) {
-        return;
-      }
-      setAiInput(transcript);
+      if (!transcript) return;
       askAI(transcript);
-      setAiInput('');
     };
 
     recognitionRef.current = recognition;
@@ -512,47 +511,69 @@ function App() {
     fetchUpdateCenterStatus();
   }
 
+  // Ensure a conversation exists and return its id.
+  async function ensureAiConversation() {
+    if (aiConversationId) return aiConversationId;
+    try {
+      const res = await fetch(`${apiBase}/ai/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Field Advisor Session' }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      setAiConversationId(data.id);
+      return data.id;
+    } catch {
+      return null;
+    }
+  }
+
   async function askAI(prompt) {
     const cleanedPrompt = prompt.trim();
-    if (!cleanedPrompt) {
-      return;
-    }
+    if (!cleanedPrompt || aiTyping) return;
 
-    setAiMessages((current) => [
-      ...current,
-      {
-        role: 'user',
-        text: cleanedPrompt,
-      },
-    ]);
+    setAiMessages((current) => [...current, { role: 'user', text: cleanedPrompt }]);
+    setAiTyping(true);
 
-    const response = await fetch(`${apiBase}/ai/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: cleanedPrompt }),
-    });
+    try {
+      const convId = await ensureAiConversation();
+      if (!convId) throw new Error('no_conversation');
 
-    if (!response.ok) {
+      const response = await fetch(`${apiBase}/ai/conversations/${convId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: cleanedPrompt }),
+      });
+
+      if (!response.ok) throw new Error('api_error');
+
+      const payload = await response.json();
+      // Strip the internal [CONFIRM_ACTION:...] tag from displayed text.
+      const displayText = payload.answer.replace(/\[CONFIRM_ACTION:[^\]]+\]/g, '').trim();
       setAiMessages((current) => [
         ...current,
         {
           role: 'assistant',
-          text: 'AI route unavailable. Check backend connectivity.',
-          meta: 'error',
+          text: displayText,
+          awaiting_confirm: payload.requires_admin_confirmation && payload.blocked_actions.length === 0,
         },
       ]);
-      return;
+    } catch {
+      setAiMessages((current) => [
+        ...current,
+        { role: 'assistant', text: 'AI route unavailable. Check backend connectivity.', meta: 'error' },
+      ]);
+    } finally {
+      setAiTyping(false);
     }
+  }
 
-    const payload = await response.json();
-    setAiMessages((current) => [
-      ...current,
-      {
-        role: 'assistant',
-        text: payload.answer,
-        meta: `${payload.model} | ${payload.safety_notice}`,
-      },
+  function clearAiConversation() {
+    setAiMessages([
+      { role: 'assistant', text: "New session started. What can I help you with today?", meta: null },
     ]);
+    setAiConversationId(null);
   }
 
   async function clearSystemLogs() {
@@ -773,6 +794,12 @@ function App() {
     const themeInterval = setInterval(fetchActiveTheme, 30000);
     return () => clearInterval(themeInterval);
   }, [apiBase]);
+
+  useEffect(() => {
+    if (aiChatEndRef.current) {
+      aiChatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [aiMessages, aiTyping]);
 
   useEffect(() => {
     fetchMissionState();
@@ -1738,25 +1765,23 @@ function App() {
                           <button
                             key={prompt}
                             type="button"
-                            onClick={() => {
-                              setAiInput(prompt);
-                              askAI(prompt);
-                            }}
+                            disabled={aiTyping}
+                            onClick={() => askAI(prompt)}
                           >
                             {prompt}
                           </button>
                         ))}
                       </div>
-                      <p className="ai-safety-note">
-                        Advisory-only mode is active. Hardware control requires admin confirmation.
+                      <p className="ai-safety-note" style={{ marginTop: '0.6rem' }}>
+                        For operational actions, the AI will ask you to confirm before proceeding.
                       </p>
                       <div className="ai-prompt-grid" style={{ marginTop: '0.6rem' }}>
                         <button
                           type="button"
                           onClick={isListening ? stopVoiceInput : startVoiceInput}
-                          disabled={!speechInputSupported}
+                          disabled={!speechInputSupported || aiTyping}
                         >
-                          {isListening ? 'Stop Voice Input' : 'Voice Input'}
+                          {isListening ? 'Stop Listening' : 'Voice Input'}
                         </button>
                         <button
                           type="button"
@@ -1765,11 +1790,14 @@ function App() {
                         >
                           Speak Last Reply
                         </button>
+                        <button type="button" onClick={clearAiConversation} title="Start a new conversation">
+                          New Chat
+                        </button>
                       </div>
                       {!speechInputSupported ? <p className="ai-safety-note">Speech input unsupported in this browser.</p> : null}
                       {!speechOutputSupported ? <p className="ai-safety-note">Speech output unsupported in this browser.</p> : null}
                       {voiceNote ? <p className="ai-safety-note">{voiceNote}</p> : null}
-                      {speechError ? <p className="ai-safety-note">{speechError}</p> : null}
+                      {speechError ? <p className="ai-safety-note" style={{ color: 'var(--danger-color, #f55)' }}>{speechError}</p> : null}
                     </div>
 
                     <div className="ai-card ai-chat-card">
@@ -1777,24 +1805,55 @@ function App() {
                       <div className="ai-chat-log">
                         {aiMessages.map((item, index) => (
                           <div key={`${item.role}-${index}`} className={`ai-bubble ai-${item.role}`}>
-                            <p>{item.text}</p>
+                            {/* Render simple markdown: **bold**, numbered lists, bullet lines */}
+                            <div style={{ whiteSpace: 'pre-wrap' }}>
+                              {item.text.split('\n').map((line, li) => {
+                                const bold = line.replace(/\*\*(.+?)\*\*/g, (_, m) => `<strong>${m}</strong>`);
+                                return (
+                                  <p key={li} style={{ margin: '0.15rem 0' }}
+                                    dangerouslySetInnerHTML={{ __html: bold }} />
+                                );
+                              })}
+                            </div>
+                            {item.awaiting_confirm ? (
+                              <div style={{ marginTop: '0.4rem' }}>
+                                <button
+                                  type="button"
+                                  style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }}
+                                  onClick={() => { askAI('yes confirm'); }}
+                                >
+                                  ✓ Confirm
+                                </button>
+                              </div>
+                            ) : null}
                             {item.meta ? <small>{item.meta}</small> : null}
                           </div>
                         ))}
+                        {aiTyping ? (
+                          <div className="ai-bubble ai-assistant">
+                            <p style={{ opacity: 0.6 }}>Advisor is thinking...</p>
+                          </div>
+                        ) : null}
+                        <div ref={aiChatEndRef} />
                       </div>
 
                       <div className="ai-chat-input-row">
                         <textarea
                           value={aiInput}
                           onChange={(event) => setAiInput(event.target.value)}
-                          placeholder="Ask for operational advice, summaries, or briefing text..."
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              if (aiInput.trim()) { askAI(aiInput); setAiInput(''); }
+                            }
+                          }}
+                          placeholder="Ask for operational advice, game suggestions, or briefing text... (Enter to send)"
+                          disabled={aiTyping}
                         />
                         <button
                           type="button"
-                          onClick={() => {
-                            askAI(aiInput);
-                            setAiInput('');
-                          }}
+                          disabled={aiTyping || !aiInput.trim()}
+                          onClick={() => { askAI(aiInput); setAiInput(''); }}
                         >
                           Send
                         </button>
