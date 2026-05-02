@@ -1,8 +1,6 @@
-"""Offline TTS service using Windows SAPI via pyttsx3.
+"""Offline TTS service using Piper neural TTS (primary) with pyttsx3/SAPI fallback on Windows.
 
-Generates speech audio as WAV bytes in a background thread (pyttsx3 requires
-its own thread due to COM apartment restrictions on Windows).  Falls back
-gracefully on non-Windows platforms.
+Generates speech audio as WAV bytes. Piper works cross-platform; pyttsx3 is Windows-only.
 """
 from __future__ import annotations
 
@@ -254,19 +252,18 @@ def generate_speech_wav(text: str) -> bytes | None:
     Returns None if TTS is unavailable or fails.
     Blocks until synthesis is complete (uses a temp file since pyttsx3 requires it).
     """
-    if platform.system() != "Windows":
-        logger.warning("pyttsx3 TTS is only supported on Windows.")
-        return None
-
     clean = _strip_symbols(text)
     clean = _normalize_for_speech(clean)
     if not clean:
         return None
 
-    try:
-        import pyttsx3  # deferred import to avoid startup crash on non-Windows
-    except ImportError:
-        pyttsx3 = None
+    pyttsx3 = None
+    if platform.system() == "Windows":
+        try:
+            import pyttsx3 as _pyttsx3  # deferred import to avoid startup crash on non-Windows
+            pyttsx3 = _pyttsx3
+        except ImportError:
+            pass
 
     with _tts_lock:
         # Prefer Piper voice if configured/available.
