@@ -158,8 +158,8 @@ function App() {
     title: 'Operation Echo',
     description: 'Field objective sequence for Sector Echo.',
     game_mode: DEFAULT_GAME_MODES[0],
-    main_timer_seconds: 1800,
-    phase_timer_seconds: 300,
+    main_timer_minutes: 30,
+    phase_timer_minutes: 5,
     objectivesText: 'Capture Relay,Hold HQ,Extract VIP',
   });
   const [scheduleItems, setScheduleItems] = useState([]);
@@ -894,8 +894,8 @@ function App() {
       title: missionForm.title,
       description: missionForm.description,
       game_mode: missionForm.game_mode,
-      main_timer_seconds: Number(missionForm.main_timer_seconds),
-      phase_timer_seconds: Number(missionForm.phase_timer_seconds),
+      main_timer_seconds: Number(missionForm.main_timer_minutes) * 60,
+      phase_timer_seconds: Number(missionForm.phase_timer_minutes) * 60,
       objectives,
     });
   }
@@ -975,27 +975,31 @@ function App() {
                         </select>
                       </label>
                       <label>
-                        Main Timer (seconds)
+                        Main Timer (minutes)
                         <input
                           type="number"
-                          value={missionForm.main_timer_seconds}
+                          min="1"
+                          max="180"
+                          value={missionForm.main_timer_minutes}
                           onChange={(event) =>
                             setMissionForm((current) => ({
                               ...current,
-                              main_timer_seconds: event.target.value,
+                              main_timer_minutes: event.target.value,
                             }))
                           }
                         />
                       </label>
                       <label>
-                        Phase Timer (seconds)
+                        Phase Timer (minutes)
                         <input
                           type="number"
-                          value={missionForm.phase_timer_seconds}
+                          min="1"
+                          max="60"
+                          value={missionForm.phase_timer_minutes}
                           onChange={(event) =>
                             setMissionForm((current) => ({
                               ...current,
-                              phase_timer_seconds: event.target.value,
+                              phase_timer_minutes: event.target.value,
                             }))
                           }
                         />
