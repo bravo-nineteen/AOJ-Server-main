@@ -23,7 +23,7 @@ def get_db():
 
 
 def init_db() -> None:
-    from app import models  # noqa: F401
+    import app.models  # noqa: F401 – ensures all ORM classes are registered with Base
 
     Base.metadata.create_all(bind=engine)
     _ensure_schedule_columns()

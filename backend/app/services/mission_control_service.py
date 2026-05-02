@@ -6,8 +6,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.core.websocket import websocket_manager
 from app.services.log_service import log_action
-from app.websocket_manager import websocket_manager
 
 _IDLE_STATE: dict = {
     "mission_id": None,

@@ -7,8 +7,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
+from app.core.websocket import websocket_manager
 from app.schemas import SystemStatusResponse
-from app.websocket_manager import websocket_manager
 
 STARTED_AT = datetime.now(tz=timezone.utc)
 BACKEND_VERSION = "0.1.0"
@@ -116,10 +116,10 @@ def _get_database_status(db: Session) -> str:
 
 def _get_lora_service_status() -> str:
     try:
-        from services import lora_service
+        from app.lora.service import lora_service
 
-        mode = "mock" if getattr(lora_service._service, "mock_mode", True) else "hardware"
-        pending = getattr(lora_service._service, "pending_ack_count", 0)
+        mode = "mock" if lora_service.mock_mode else "hardware"
+        pending = lora_service.pending_ack_count
         return f"online:{mode}:pending_ack={pending}"
     except Exception:
         return "unavailable"

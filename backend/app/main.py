@@ -5,18 +5,19 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.config import APP_TITLE, APP_VERSION, CORS_ORIGIN_REGEX
+from app.core.websocket import websocket_manager
 from app.database import init_db
+from app.lora.service import lora_service
 from app.routes import ai, health, logs, mission_control, prop_network, resources, results, schedule, system, update_center
-from app.services.lora_service import lora_service
 from app.services.mission_control_service import mission_control_service
-from app.websocket_manager import websocket_manager
 
-app = FastAPI(title="AOJ Command OS API", version="0.1.0")
+app = FastAPI(title=APP_TITLE, version=APP_VERSION)
 
 # Local-network oriented CORS configuration for browser clients on LAN devices.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?",
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

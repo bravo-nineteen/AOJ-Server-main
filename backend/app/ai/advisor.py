@@ -1,6 +1,8 @@
+"""AI advisory module – mock advisor with restricted-term detection."""
+
 import re
 
-from app import schemas
+from app.schemas.ai import AIAskResponse
 
 MOCK_MODEL_NAME = "mock-local-advisor-v1"
 
@@ -21,7 +23,7 @@ RESTRICTED_TERMS = {
 }
 
 
-def ask_ai(prompt: str) -> schemas.AIAskResponse:
+def ask_ai(prompt: str) -> AIAskResponse:
     text = prompt.strip()
     lower = text.lower()
 
@@ -36,7 +38,7 @@ def ask_ai(prompt: str) -> schemas.AIAskResponse:
             "directly execute or authorize hardware actions. Request explicit admin "
             "confirmation before any prop or mission control command."
         )
-        return schemas.AIAskResponse(
+        return AIAskResponse(
             answer=answer,
             advisory_only=True,
             requires_admin_confirmation=True,
@@ -81,7 +83,7 @@ def ask_ai(prompt: str) -> schemas.AIAskResponse:
             "and communication drafts. I do not execute hardware or mission commands."
         )
 
-    return schemas.AIAskResponse(
+    return AIAskResponse(
         answer=answer,
         advisory_only=True,
         requires_admin_confirmation=False,

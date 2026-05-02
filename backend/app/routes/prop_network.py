@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException
 
 from app import models, schemas
+from app.core.websocket import websocket_manager
 from app.database import get_db
+from app.lora.service import lora_service
 from app.services.log_service import log_action
-from app.services.lora_service import lora_service
-from app.websocket_manager import websocket_manager
 
 router = APIRouter(prefix="/api/props", tags=["Prop Network"])
 

@@ -235,5 +235,5 @@ class LoRaService:
             _ = queued
 
 
-# Singleton instance – started at import time via main.py on_startup.
+# Singleton instance – started by main.py on_startup, not at import time.
 lora_service = LoRaService()

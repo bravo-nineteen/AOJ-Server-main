@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends
 
 from app import models, schemas
+from app.ai.advisor import ask_ai
 from app.database import get_db
-from app.services.ai_service import ask_ai
 from app.services.log_service import log_action
 
 router = APIRouter(prefix="/api/ai", tags=["AI Assistant"])
