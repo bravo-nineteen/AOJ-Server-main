@@ -5,13 +5,11 @@ GET  /api/tts/status                     → { "available": bool, "voice": str }
 """
 from __future__ import annotations
 
-import platform
-
 from fastapi import APIRouter
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel, Field
 
-from app.services.tts_service import generate_speech_wav, _find_female_voice, _strip_symbols
+from app.services.tts_service import generate_speech_wav, tts_engine_status
 
 router = APIRouter(prefix="/api/tts", tags=["TTS"])
 
@@ -22,19 +20,8 @@ class TTSSpeakRequest(BaseModel):
 
 @router.get("/status")
 def tts_status() -> JSONResponse:
-    """Report whether offline TTS is available and which voice is selected."""
-    if platform.system() != "Windows":
-        return JSONResponse({"available": False, "voice": None, "reason": "non-windows"})
-    try:
-        import pyttsx3
-        engine = pyttsx3.init()
-        voice_id = _find_female_voice(engine)
-        voices = engine.getProperty("voices")
-        voice_name = next((v.name for v in voices if v.id == voice_id), None)
-        engine.stop()
-        return JSONResponse({"available": True, "voice": voice_name or "default"})
-    except Exception as exc:
-        return JSONResponse({"available": False, "voice": None, "reason": str(exc)})
+    """Report whether offline TTS is available and which engine/voice is active."""
+    return JSONResponse(tts_engine_status())
 
 
 @router.post("/speak")

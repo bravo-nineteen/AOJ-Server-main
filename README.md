@@ -86,8 +86,40 @@ Set-Location .\backend
 
 4. Start AOJ Command OS and verify:
   - `GET http://localhost:8000/api/tts/status` should return `available=true`
-  - Christy uses Microsoft Zira (female voice) for offline speech
+  - Christy uses Piper when available (`engine=piper`), else Microsoft Zira fallback (`engine=pyttsx3`)
   - AI will use Ollama when available, and auto-fallback if Ollama is offline
+
+### Piper Voice Setup (Christy)
+
+1. Download Piper for Windows and place `piper.exe` in a folder on your PATH (or use a full executable path).
+2. Download a Piper ONNX voice model (example: `en_US-amy-medium.onnx`) and place it under:
+
+```text
+backend/assets/piper/
+```
+
+3. Set environment variables before starting backend (PowerShell example):
+
+```powershell
+$env:PIPER_BIN = "piper"
+$env:PIPER_MODEL_PATH = "C:\\path\\to\\AOJ-Server-main\\backend\\assets\\piper\\en_US-amy-medium.onnx"
+$env:PIPER_LENGTH_SCALE = "1.08"
+# Optional tuning:
+# $env:PIPER_SPEAKER_ID = "0"
+# $env:PIPER_NOISE_SCALE = "0.667"
+# $env:PIPER_NOISE_W = "0.8"
+```
+
+4. Start backend and check status:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8000/api/tts/status"
+```
+
+Expected result when Piper is active:
+- `available: true`
+- `engine: piper`
+- `voice: <model-file-name>.onnx`
 
 ### Start the server (single process, recommended)
 

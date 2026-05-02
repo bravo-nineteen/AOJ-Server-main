@@ -7,8 +7,11 @@ gracefully on non-Windows platforms.
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import re
+import shutil
+import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -26,6 +29,16 @@ _FEMALE_VOICE_PREFS = [
 
 _tts_lock = threading.Lock()
 _BASE_RATE = 160
+_DEFAULT_PIPER_LENGTH_SCALE = 1.08
+
+
+def _project_root() -> Path:
+    # backend/app/services/tts_service.py -> backend/
+    return Path(__file__).resolve().parents[2]
+
+
+def _default_piper_model_path() -> Path:
+    return _project_root() / "assets" / "piper" / "en_US-amy-medium.onnx"
 
 
 def _strip_symbols(text: str) -> str:
@@ -127,6 +140,93 @@ def _adaptive_rate_for_text(text: str) -> int:
     return max(140, min(164, rate))
 
 
+def _piper_binary_path() -> str:
+    return os.getenv("PIPER_BIN", "piper")
+
+
+def _piper_model_path() -> str:
+    return os.getenv("PIPER_MODEL_PATH", str(_default_piper_model_path()))
+
+
+def _piper_length_scale() -> str:
+    # >1.0 = slower speaking pace
+    return os.getenv("PIPER_LENGTH_SCALE", str(_DEFAULT_PIPER_LENGTH_SCALE))
+
+
+def _is_piper_available() -> tuple[bool, str]:
+    bin_path = _piper_binary_path()
+    model_path = _piper_model_path()
+
+    bin_exists = bool(shutil.which(bin_path) or Path(bin_path).exists())
+    if not bin_exists:
+        return False, f"piper binary not found: {bin_path}"
+
+    if not Path(model_path).exists():
+        return False, f"piper model not found: {model_path}"
+
+    return True, "ok"
+
+
+def _generate_with_piper(text: str) -> bytes | None:
+    ok, reason = _is_piper_available()
+    if not ok:
+        logger.info("Piper unavailable (%s); falling back to pyttsx3", reason)
+        return None
+
+    bin_path = _piper_binary_path()
+    model_path = _piper_model_path()
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        out_path = tmp.name
+
+    try:
+        cmd = [
+            bin_path,
+            "--model",
+            model_path,
+            "--output_file",
+            out_path,
+            "--length_scale",
+            _piper_length_scale(),
+        ]
+
+        # Optional voice/synthesis tuning
+        speaker_id = os.getenv("PIPER_SPEAKER_ID", "").strip()
+        if speaker_id:
+            cmd.extend(["--speaker", speaker_id])
+
+        noise_scale = os.getenv("PIPER_NOISE_SCALE", "").strip()
+        if noise_scale:
+            cmd.extend(["--noise_scale", noise_scale])
+
+        noise_w = os.getenv("PIPER_NOISE_W", "").strip()
+        if noise_w:
+            cmd.extend(["--noise_w", noise_w])
+
+        proc = subprocess.run(
+            cmd,
+            input=text,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            logger.warning("Piper synthesis failed (%s): %s", proc.returncode, proc.stderr.strip())
+            return None
+
+        wav_bytes = Path(out_path).read_bytes()
+        if not wav_bytes:
+            logger.warning("Piper produced empty WAV output")
+            return None
+        return wav_bytes
+    except Exception as exc:
+        logger.warning("Piper synthesis exception: %s", exc)
+        return None
+    finally:
+        Path(out_path).unlink(missing_ok=True)
+
+
 def _find_female_voice(engine) -> str | None:
     """Return the voice ID of the best available female voice, or None."""
     voices = engine.getProperty("voices")
@@ -161,10 +261,18 @@ def generate_speech_wav(text: str) -> bytes | None:
     try:
         import pyttsx3  # deferred import to avoid startup crash on non-Windows
     except ImportError:
-        logger.warning("pyttsx3 not installed; TTS unavailable.")
-        return None
+        pyttsx3 = None
 
     with _tts_lock:
+        # Prefer Piper voice if configured/available.
+        piper_wav = _generate_with_piper(clean)
+        if piper_wav is not None:
+            return piper_wav
+
+        if pyttsx3 is None:
+            logger.warning("Neither Piper nor pyttsx3 are available for TTS.")
+            return None
+
         tmp_path: str | None = None
         try:
             engine = pyttsx3.init()
@@ -190,3 +298,36 @@ def generate_speech_wav(text: str) -> bytes | None:
         finally:
             if tmp_path:
                 Path(tmp_path).unlink(missing_ok=True)
+
+
+def tts_engine_status() -> dict[str, str | bool | None]:
+    """Expose active TTS engine availability and config for API status route."""
+    piper_ok, piper_reason = _is_piper_available()
+    if piper_ok:
+        return {
+            "available": True,
+            "engine": "piper",
+            "voice": Path(_piper_model_path()).name,
+            "reason": "ok",
+        }
+
+    try:
+        import pyttsx3
+        engine = pyttsx3.init()
+        voice_id = _find_female_voice(engine)
+        voices = engine.getProperty("voices")
+        voice_name = next((v.name for v in voices if v.id == voice_id), None)
+        engine.stop()
+        return {
+            "available": True,
+            "engine": "pyttsx3",
+            "voice": voice_name or "default",
+            "reason": f"piper_unavailable: {piper_reason}",
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "engine": None,
+            "voice": None,
+            "reason": f"piper_unavailable: {piper_reason}; pyttsx3_error: {exc}",
+        }
