@@ -135,11 +135,39 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ## Access URLs
 
+### Development Mode (two processes)
+
 - Frontend dev: http://127.0.0.1:5173
 - Frontend preview or static: http://127.0.0.1:4173
 - Backend API: http://127.0.0.1:8000
 - Health check: http://127.0.0.1:8000/api/health
 - WebSocket: ws://127.0.0.1:8000/ws/live
+
+### Production Mode (single process)
+
+When `frontend/dist/` exists, FastAPI serves the built UI directly.  No second server needed.
+
+- UI + API: http://MACHINE_IP:8000
+- Health check: http://MACHINE_IP:8000/api/health
+- WebSocket: ws://MACHINE_IP:8000/ws/live
+
+## Production Quick Start
+
+After running the installer once, use the production launcher to serve everything from a single process on port 8000.
+
+### Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_production_windows.ps1
+```
+
+### Linux / Raspberry Pi
+
+```bash
+./scripts/start_production.sh
+```
+
+Open a browser on any LAN device and navigate to `http://MACHINE_IP:8000`.
 
 ## Installation System Overview
 
@@ -148,13 +176,31 @@ Cross-platform installer and launcher scripts included in the repo:
 - Windows install: `scripts/install_windows.ps1`
 - Windows backend start: `scripts/start_backend_windows.ps1`
 - Windows frontend start: `scripts/start_frontend_windows.ps1`
-- Windows combined launcher: `scripts/start_aoj_windows.ps1`
+- Windows combined launcher (dev): `scripts/start_aoj_windows.ps1`
+- **Windows production launcher: `scripts/start_production_windows.ps1`**
 - Linux install: `scripts/install_linux.sh`
-- Linux combined launcher: `scripts/start_aoj_linux.sh`
+- Linux combined launcher (dev): `scripts/start_aoj_linux.sh`
 - Linux or Raspberry Pi backend start: `scripts/start_backend.sh`
 - Linux or Raspberry Pi frontend start: `scripts/start_frontend.sh`
+- **Linux/Pi production launcher: `scripts/start_production.sh`**
 
 The installer scripts are intended for downloaded or unzipped copies of the project. They prepare the runtime in-place and do not require Docker.
+
+## Creating a Release Archive
+
+Package the project into a distributable archive (no `.venv`, no `node_modules`, no built `dist`):
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File .\scripts\package_release_windows.ps1 -Version "1.0.0"
+```
+
+```bash
+# Linux / Pi
+./scripts/package_release_linux.sh 1.0.0
+```
+
+See `docs/RELEASE_CHECKLIST.md` for the full pre-release verification steps.
 
 ## Field Notes
 

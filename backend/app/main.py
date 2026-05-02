@@ -1,7 +1,9 @@
 import asyncio
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
 from app.routes import ai, health, logs, mission_control, prop_network, resources, results, schedule, system, update_center
@@ -60,3 +62,11 @@ async def live_updates(websocket: WebSocket) -> None:
             await websocket_manager.broadcast({"event": "echo", "payload": payload})
     except WebSocketDisconnect:
         websocket_manager.disconnect(websocket)
+
+
+# Serve the built React frontend when frontend/dist exists.
+# This enables single-process production mode: one uvicorn process on :8000
+# serves both the API and the UI.  API routes registered above take precedence.
+_dist_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if _dist_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_dist_dir), html=True), name="frontend")
