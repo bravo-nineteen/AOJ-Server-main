@@ -33,7 +33,7 @@ OLLAMA_MODEL_PREFERENCE = [
     "gemma:2b",
 ]
 
-CHRISTY_SYSTEM_PROMPT = """You are Christy, the intelligent field operations advisor for AOJ Command OS — an airsoft command platform.
+CHRISTY_SYSTEM_PROMPT = """You are Christy, the intelligent field operations advisor for AOJ Command OS — an airsoft command platform operating in Japan.
 
 Your personality: calm, professional, friendly, and knowledgeable. You speak in a natural, conversational tone. You DO NOT use bullet-point walls unless specifically asked for a list. You write in short, clear paragraphs.
 
@@ -48,6 +48,23 @@ Your capabilities:
 - Remember and use player/member profiles (name, gender, team, skill level, strengths, weaknesses)
 - Use member data to suggest balanced teams, personalised tips, and role assignments
 - Learn from corrections: if someone says "actually Alex is on Blue Team now", update your understanding
+- Advise on Japan-specific safety standards, legal classifications, chrono rules, and event operations
+- Provide heat/WBGT safety guidance, emergency protocols, and insurance advice for Japanese events
+
+JAPAN-SPECIFIC KNOWLEDGE (enforce these as hard rules in all relevant responses):
+- Legal outer ceiling for adults: 0.98 J maximum muzzle energy
+- Under-18 players: 0.135 J maximum — switch ALL players to junior ruleset when any minor is present
+- CQB/indoor environments may impose lower limits (e.g. 88.99 m/s with 0.20g BB) — always defer to venue cap
+- Legal classifications matter: toy_airsoft (normal BB-firing), model_gun (display, no BB), quasi_air_gun (prohibited — too powerful), imitation_pistol, suspected_real_firearm. Never treat all airsoft-shaped items as equivalent.
+- Imported products: do NOT recommend private import unless tariff classification and Japanese compliance are confirmed. Some overseas "toy pistols" are legally real firearms under Japanese law.
+- Transport: carry in a case/bag, out of sight. Players leaving the venue must remove tactical gear and not appear in public in camouflage or with visible replicas.
+- Chrono standard: 3 shots, BB weight recorded, highest reading counts, tag gun after passing. Re-test after temperature changes or suspected tampering.
+- Eye protection: sealed airsoft-rated goggles mandatory. Mesh-only goggles are insufficient unless backed by inner shooting glasses. Full-face protection is the default for CQB, beginners, rental players, and all minors.
+- Close-range rules are venue-specific: self-hit, courtesy surrender, or MED enforcement — always check venue config.
+- Heat/WBGT: warn at 28°C WBGT, suspend play at 31°C WBGT. Heat casualties: move to cool place, cool actively, give fluids only if alert and can swallow, call 119 immediately if consciousness is altered.
+- Emergency: 119 for ambulance/fire, AED location must be confirmed before play. Keep a written call script for 119.
+- Insurance: club policy (Sports Safety Association for groups of 4+), one-off recreation policy, or venue+event liability — advise based on event type.
+- Player eligibility: all fields — attendance_confirmed, waiver_signed, age_verified, ppe_checked, chrono_passed, briefing_attended — must all be true before a player enters the game area.
 
 CRITICAL rules:
 - NEVER execute an operational action without explicit user confirmation — ask "Can you confirm?" first
@@ -56,6 +73,7 @@ CRITICAL rules:
 - Keep answers under 200 words unless building a detailed rule set
 - Do NOT use excessive markdown symbols in responses — use plain, natural language
 - Do NOT start every message with "Certainly!" or similar filler phrases
+- NEVER provide guidance on converting, importing illegally, or evading Japan's Firearms and Swords Control Act
 
 Context block format: The operational context is provided as a structured block with sections [CURRENT STATE], [MISSION], [SCHEDULE], [DEVICES], [LOGS], [MEMBERS], [MEMORY]. Use this to give accurate, live answers.
 
@@ -468,10 +486,18 @@ def _infer_active_topic(history: list[dict[str, Any]]) -> str | None:
         return "loadout"
     if re.search(r"tactic|flank|push|defend|anchor|squad|communication|comms", recent):
         return "tactics"
-    if re.search(r"chrono|fps|joule|safety|eye pro|face pro|bang rule|minimum engagement", recent):
+    if re.search(r"chrono|fps|joule|safety|eye pro|face pro|bang rule|minimum engagement|wbgt|heat|heatstroke", recent):
         return "safety"
     if re.search(r"member profile|member|player profile|team balance|strength|weakness", recent):
         return "members"
+    if re.search(r"legal|classify|classification|import|quasi|model gun|firearm|permit|ordinance", recent):
+        return "legal"
+    if re.search(r"heat|wbgt|heatstroke|temperature|weather|summer", recent):
+        return "heat"
+    if re.search(r"emergency|119|aed|first aid|injury|incident|ambulance", recent):
+        return "emergency"
+    if re.search(r"event plan|workflow|staff|staffing|waiver|registration|check.in|insurance", recent):
+        return "event_ops"
     return None
 
 
@@ -512,10 +538,126 @@ def _airsoft_tactics_advice(mode_hint: str | None = None) -> str:
 
 def _airsoft_safety_advice() -> str:
     return (
-        "Safety baseline for smooth games: chrono every replica at start, enforce eye protection at all times in active zones, "
-        "brief minimum engagement distance per class, and make hit-calling rules explicit before each round. "
-        "Use one universal emergency phrase like 'CODE RED, ALL STOP' and make every marshal repeat it in briefing. "
-        "If you want, I can generate a printable pre-game safety checklist for your marshals."
+        "Japan safety baseline: chrono every replica using 3 shots at recorded BB weight — highest reading counts. "
+        "Tag guns that pass; re-test after temperature changes or any tampering complaint. "
+        "Adult limit is 0.98 J. Under-18 players use the 0.135 J junior ruleset — enforce this for the whole event if any minor is present. "
+        "CQB venues impose lower caps; always defer to the venue's published limit.\n\n"
+        "Eye protection: sealed airsoft-rated goggles are mandatory. "
+        "Mesh-only goggles are not sufficient unless backed by inner shooting glasses. "
+        "Full-face protection is the default for CQB, beginners, rental players, and all minors.\n\n"
+        "Close-range rules are venue-specific — self-hit, courtesy surrender, or a hard MED. "
+        "Brief your marshals on which one applies before any round starts.\n\n"
+        "Emergency phrase: 'CODE RED, ALL STOP' — every marshal must repeat this in the pre-game briefing. "
+        "If you want, I can generate a printable pre-game safety checklist or the full Japan chrono procedure."
+    )
+
+
+def _chrono_checklist() -> str:
+    return (
+        "**Chrono procedure (Japan standard):**\n\n"
+        "1. Record BB weight used for the session (usually 0.20g; note if different)\n"
+        "2. Set hop-up to the venue's required state before testing\n"
+        "3. Remove detachable suppressors or QD muzzle devices if the venue requires it\n"
+        "4. Fire 3 shots — the highest reading is the official result\n"
+        "5. Compare against the applicable limit: 0.98 J for adults, 0.135 J for under-18, or the venue CQB cap\n"
+        "6. Tag the gun clearly after passing; record result with player name and gear ID\n"
+        "7. Re-test after significant temperature changes, player complaints, or suspected tampering\n\n"
+        "Need the joule calculation? Joules = (velocity in m/s)² × (BB weight in kg) ÷ 2. "
+        "For 0.20g at 99 m/s: (99²) × 0.0002 ÷ 2 = 0.98 J."
+    )
+
+
+def _japan_legal_advice() -> str:
+    return (
+        "Under Japan's Firearms and Swords Control Act, airsoft terminology and legal terminology are not the same. "
+        "The key categories are:\n\n"
+        "- **Toy airsoft (おもちゃ):** BB-firing game replicas within legal power limits — the normal category for field play\n"
+        "- **Model gun:** Non-projectile display replica with a blocked muzzle — not for BB use\n"
+        "- **Quasi-air gun (準空気銃):** Gas-powered device powerful enough to injure but not licensed — possession is prohibited, up to 3 years' imprisonment and ¥1,000,000 fine\n"
+        "- **Imitation pistol / mock gun:** Separately regulated; includes some convertible metal model guns\n"
+        "- **Suspected real firearm:** Any imported or modified item that police or customs may treat as an actual handgun\n\n"
+        "Critical rule: never treat all airsoft-shaped items as legally equivalent. "
+        "Before answering a compliance question, you need to know: what the item fires, whether it has been modified, whether it is domestic or imported, and which age band will use it.\n\n"
+        "On imports: some overseas 'toy pistols' sold online are legally real handguns under Japanese law. "
+        "Do not recommend private import unless tariff classification and Japanese compliance are fully confirmed."
+    )
+
+
+def _heat_safety_advice() -> str:
+    return (
+        "**Heat management for outdoor airsoft events (Japan WBGT standard):**\n\n"
+        "- **WBGT below 25°C:** Normal operations\n"
+        "- **WBGT 25–28°C:** Increase water breaks; remind players to hydrate\n"
+        "- **WBGT 28°C (警戒):** Issue a formal warning; shorten active play blocks and mandate shade breaks\n"
+        "- **WBGT 31°C (厳重警戒/危険):** Suspend outdoor play; move to shaded or indoor areas only\n\n"
+        "If a player shows signs of heat illness — dizziness, confusion, stopping sweating, or loss of consciousness:\n"
+        "1. Move to the coolest available location immediately\n"
+        "2. Cool actively: wet cloths, fan, remove excess gear\n"
+        "3. Give cool fluids **only if the player is alert and able to swallow**\n"
+        "4. Call **119** immediately if consciousness is altered, self-hydration is impossible, or symptoms do not improve quickly\n\n"
+        "For summer events: plan 20–25 minute active blocks with mandatory water checkpoints at each reset. "
+        "Automatic downgrade to shorter rounds when WBGT enters the danger band."
+    )
+
+
+def _emergency_protocol() -> str:
+    return (
+        "**Emergency protocol for AOJ events:**\n\n"
+        "**Universal halt:** Shout 'CODE RED, ALL STOP' — all marshals must know and repeat this\n\n"
+        "**Injury response:**\n"
+        "1. Halt play immediately; secure the area\n"
+        "2. Marshal attends; assess injury — note location and mechanism\n"
+        "3. Apply first aid (cold pack, pressure, stabilise)\n"
+        "4. Call **119** if: loss of consciousness, suspected fracture, eye injury, heat casualty with altered consciousness, or any doubt about severity\n"
+        "5. Note AED location before every event — confirm it before play begins\n"
+        "6. Log the incident: time, zone, persons involved, immediate actions, escalation decision\n\n"
+        "**119 call script (Japanese):** State your location clearly, describe what happened, give the patient's age and condition, and stay on the line until told to hang up.\n\n"
+        "**Insurance:** Notify your insurer of any injury that required medical attention. "
+        "If you are using the Sports Safety Association club policy, their scheme covers groups of four or more and includes injury, liability, and sudden-death cover."
+    )
+
+
+def _event_workflow_advice() -> str:
+    return (
+        "**AOJ event operations workflow:**\n\n"
+        "1. **Publish & register** — collect waivers, age verification, and emergency contacts at sign-up\n"
+        "2. **Check-in** — confirm ID, payment, and attendance; no entry without completed waiver\n"
+        "3. **Rental & PPE issue** — check eye protection and assign marker colour\n"
+        "4. **Chrono** — test every gun, tag passed items, record BB weight and highest reading\n"
+        "5. **Safety briefing** — cover PPE, hit calls, MED, emergency phrase, and AED location\n"
+        "6. **Team allocation & game briefing** — assign spawn, objectives, and team colour\n"
+        "7. **Round rotation** — run rounds; mandatory hydration and welfare check at each break\n"
+        "8. **Incident handling** — pause, triage, log, resolve; notify venue manager if any injury\n"
+        "9. **Debrief & closeout** — collect lost property, segregate waste (batteries to staff, gas canisters to collection box), check out all rental gear\n\n"
+        "Player is eligible to enter the game area only when ALL of these are true: "
+        "attendance_confirmed, waiver_signed, age_verified, ppe_checked, chrono_passed, briefing_attended.\n\n"
+        "Want me to generate a staffing plan for your player count?"
+    )
+
+
+def _staffing_advice(player_count: int) -> str:
+    if player_count <= 30:
+        staff = 4
+        roles = "Event lead, marshal, check-in/chrono, rental/first-aid dual role"
+    elif player_count <= 60:
+        staff = 6
+        roles = "Event lead, chief safety marshal, 2 marshals, check-in, chrono, rental"
+    elif player_count <= 100:
+        staff = 8
+        roles = "Event lead, chief safety marshal, 3–4 marshals, check-in, chrono, rental, medical/welfare"
+    else:
+        staff = 11
+        roles = "Event lead, deputy, 5–6 marshals, check-in, 2 chrono staff, armoury, medical/welfare, closeout lead"
+
+    return (
+        f"**Recommended staffing for {player_count} players:** {staff} staff minimum\n\n"
+        f"**Roles:** {roles}\n\n"
+        "**Adjustments:**\n"
+        "- Add 1 marshal for every 20 first-timers\n"
+        "- Add 1 marshal for every 15 minors\n"
+        "- Add 1 armoury staff if more than 40% of players are on rentals\n"
+        "- Add indoor/CQB bonus: +1 staff per bracket above\n\n"
+        "This is a proposed standard, not a statutory ratio."
     )
 
 
@@ -525,10 +667,18 @@ def _topic_hint_from_text(text: str) -> str | None:
         return "loadout"
     if re.search(r"\b(tactic|strategy|flank|push|anchor|rotate|squad|comms?|communication)\b", t):
         return "tactics"
-    if re.search(r"\b(safety|chrono|fps|joule|eye pro|face pro|minimum engagement|med|bang rule|hit call)\b", t):
+    if re.search(r"\b(safety|chrono|fps|joule|eye pro|face pro|minimum engagement|med|bang rule|hit call|wbgt|heat)\b", t):
         return "safety"
     if re.search(r"\b(coach|role assign|squad assign|player brief|entry|anchor|rover|marksman)\b", t):
         return "members"
+    if re.search(r"\b(legal|classify|import|quasi|model gun|firearm|permit|ordinance|age band|under.?18)\b", t):
+        return "legal"
+    if re.search(r"\b(heat|wbgt|heatstroke|temperature|weather|summer)\b", t):
+        return "heat"
+    if re.search(r"\b(emergency|119|aed|first aid|injury|incident|ambulance)\b", t):
+        return "emergency"
+    if re.search(r"\b(event|workflow|staff|staffing|waiver|registration|check.in|insurance|checklist)\b", t):
+        return "event_ops"
     return None
 
 
@@ -801,11 +951,64 @@ def _build_game_mode_rules(mode_name: str, players: int | None, minutes: int | N
             "- Scoring: Extraction = 10 pts for attackers; time-out = 10 pts for defenders\n"
             "- Win: Team with most points after 2 rounds (swap roles between rounds)"
         ),
+        "vip escort": (
+            f"**VIP Escort – {p} players, {t} min**\n"
+            f"- Escort team: {per_team} players   Intercept team: {per_team} players\n"
+            "- Objective: Escort team moves VIP from spawn to extraction point\n"
+            "- VIP: moves at walking pace, one designated player, unarmed\n"
+            "- If VIP is tagged: game ends, intercept team wins\n"
+            "- Multiple routes available to escorts — use intel advantage carefully\n"
+            "- Respawn: No respawn for escort team; intercept team gets 30-sec wave respawn\n"
+            "- Scoring: Successful extraction = 10 pts; VIP neutralised = 10 pts\n"
+            "- Win: Best of 3 rounds with role swap\n"
+            "- Balance lever: give stronger team the escort role; longer extraction routes equalise the game"
+        ),
+        "objective raid": (
+            f"**Objective Raid – {p} players, {t} min**\n"
+            f"- Attackers: {per_team} players   Defenders: {per_team} players\n"
+            "- Objectives: 3 target devices/props for attackers to activate or extract\n"
+            "- Defenders: protect at least 2 of the 3 objectives to win\n"
+            "- Respawn: Attackers wave respawn every 45 sec (3 waves max); Defenders unlimited\n"
+            "- Scoring: Each objective activated = 5 pts for attackers; time-out = 3 pts per surviving objective for defenders\n"
+            "- Win: Team with most points after 2 rounds (swap roles)\n"
+            "- Marshal note: reset objectives before each round; tag activated props clearly"
+        ),
+        "attack defend": (
+            f"**Attack / Defend – {p} players, {t} min**\n"
+            f"- Attackers: {per_team} players   Defenders: {per_team} players\n"
+            "- Objective: Attackers capture the command point; defenders hold for the full duration\n"
+            "- Capture: 3 attackers in the zone for 60 sec uncontested\n"
+            "- Respawn: Attackers wave every 30 sec; Defenders unlimited but 20-sec penalty\n"
+            "- Scoring: Capture before time = 10 pts attackers; time-out = 10 pts defenders\n"
+            "- Win: Best of 4 rounds (2 rounds each side)\n"
+            "- Balance: Give terrain advantage to the weaker side — never stack skill + terrain + info on same team"
+        ),
+        "milsim patrol": (
+            f"**Milsim Patrol / Recon – {p} players, {t} min**\n"
+            f"- Teams: {per_team} vs {per_team}\n"
+            "- Format: 2 × 60-min phases + 30-min logistics break + 1 × 90-min final phase\n"
+            "- Objectives: Intel gathering, relay site seizure, command node assault\n"
+            "- Respawn: Medic revive (30-sec touch, 1 use per life); finite ticket pool per phase\n"
+            "- Scoring: Intel captured, relay sites held, command node captured\n"
+            "- Logistics: Supply resupply windows every 20 min; comms via radio only for objective updates\n"
+            "- Safety filters: 25-min active blocks with mandatory water checks; downgrade final phase if WBGT ≥ 31°C\n"
+            "- Marshal note: 4 roaming neutrals/partisans can be added for asymmetry"
+        ),
     }
     key = mode_name.lower().strip()
     for template_key, content in templates.items():
         if template_key in key or key in template_key:
             return content
+
+    # Alias matching for new modes
+    if re.search(r"vip|escort", key):
+        return templates["vip escort"]
+    if re.search(r"raid|objective", key):
+        return templates["objective raid"]
+    if re.search(r"attack|defend|assault", key):
+        return templates["attack defend"]
+    if re.search(r"milsim|patrol|recon", key):
+        return templates["milsim patrol"]
 
     return (
         f"**{mode_name} – {p} players, {t} min**\n"
@@ -828,6 +1031,8 @@ def _suggest_game(
     handicap_pct: int | None,
     minutes: int | None,
     available_modes: list[str] | None,
+    skill_hint: str | None = None,
+    has_minors: bool = False,
 ) -> str:
     p = players or 0
     f = field_m or 0
@@ -843,18 +1048,65 @@ def _suggest_game(
 
     per_team = p // 2
 
-    if p <= 8:
-        mode_style = "close-quarters, fast-paced"
-        recommendations = ["Skirmish", "Capture The Flag", "King of the Hill"]
-        rule_note = "Keep rounds short (10–15 min) with a 3-min respawn delay."
-    elif p <= 20:
-        mode_style = "medium-team tactical"
-        recommendations = ["Domination", "Capture The Flag", "King of the Hill"]
-        rule_note = "Suggest 2 objectives minimum. 20-min rounds work well."
+    # Step 1: Classify field density (from research report algorithm)
+    if f > 0:
+        space_per_player = f / p
+        if space_per_player < 150:
+            density = "cqb"
+        elif space_per_player < 400:
+            density = "mixed"
+        else:
+            density = "outdoor"
     else:
+        # Fall back to player count estimate
+        density = "outdoor" if p > 20 else "mixed"
+
+    # Step 2: Classify player readiness
+    skill = (skill_hint or "").lower()
+    if "novice" in skill or "beginner" in skill or "new" in skill:
+        readiness = "novice"
+    elif "expert" in skill or "veteran" in skill or "advanced" in skill:
+        readiness = "experienced"
+    else:
+        readiness = "mixed"
+
+    # Step 3: Safety filters
+    minor_note = ""
+    if has_minors:
+        minor_note = (
+            "\n\n**Minor players detected:** All players will use the 0.135 J junior ruleset. "
+            "Full-face protection is mandatory. No grenades or launchers."
+        )
+
+    cqb_note = ""
+    if density == "cqb":
+        cqb_note = "\n\n**CQB environment:** Semi-auto only and full-face protection are the defaults. Enforce venue power cap."
+
+    # Step 4: Select mode family based on density + readiness
+    if density == "cqb" and readiness in ("novice", "mixed"):
+        recommendations = ["Skirmish", "Objective Raid", "Capture The Flag"]
+        mode_style = "close-quarters, fast-paced"
+        rule_note = "Keep rounds short (8–12 min) with 20-sec wave respawn. Semi-auto only."
+    elif density == "mixed" and readiness == "mixed":
+        recommendations = ["Domination", "Capture The Flag", "Attack / Defend"]
+        mode_style = "medium-team tactical"
+        rule_note = "2 objectives minimum. 20-min rounds work well. Balance by spawn distance."
+    elif density == "outdoor" and readiness == "experienced":
+        recommendations = ["Milsim Patrol", "Attack / Defend", "Domination"]
         mode_style = "large-force strategic"
-        recommendations = ["Domination", "Hostage Rescue", "Skirmish"]
-        rule_note = "Use 3+ objectives and a 30-min session with a 1-min respawn limit."
+        rule_note = "Finite tickets, medic revive, 25-min active blocks with mandatory water checks."
+    elif p <= 8:
+        recommendations = ["Skirmish", "Capture The Flag", "King of the Hill"]
+        mode_style = "small-team close-range"
+        rule_note = "Keep rounds short (10–15 min) with 3-min respawn delay."
+    elif p <= 20:
+        recommendations = ["Domination", "Capture The Flag", "VIP Escort"]
+        mode_style = "medium-team tactical"
+        rule_note = "20-min rounds; 2 objectives minimum."
+    else:
+        recommendations = ["Domination", "Hostage Rescue", "Attack / Defend"]
+        mode_style = "large-force strategic"
+        rule_note = "Use 3+ objectives; 30-min sessions with 1-min respawn limit."
 
     # Overlay custom modes where names overlap
     if available_modes:
@@ -867,17 +1119,18 @@ def _suggest_game(
     if h >= 30:
         handicap_note = (
             f"\n\nWith a **{h}% handicap**, give the weaker team a 2-point head-start "
-            "and restrict respawns for the stronger team."
+            "and restrict respawns for the stronger team. "
+            "Never stack skill advantage, terrain advantage, and information advantage on the same side."
         )
     elif h > 0:
         handicap_note = (
-            f"\n\nWith a **{h}% handicap**, consider giving the weaker team an extra "
+            f"\n\nWith a **{h}% handicap**, give the weaker team an extra "
             "10 points at game start or one extra respawn ticket."
         )
 
     lines = [
         f"Based on **{p} players** ({per_team} per team)"
-        + (f", **{f} m²** field" if f else "")
+        + (f", **{f} m²** field ({density})" if f else "")
         + f", **{t}-minute** sessions — here are my top picks:",
         "",
     ]
@@ -887,6 +1140,12 @@ def _suggest_game(
         "",
         f"Style: {mode_style}.{handicap_note}",
         f"Rule tip: {rule_note}",
+    ]
+    if minor_note:
+        lines.append(minor_note)
+    if cqb_note:
+        lines.append(cqb_note)
+    lines += [
         "",
         "Want me to build out the full rule set for any of these? "
         "Just say which one and I'll draft objectives, timers, and scoring.",
@@ -1377,11 +1636,62 @@ def _handle_conversation(
 
     # Airsoft safety and chrono guidance
     if re.search(r"\b(safety|chrono|fps|joule|eye pro|face pro|minimum engagement|med|bang rule|hit call)\b", lower):
+        if re.search(r"\b(chrono|fps|joule|velocity|bb weight|hop.?up|suppress|muzzle)\b", lower):
+            return _mk_response(
+                _chrono_checklist(),
+                confidence=0.92,
+                used_ctx=[*used_ctx, "advisor:japan_chrono"],
+                suggested_actions=["Ask for the joule calculation formula or chrono logging template."],
+            )
         return _mk_response(
             _airsoft_safety_advice(),
             confidence=0.9,
             used_ctx=[*used_ctx, "advisor:airsoft_safety"],
-            suggested_actions=["Generate a printable marshal safety checklist."],
+            suggested_actions=["Generate a printable marshal safety checklist.", "Get the full chrono procedure."],
+        )
+
+    # Japan legal classification queries
+    if re.search(r"\b(legal|classif|import|quasi.air|model gun|firearm|permit|ordinance|age.?band|under.?18|minor|age.?verif)\b", lower):
+        return _mk_response(
+            _japan_legal_advice(),
+            confidence=0.9,
+            used_ctx=[*used_ctx, "advisor:japan_legal"],
+            suggested_actions=["Ask about power limits for under-18 players.", "Ask about import restrictions."],
+        )
+
+    # Heat / WBGT safety
+    if re.search(r"\b(heat|wbgt|heatstroke|temperature|weather|summer|hot day|warm)\b", lower):
+        return _mk_response(
+            _heat_safety_advice(),
+            confidence=0.91,
+            used_ctx=[*used_ctx, "advisor:heat_safety"],
+            suggested_actions=["Get the emergency protocol for heat casualties."],
+        )
+
+    # Emergency protocol
+    if re.search(r"\b(emergency|119|aed|first aid|injury|incident|ambulance|evacuat)\b", lower):
+        return _mk_response(
+            _emergency_protocol(),
+            confidence=0.92,
+            used_ctx=[*used_ctx, "advisor:emergency_protocol"],
+            suggested_actions=["Ask for the heat safety protocol.", "Ask about insurance options."],
+        )
+
+    # Event workflow and operations
+    if re.search(r"\b(event plan|event workflow|how to run|staffing|staff plan|waiver|registration|check.?in|insurance|event ops)\b", lower):
+        player_count = nums.get("players") or (nums.get("per_team", 0) * 2) or 0
+        if re.search(r"\b(staff|staffing|how many staff|marshal ratio)\b", lower) and player_count > 0:
+            return _mk_response(
+                _staffing_advice(player_count),
+                confidence=0.88,
+                used_ctx=[*used_ctx, "advisor:staffing"],
+                suggested_actions=["Ask for the full event workflow.", "Ask about insurance options."],
+            )
+        return _mk_response(
+            _event_workflow_advice(),
+            confidence=0.88,
+            used_ctx=[*used_ctx, "advisor:event_workflow"],
+            suggested_actions=["Ask for a staffing plan.", "Ask about emergency protocols."],
         )
 
     # -----------------------------------------------------------------------
@@ -1391,12 +1701,20 @@ def _handle_conversation(
         r"\b(suggest|recommend|what.{0,10}game|which.{0,10}game|best\s+game|pick\s+a\s+game|help.{0,10}choose|good game for)\b",
         lower,
     ):
+        has_minors = bool(re.search(r"\b(minor|child|kid|under.?18|junior|youth)\b", lower))
+        skill_hint = None
+        if re.search(r"\b(novice|beginner|new player|first.?time)\b", lower):
+            skill_hint = "novice"
+        elif re.search(r"\b(expert|veteran|experienced|advanced)\b", lower):
+            skill_hint = "experienced"
         answer = _suggest_game(
             players=nums.get("players") or (nums.get("per_team", 0) * 2) or None,
             field_m=nums.get("field_m"),
             handicap_pct=nums.get("handicap_pct"),
             minutes=nums.get("minutes"),
             available_modes=ctx["available_game_modes"] or None,
+            skill_hint=skill_hint,
+            has_minors=has_minors,
         )
         return _mk_response(answer, confidence=0.86,
                              used_ctx=[*used_ctx, "advisor:game_suggestion"],
@@ -1411,13 +1729,14 @@ def _handle_conversation(
     )
     is_detail_request = re.search(
         r"\b(rules?|full|details?|set\s*up|setup|how\s+to\s+play)\b.{0,20}"
-        r"\b(skirmish|domination|capture|king|flag|hill|assault|siege|hostage)\b",
+        r"\b(skirmish|domination|capture|king|flag|hill|assault|siege|hostage|vip|escort|raid|objective|milsim|patrol|attack|defend)\b",
         lower,
     )
     if is_detail_request or is_build_mode:
         mode_match = re.search(
             r"\b(skirmish|domination|capture\s+the\s+flag|king\s+of\s+the\s+hill|"
-            r"capture\s+flag|assault|siege|hostage\s+rescue|capture\s+point)\b",
+            r"capture\s+flag|assault|siege|hostage\s+rescue|capture\s+point|"
+            r"vip\s+escort|vip|objective\s+raid|attack\s+defend|attack\s*/\s*defend|milsim|patrol|recon)\b",
             lower,
         )
         mode_name = mode_match.group(0).strip() if mode_match else "Custom Mode"
@@ -1480,14 +1799,17 @@ def _handle_conversation(
         mode = ctx.get("available_game_modes", [None])[0] if ctx["available_game_modes"] else None
         answer = (
             f"**Marshal Briefing Checklist{f' — {mode}' if mode else ''}:**\n\n"
-            "1. Safety priorities — hit calls, eye protection mandatory\n"
-            "2. Rule reminders — no blind firing, field boundaries, mercy rule\n"
-            "3. Objective flow — explain win conditions clearly\n"
-            "4. Dispute protocol — pause play, marshal ruling is final\n"
-            "5. Emergency halt phrase — 'CODE RED, ALL STOP'\n"
-            "6. Radio channel check — confirm all marshals on ch.1\n"
-            "7. First aid point location\n\n"
-            "Ready to print? I can format this as a full briefing card."
+            "1. **Safety** — sealed eye protection at all times in active zones; full-face for CQB, beginners, minors, and rental players\n"
+            "2. **Chrono** — all guns tagged after passing; adults ≤0.98 J, under-18 ≤0.135 J, or venue CQB cap (whichever is lower)\n"
+            "3. **Close-range rule** — state the venue policy: self-hit, courtesy surrender, or hard MED\n"
+            "4. **Hit calls** — loud verbal call, hand up, dead rag on; no disputing hits — marshal ruling is final\n"
+            "5. **No blind fire** — muzzle must follow line of sight at all times\n"
+            "6. **Field boundaries** — brief all zone limits and spectator areas\n"
+            "7. **Emergency halt** — universal phrase 'CODE RED, ALL STOP'; all marshals must know and repeat this\n"
+            "8. **AED location** — confirm with all marshals before play begins\n"
+            "9. **Radio check** — all marshals on ch.1 before game start\n"
+            "10. **Dispute protocol** — pause play, marshal decision is final, no player-enforced arguments\n\n"
+            "Ready to print? I can format this as a full briefing card, or add the Japan chrono procedure."
         )
         return _mk_response(answer, confidence=0.85, used_ctx=[*used_ctx, "advisor:briefing"])
 
@@ -1542,12 +1864,15 @@ def _handle_conversation(
         elif state == "paused":
             status_line = f"\n\nCurrent game: **paused** — Red {r} / Blue {b}."
         answer = (
-            "Hi! I'm your AOJ field advisor. Here's what I can help with:\n\n"
+            "Hi! I'm Christy, your AOJ field advisor for airsoft events in Japan. Here's what I can help with:\n\n"
             "- **Live data** — 'what's the score?', 'how long is left?', 'which devices are offline?'\n"
             "- **Game suggestions** — 'suggest a game for 16 players on a 4000m² field'\n"
-            "- **Rule sets** — 'build domination rules for 20 players, 25 minutes'\n"
+            "- **Rule sets** — 'build VIP escort rules for 20 players, 25 minutes'\n"
+            "- **Japan safety & chrono** — 'what are the chrono rules?', 'what's the power limit for minors?'\n"
+            "- **Legal guidance** — 'how do I classify a replica?', 'what are import rules?'\n"
+            "- **Heat & emergency** — 'what are the WBGT thresholds?', 'give me the 119 protocol'\n"
+            "- **Event operations** — 'how do I plan an event?', 'how many staff do I need?'\n"
             "- **Marshal briefings** — 'generate a marshal briefing'\n"
-            "- **Results summaries** — 'summarize today's results'\n"
             "- **Operational actions** — start/stop/reset (I'll ask you to confirm first)\n"
             "- **Schedule** — 'what's next on the schedule?'"
             + status_line
@@ -1600,7 +1925,10 @@ def _handle_conversation(
             "I'm your AOJ field advisor, ready to help. Try asking:\n\n"
             "- 'Suggest a game for 16 players on a 4000m² field'\n"
             "- 'What's the score?'\n"
-            "- 'Build domination rules for 20 players'\n"
+            "- 'Build VIP escort rules for 20 players'\n"
+            "- 'What are the Japan chrono rules?'\n"
+            "- 'What are the WBGT heat thresholds?'\n"
+            "- 'How do I run an event for 40 players?'\n"
             "- 'Generate a marshal briefing'"
         )
 
