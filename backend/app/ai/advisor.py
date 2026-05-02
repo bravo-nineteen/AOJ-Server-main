@@ -366,6 +366,62 @@ def _extract_nums_from_history(history: list[dict[str, Any]]) -> dict[str, int]:
     return nums
 
 
+def _last_message_by_role(history: list[dict[str, Any]], role: str) -> str:
+    for entry in reversed(history):
+        if entry.get("role") == role:
+            return str(entry.get("content", "") or "")
+    return ""
+
+
+def _is_followup_message(text: str) -> bool:
+    short = len(text.split()) <= 10
+    followup_cues = re.search(
+        r"\b(yes|yeah|yep|ok|okay|sure|that one|go with|do that|sounds good|more|details?|expand|continue|next|then|why|how)\b",
+        text,
+        re.I,
+    )
+    return bool(short and followup_cues)
+
+
+def _extract_numbered_modes(text: str) -> list[str]:
+    modes = re.findall(r"\d+\.\s+\*\*([^*]+)\*\*", text)
+    return [m.strip() for m in modes if m.strip()]
+
+
+def _select_mode_from_followup(
+    user_text: str,
+    last_assistant: str,
+    available_modes: list[str],
+) -> str | None:
+    lower = user_text.lower()
+    options = _extract_numbered_modes(last_assistant)
+
+    # Direct numeric references ("1", "option 2", "second")
+    if options:
+        idx_match = re.search(r"\b(?:option\s*)?(1|2|3)\b", lower)
+        if idx_match:
+            idx = int(idx_match.group(1)) - 1
+            if 0 <= idx < len(options):
+                return options[idx]
+        if "first" in lower and len(options) >= 1:
+            return options[0]
+        if "second" in lower and len(options) >= 2:
+            return options[1]
+        if "third" in lower and len(options) >= 3:
+            return options[2]
+
+    # Explicit mode name in user text
+    for mode in available_modes:
+        if mode and mode.lower() in lower:
+            return mode
+
+    # If user says "that one" and we have options, default to first recommendation
+    if options and re.search(r"\b(that one|go with it|sounds good|let's do it|do it)\b", lower):
+        return options[0]
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Action guidance
 # ---------------------------------------------------------------------------
@@ -663,7 +719,45 @@ def _handle_conversation(
         return _mk_response("Got it! What would you like me to help with?")
 
     # -----------------------------------------------------------------------
-    # 2. Live data queries — use the parsed context
+    # 2. Follow-up continuation (prevents "restart" behavior)
+    # -----------------------------------------------------------------------
+    last_assistant = _last_message_by_role(history, "assistant")
+    if _is_followup_message(lower) and last_assistant:
+        chosen_mode = _select_mode_from_followup(
+            user_text=lower,
+            last_assistant=last_assistant,
+            available_modes=ctx.get("available_game_modes", []),
+        )
+
+        if chosen_mode and re.search(r"\b(yes|ok|okay|go with|that one|do it|build|rules?)\b", lower):
+            rules = _build_game_mode_rules(
+                mode_name=chosen_mode,
+                players=nums.get("players") or ctx.get("players"),
+                minutes=nums.get("minutes"),
+            )
+            answer = (
+                f"Perfect, continuing from my last suggestion. We'll run **{chosen_mode}**.\n\n"
+                + rules
+            )
+            return _mk_response(
+                answer,
+                confidence=0.9,
+                used_ctx=[*used_ctx, "history:followup_mode"],
+            )
+
+        answer = (
+            "Got it, continuing from where we left off. "
+            "Do you want me to expand the previous suggestion into a full plan, "
+            "or adjust players, timer, or balancing first?"
+        )
+        return _mk_response(
+            answer,
+            confidence=0.84,
+            used_ctx=[*used_ctx, "history:followup"],
+        )
+
+    # -----------------------------------------------------------------------
+    # 3. Live data queries — use the parsed context
     # -----------------------------------------------------------------------
 
     # Member recognition / profile query
@@ -1042,9 +1136,10 @@ def ask_ai(
                 model=f"ollama/{_ollama_model}",
                 context_used=bool(injected_context),
             )
-        # Ollama request failed at runtime — mark unavailable until restart
+        # Ollama request failed at runtime — retry on next request instead of
+        # permanently disabling it for this process.
         logger.warning("Ollama request failed; falling back to rules engine.")
-        _ollama_available = False
+        _ollama_available = None
 
     # ------------------------------------------------------------------
     # Fallback: built-in rules engine
