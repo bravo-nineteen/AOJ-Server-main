@@ -6,7 +6,7 @@ notes about each member.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -61,10 +61,11 @@ def update_member(
     return member
 
 
-@router.delete("/{member_id}", status_code=204)
-def delete_member(member_id: int, db: Session = Depends(get_db)) -> None:
+@router.delete("/{member_id}", status_code=204, response_class=Response)
+def delete_member(member_id: int, db: Session = Depends(get_db)) -> Response:
     member = db.get(MemberProfile, member_id)
     if not member:
         raise HTTPException(status_code=404, detail="Member not found.")
     db.delete(member)
     db.commit()
+    return Response(status_code=204)
