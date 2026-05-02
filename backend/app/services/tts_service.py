@@ -38,7 +38,11 @@ def _project_root() -> Path:
 
 
 def _default_piper_model_path() -> Path:
-    return _project_root() / "assets" / "piper" / "en_US-amy-medium.onnx"
+    return _project_root() / "assets" / "piper_voices" / "en_US-amy-medium.onnx"
+
+
+def _default_piper_bin_path() -> Path:
+    return _project_root() / ".venv" / "Scripts" / "piper.exe"
 
 
 def _strip_symbols(text: str) -> str:
@@ -141,7 +145,8 @@ def _adaptive_rate_for_text(text: str) -> int:
 
 
 def _piper_binary_path() -> str:
-    return os.getenv("PIPER_BIN", "piper")
+    default_bin = _default_piper_bin_path()
+    return os.getenv("PIPER_BIN", str(default_bin if default_bin.exists() else "piper"))
 
 
 def _piper_model_path() -> str:
