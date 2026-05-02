@@ -35,6 +35,36 @@ class Device(Base):
     score_events: Mapped[list["ScoreEvent"]] = relationship(back_populates="device")
 
 
+class PropType(str, enum.Enum):
+    bomb = "Bomb"
+    domination_point = "Domination Point"
+    respawn_station = "Respawn Station"
+    alarm = "Alarm"
+    sensor = "Sensor"
+    custom = "Custom"
+
+
+class Prop(Base):
+    __tablename__ = "props"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    device_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(140), nullable=False)
+    prop_type: Mapped[PropType] = mapped_column(
+        Enum(PropType), default=PropType.custom, nullable=False
+    )
+    location: Mapped[str] = mapped_column(String(140), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="offline", nullable=False)
+    battery_level: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    signal_strength: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    firmware_version: Mapped[str] = mapped_column(String(50), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
 class Mission(Base):
     __tablename__ = "missions"
 
@@ -65,6 +95,7 @@ class GameSession(Base):
     mission: Mapped["Mission"] = relationship(back_populates="game_sessions")
     teams: Mapped[list["Team"]] = relationship(back_populates="game_session")
     score_events: Mapped[list["ScoreEvent"]] = relationship(back_populates="game_session")
+    game_results: Mapped[list["GameResult"]] = relationship(back_populates="game_session")
 
 
 class Team(Base):
@@ -93,6 +124,34 @@ class ScoreEvent(Base):
     game_session: Mapped["GameSession"] = relationship(back_populates="score_events")
     team: Mapped["Team"] = relationship(back_populates="score_events")
     device: Mapped["Device"] = relationship(back_populates="score_events")
+
+
+class ResultWinner(str, enum.Enum):
+    red = "Red"
+    blue = "Blue"
+    draw = "Draw"
+    cancelled = "Cancelled"
+
+
+class GameResult(Base):
+    __tablename__ = "game_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    game_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("game_sessions.id"), nullable=True
+    )
+    session_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    winner: Mapped[ResultWinner] = mapped_column(
+        Enum(ResultWinner), default=ResultWinner.draw, nullable=False
+    )
+    red_points: Mapped[int] = mapped_column(Integer, default=0)
+    blue_points: Mapped[int] = mapped_column(Integer, default=0)
+    red_penalties: Mapped[int] = mapped_column(Integer, default=0)
+    blue_penalties: Mapped[int] = mapped_column(Integer, default=0)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    game_session: Mapped["GameSession"] = relationship(back_populates="game_results")
 
 
 class ScheduleItem(Base):

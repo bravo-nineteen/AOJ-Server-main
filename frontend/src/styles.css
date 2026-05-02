@@ -479,6 +479,190 @@ body {
   gap: 0.4rem;
 }
 
+.results-module {
+  display: block;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.results-card {
+  border: 1px solid rgba(76, 125, 92, 0.5);
+  border-radius: 8px;
+  background: rgba(14, 29, 17, 0.9);
+  padding: 0.65rem;
+}
+
+.results-history-card {
+  grid-column: 1 / -1;
+}
+
+.results-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  color: var(--hud);
+  font-size: 0.85rem;
+}
+
+.results-card label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.76rem;
+  color: var(--text-soft);
+}
+
+.results-card input,
+.results-card select,
+.results-card textarea,
+.results-card button {
+  width: 100%;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(10, 21, 13, 0.92);
+  color: var(--text-main);
+  padding: 0.45rem 0.5rem;
+  font-family: inherit;
+}
+
+.results-card textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.results-points-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.results-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.results-summary-grid p,
+.results-meta {
+  margin: 0.25rem 0;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.results-item {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.results-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.results-item-header span {
+  color: var(--text-soft);
+}
+
+.prop-module {
+  display: block;
+}
+
+.prop-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.prop-card {
+  border: 1px solid rgba(76, 125, 92, 0.5);
+  border-radius: 8px;
+  background: rgba(14, 29, 17, 0.9);
+  padding: 0.65rem;
+}
+
+.prop-list-card {
+  grid-column: 1 / -1;
+}
+
+.prop-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  color: var(--hud);
+  font-size: 0.85rem;
+}
+
+.prop-card label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.76rem;
+  color: var(--text-soft);
+}
+
+.prop-card input,
+.prop-card select,
+.prop-card button {
+  width: 100%;
+  margin-top: 0.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(10, 21, 13, 0.92);
+  color: var(--text-main);
+  padding: 0.45rem 0.5rem;
+  font-family: inherit;
+}
+
+.prop-input-grid,
+.prop-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.prop-item {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.prop-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.prop-item-header span,
+.prop-meta {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.prop-meta {
+  margin: 0.2rem 0;
+}
+
+.prop-item-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.prop-command-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
 @media (max-width: 1080px) {
   .desktop-grid {
     grid-template-columns: 1fr;
@@ -498,7 +682,15 @@ body {
   .score-row,
   .schedule-grid,
   .schedule-actions,
-  .schedule-item-actions {
+  .schedule-item-actions,
+  .results-grid,
+  .results-points-grid,
+  .results-actions,
+  .prop-grid,
+  .prop-input-grid,
+  .prop-actions,
+  .prop-item-actions,
+  .prop-command-grid {
     grid-template-columns: 1fr;
   }
 }

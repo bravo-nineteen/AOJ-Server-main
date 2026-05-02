@@ -4,7 +4,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routes import health, mission_control, resources, schedule, system
+from app.routes import health, mission_control, prop_network, resources, results, schedule, system
 from app.services.mission_control_service import mission_control_service
 from app.websocket_manager import websocket_manager
 
@@ -22,7 +22,9 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(system.router)
 app.include_router(resources.router)
+app.include_router(prop_network.router)
 app.include_router(schedule.router)
+app.include_router(results.router)
 app.include_router(mission_control.router)
 
 

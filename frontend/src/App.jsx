@@ -47,6 +47,15 @@ const ACTIVITY_TYPES = [
   'Pack Down',
   'Custom',
 ];
+const WINNER_OPTIONS = ['Red', 'Blue', 'Draw', 'Cancelled'];
+const PROP_TYPES = [
+  'Bomb',
+  'Domination Point',
+  'Respawn Station',
+  'Alarm',
+  'Sensor',
+  'Custom',
+];
 
 function formatDuration(totalSeconds) {
   const safe = Math.max(0, Number(totalSeconds) || 0);
@@ -101,6 +110,37 @@ function App() {
     end_time: '',
     is_complete: false,
   });
+  const [resultsHistory, setResultsHistory] = useState([]);
+  const [resultsSummary, setResultsSummary] = useState({
+    total_red_wins: 0,
+    total_blue_wins: 0,
+    total_draws: 0,
+    total_cancelled: 0,
+    total_red_points: 0,
+    total_blue_points: 0,
+  });
+  const [resultForm, setResultForm] = useState({
+    session_name: 'Session Alpha',
+    winner: 'Draw',
+    red_points: 0,
+    blue_points: 0,
+    red_penalties: 0,
+    blue_penalties: 0,
+    notes: '',
+  });
+  const [propsList, setPropsList] = useState([]);
+  const [editingPropId, setEditingPropId] = useState(null);
+  const [propForm, setPropForm] = useState({
+    device_id: '',
+    name: '',
+    prop_type: 'Custom',
+    location: '',
+    status: 'offline',
+    battery_level: 100,
+    signal_strength: 100,
+    last_seen: '',
+    firmware_version: '',
+  });
 
   async function fetchMissionState() {
     const response = await fetch(`${apiBase}/mission-control/state`);
@@ -141,6 +181,145 @@ function App() {
       const payload = await overviewRes.json();
       setScheduleOverview(payload);
     }
+  }
+
+  async function fetchResultsData() {
+    const [historyRes, summaryRes] = await Promise.all([
+      fetch(`${apiBase}/results/history`),
+      fetch(`${apiBase}/results/summary`),
+    ]);
+
+    if (historyRes.ok) {
+      const payload = await historyRes.json();
+      setResultsHistory(payload);
+    }
+
+    if (summaryRes.ok) {
+      const payload = await summaryRes.json();
+      setResultsSummary(payload);
+    }
+  }
+
+  async function fetchPropsData() {
+    const response = await fetch(`${apiBase}/props`);
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setPropsList(payload);
+  }
+
+  async function saveProp() {
+    if (!propForm.device_id.trim() || !propForm.name.trim()) {
+      return;
+    }
+
+    const body = {
+      ...propForm,
+      battery_level: Number(propForm.battery_level) || 0,
+      signal_strength: Number(propForm.signal_strength) || 0,
+      last_seen: propForm.last_seen ? new Date(propForm.last_seen).toISOString() : null,
+    };
+
+    const path = editingPropId ? `${apiBase}/props/${editingPropId}` : `${apiBase}/props`;
+    const method = editingPropId ? 'PUT' : 'POST';
+    const response = await fetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      return;
+    }
+
+    setEditingPropId(null);
+    setPropForm({
+      device_id: '',
+      name: '',
+      prop_type: 'Custom',
+      location: '',
+      status: 'offline',
+      battery_level: 100,
+      signal_strength: 100,
+      last_seen: '',
+      firmware_version: '',
+    });
+    fetchPropsData();
+  }
+
+  function startEditProp(item) {
+    setEditingPropId(item.id);
+    setPropForm({
+      device_id: item.device_id,
+      name: item.name,
+      prop_type: item.prop_type,
+      location: item.location,
+      status: item.status,
+      battery_level: item.battery_level,
+      signal_strength: item.signal_strength,
+      last_seen: toDateTimeInputValue(item.last_seen),
+      firmware_version: item.firmware_version,
+    });
+  }
+
+  async function deleteProp(id) {
+    const response = await fetch(`${apiBase}/props/${id}`, { method: 'DELETE' });
+    if (!response.ok) {
+      return;
+    }
+    if (editingPropId === id) {
+      setEditingPropId(null);
+    }
+    fetchPropsData();
+  }
+
+  async function sendPropCommand(id, command) {
+    const response = await fetch(`${apiBase}/props/${id}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command }),
+    });
+    if (!response.ok) {
+      return;
+    }
+    fetchPropsData();
+  }
+
+  async function saveResult() {
+    if (!resultForm.session_name.trim()) {
+      return;
+    }
+
+    const response = await fetch(`${apiBase}/results`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...resultForm,
+        red_points: Number(resultForm.red_points) || 0,
+        blue_points: Number(resultForm.blue_points) || 0,
+        red_penalties: Number(resultForm.red_penalties) || 0,
+        blue_penalties: Number(resultForm.blue_penalties) || 0,
+      }),
+    });
+
+    if (!response.ok) {
+      return;
+    }
+
+    setResultForm({
+      session_name: '',
+      winner: 'Draw',
+      red_points: 0,
+      blue_points: 0,
+      red_penalties: 0,
+      blue_penalties: 0,
+      notes: '',
+    });
+    fetchResultsData();
+  }
+
+  function exportResultsCsv() {
+    window.open(`${apiBase}/results/export/csv`, '_blank');
   }
 
   async function saveScheduleItem() {
@@ -223,6 +402,8 @@ function App() {
   useEffect(() => {
     fetchMissionState();
     fetchScheduleData();
+    fetchResultsData();
+    fetchPropsData();
   }, [apiBase]);
 
   useEffect(() => {
@@ -254,6 +435,8 @@ function App() {
 
   const isMissionControl = activeApp.id === 'mission-control';
   const isSchedule = activeApp.id === 'schedule';
+  const isResultsBoard = activeApp.id === 'results-board';
+  const isPropNetwork = activeApp.id === 'prop-network';
 
   function handleCreateMission() {
     const objectives = missionForm.objectivesText
@@ -637,6 +820,313 @@ function App() {
                               Mark Complete
                             </button>
                             <button type="button" onClick={() => deleteScheduleItem(item.id)}>Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ) : isResultsBoard ? (
+                <section className="results-module">
+                  <div className="results-grid">
+                    <div className="results-card">
+                      <h3>Record Game Result</h3>
+                      <label>
+                        Session Name
+                        <input
+                          value={resultForm.session_name}
+                          onChange={(event) =>
+                            setResultForm((current) => ({ ...current, session_name: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Winner
+                        <select
+                          value={resultForm.winner}
+                          onChange={(event) =>
+                            setResultForm((current) => ({ ...current, winner: event.target.value }))
+                          }
+                        >
+                          {WINNER_OPTIONS.map((winner) => (
+                            <option key={winner} value={winner}>
+                              {winner}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <div className="results-points-grid">
+                        <label>
+                          Red Points
+                          <input
+                            type="number"
+                            value={resultForm.red_points}
+                            onChange={(event) =>
+                              setResultForm((current) => ({
+                                ...current,
+                                red_points: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Blue Points
+                          <input
+                            type="number"
+                            value={resultForm.blue_points}
+                            onChange={(event) =>
+                              setResultForm((current) => ({
+                                ...current,
+                                blue_points: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Red Penalties
+                          <input
+                            type="number"
+                            value={resultForm.red_penalties}
+                            onChange={(event) =>
+                              setResultForm((current) => ({
+                                ...current,
+                                red_penalties: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Blue Penalties
+                          <input
+                            type="number"
+                            value={resultForm.blue_penalties}
+                            onChange={(event) =>
+                              setResultForm((current) => ({
+                                ...current,
+                                blue_penalties: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                      </div>
+
+                      <label>
+                        Notes
+                        <textarea
+                          value={resultForm.notes}
+                          onChange={(event) =>
+                            setResultForm((current) => ({ ...current, notes: event.target.value }))
+                          }
+                        />
+                      </label>
+
+                      <div className="results-actions">
+                        <button type="button" onClick={saveResult}>Record Result</button>
+                        <button type="button" onClick={exportResultsCsv}>Export CSV</button>
+                      </div>
+                    </div>
+
+                    <div className="results-card">
+                      <h3>Totals</h3>
+                      <div className="results-summary-grid">
+                        <p>Total Red Wins: {resultsSummary.total_red_wins}</p>
+                        <p>Total Blue Wins: {resultsSummary.total_blue_wins}</p>
+                        <p>Total Draws: {resultsSummary.total_draws}</p>
+                        <p>Total Cancelled: {resultsSummary.total_cancelled}</p>
+                        <p>Total Red Points: {resultsSummary.total_red_points}</p>
+                        <p>Total Blue Points: {resultsSummary.total_blue_points}</p>
+                      </div>
+                    </div>
+
+                    <div className="results-card results-history-card">
+                      <h3>Session History</h3>
+                      {resultsHistory.length === 0 ? <p className="muted">No results recorded yet.</p> : null}
+                      {resultsHistory.map((result) => (
+                        <div className="results-item" key={result.id}>
+                          <div className="results-item-header">
+                            <strong>{result.session_name}</strong>
+                            <span>{result.winner}</span>
+                          </div>
+                          <p className="results-meta">
+                            Red {result.red_points} (penalties {result.red_penalties}) | Blue {result.blue_points} (penalties {result.blue_penalties})
+                          </p>
+                          <p className="results-meta">Notes: {result.notes || 'No notes'}</p>
+                          <p className="results-meta">{new Date(result.created_at).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ) : isPropNetwork ? (
+                <section className="prop-module">
+                  <div className="prop-grid">
+                    <div className="prop-card">
+                      <h3>{editingPropId ? 'Edit Prop' : 'Add Prop'}</h3>
+                      <label>
+                        Device ID
+                        <input
+                          value={propForm.device_id}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, device_id: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Name
+                        <input
+                          value={propForm.name}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, name: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Type
+                        <select
+                          value={propForm.prop_type}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, prop_type: event.target.value }))
+                          }
+                        >
+                          {PROP_TYPES.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Location
+                        <input
+                          value={propForm.location}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, location: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Status
+                        <input
+                          value={propForm.status}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, status: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="prop-input-grid">
+                        <label>
+                          Battery Level
+                          <input
+                            type="number"
+                            value={propForm.battery_level}
+                            onChange={(event) =>
+                              setPropForm((current) => ({
+                                ...current,
+                                battery_level: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Signal Strength
+                          <input
+                            type="number"
+                            value={propForm.signal_strength}
+                            onChange={(event) =>
+                              setPropForm((current) => ({
+                                ...current,
+                                signal_strength: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        Last Seen
+                        <input
+                          type="datetime-local"
+                          value={propForm.last_seen}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, last_seen: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Firmware Version
+                        <input
+                          value={propForm.firmware_version}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, firmware_version: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <div className="prop-actions">
+                        <button type="button" onClick={saveProp}>Save Prop</button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPropId(null);
+                            setPropForm({
+                              device_id: '',
+                              name: '',
+                              prop_type: 'Custom',
+                              location: '',
+                              status: 'offline',
+                              battery_level: 100,
+                              signal_strength: 100,
+                              last_seen: '',
+                              firmware_version: '',
+                            });
+                          }}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="prop-card prop-list-card">
+                      <h3>Registered Props</h3>
+                      {propsList.length === 0 ? <p className="muted">No props registered.</p> : null}
+                      {propsList.map((item) => (
+                        <div className="prop-item" key={item.id}>
+                          <div className="prop-item-header">
+                            <strong>{item.name}</strong>
+                            <span>{item.prop_type}</span>
+                          </div>
+                          <p className="prop-meta">Device ID: {item.device_id}</p>
+                          <p className="prop-meta">Location: {item.location || 'Unknown'}</p>
+                          <p className="prop-meta">Status: {item.status}</p>
+                          <p className="prop-meta">
+                            Battery: {item.battery_level}% | Signal: {item.signal_strength}%
+                          </p>
+                          <p className="prop-meta">
+                            Last Seen:{' '}
+                            {item.last_seen ? new Date(item.last_seen).toLocaleString() : 'Never'}
+                          </p>
+                          <p className="prop-meta">Firmware: {item.firmware_version || 'N/A'}</p>
+                          <div className="prop-item-actions">
+                            <button type="button" onClick={() => startEditProp(item)}>Edit</button>
+                            <button type="button" onClick={() => deleteProp(item.id)}>Delete</button>
+                          </div>
+                          <div className="prop-command-grid">
+                            <button type="button" onClick={() => sendPropCommand(item.id, 'arm')}>Arm</button>
+                            <button type="button" onClick={() => sendPropCommand(item.id, 'disarm')}>
+                              Disarm
+                            </button>
+                            <button type="button" onClick={() => sendPropCommand(item.id, 'reset')}>Reset</button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'status_request')}
+                            >
+                              Status Request
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'trigger_alarm')}
+                            >
+                              Trigger Alarm
+                            </button>
                           </div>
                         </div>
                       ))}

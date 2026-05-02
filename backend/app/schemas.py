@@ -220,3 +220,68 @@ class MissionControlScoreRequest(BaseModel):
 
 class MissionControlObjectiveStatusRequest(BaseModel):
     status: Literal["pending", "active", "complete", "failed"]
+
+
+class GameResultBase(BaseModel):
+    game_session_id: int | None = None
+    session_name: str
+    winner: Literal["Red", "Blue", "Draw", "Cancelled"]
+    red_points: int = 0
+    blue_points: int = 0
+    red_penalties: int = 0
+    blue_penalties: int = 0
+    notes: str = ""
+
+
+class GameResultCreate(GameResultBase):
+    pass
+
+
+class GameResultRead(GameResultBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResultsSummaryResponse(BaseModel):
+    total_red_wins: int
+    total_blue_wins: int
+    total_draws: int
+    total_cancelled: int
+    total_red_points: int
+    total_blue_points: int
+
+
+class PropBase(BaseModel):
+    device_id: str
+    name: str
+    prop_type: Literal[
+        "Bomb", "Domination Point", "Respawn Station", "Alarm", "Sensor", "Custom"
+    ] = "Custom"
+    location: str = ""
+    status: str = "offline"
+    battery_level: int = 100
+    signal_strength: int = 100
+    last_seen: datetime | None = None
+    firmware_version: str = ""
+
+
+class PropCreate(PropBase):
+    pass
+
+
+class PropUpdate(PropBase):
+    pass
+
+
+class PropRead(PropBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PropCommandRequest(BaseModel):
+    command: Literal["arm", "disarm", "reset", "status_request", "trigger_alarm"]
