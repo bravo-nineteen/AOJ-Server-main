@@ -362,6 +362,7 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
     ]
 
     if prompt_keywords:
+        # AI context must use active knowledge entries only.
         relevant_knowledge = (
             db.query(models.CustomKnowledgeEntry)
             .filter(models.CustomKnowledgeEntry.active.is_(True))

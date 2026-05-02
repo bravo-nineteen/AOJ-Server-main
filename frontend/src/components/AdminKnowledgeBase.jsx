@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
 
+const KNOWLEDGE_CATEGORIES = [
+  'Field Rules',
+  'AOJ Rules',
+  'Safety Procedures',
+  'Game Explanations',
+  'Team Descriptions',
+  'Prop Troubleshooting Notes',
+  'Marshal Procedures',
+  'Emergency Procedures',
+];
+
 export function AdminKnowledgeBase({ apiBase }) {
   const [entries, setEntries] = useState([]);
   const [form, setForm] = useState({
@@ -123,13 +134,18 @@ export function AdminKnowledgeBase({ apiBase }) {
         </div>
         <div style={{ marginBottom: '1rem' }}>
           <label>Category</label>
-          <input
-            type="text"
+          <select
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
-            placeholder="e.g., Troubleshooting, Teams, Rules"
             style={{ width: '100%', padding: '0.5rem' }}
-          />
+          >
+            <option value="">Select a category</option>
+            {KNOWLEDGE_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
         </div>
         <div style={{ marginBottom: '1rem' }}>
           <label>Content *</label>
@@ -146,9 +162,12 @@ export function AdminKnowledgeBase({ apiBase }) {
             type="text"
             value={form.tags}
             onChange={(e) => setForm({ ...form, tags: e.target.value })}
-            placeholder="e.g., prop, reset, device, troubleshooting"
+            placeholder="e.g., safety, marshal, prop, troubleshooting"
             style={{ width: '100%', padding: '0.5rem' }}
           />
+          <div style={{ marginTop: '0.35rem', fontSize: '0.82rem', color: 'var(--text-soft)' }}>
+            Suggested tags: field-rules, aoj-rules, safety, game-mode, teams, props, marshal, emergency
+          </div>
         </div>
         <div style={{ marginBottom: '1rem' }}>
           <label>
