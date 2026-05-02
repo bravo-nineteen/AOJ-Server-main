@@ -23,7 +23,7 @@ RESTRICTED_TERMS = {
 }
 
 
-def ask_ai(prompt: str) -> AIAskResponse:
+def ask_ai(prompt: str, injected_context: str | None = None) -> AIAskResponse:
     text = prompt.strip()
     lower = text.lower()
 
@@ -34,12 +34,20 @@ def ask_ai(prompt: str) -> AIAskResponse:
 
     if restricted_detected:
         answer = (
-            "I can advise on procedure, risk checks, and confirmation steps, but I cannot "
-            "directly execute or authorize hardware actions. Request explicit admin "
-            "confirmation before any prop or mission control command."
+            "Direct operational control is blocked. "
+            "I can provide procedure and risk guidance only."
         )
         return AIAskResponse(
             answer=answer,
+            confidence=0.45,
+            used_context=[
+                "advisor:restricted_terms",
+                "provider:mock-local",
+                "context:injected" if injected_context else "context:none",
+            ],
+            suggested_actions=["Request admin confirmation before operational commands."],
+            blocked_actions=["hardware_or_game_state_mutation"],
+            warnings=["Operational action intent detected."],
             advisory_only=True,
             requires_admin_confirmation=True,
             blocked_action=True,
@@ -85,6 +93,15 @@ def ask_ai(prompt: str) -> AIAskResponse:
 
     return AIAskResponse(
         answer=answer,
+        confidence=0.82,
+        used_context=[
+            "advisor:mock_knowledge",
+            "provider:mock-local",
+            "context:injected" if injected_context else "context:none",
+        ],
+        suggested_actions=["Review and confirm recommendation before execution."],
+        blocked_actions=[],
+        warnings=[],
         advisory_only=True,
         requires_admin_confirmation=False,
         blocked_action=False,

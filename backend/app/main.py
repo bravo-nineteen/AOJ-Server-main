@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.config import APP_TITLE, APP_VERSION, CORS_ORIGIN_REGEX
+from app.core.ai_safety import AISafetyMiddleware
 from app.core.websocket import websocket_manager
 from app.database import init_db
 from app.lora.service import lora_service
@@ -22,6 +23,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(AISafetyMiddleware)
 
 app.include_router(health.router)
 app.include_router(system.router)

@@ -2,7 +2,21 @@
 and re-exports every name for backward-compatible ``from app.models import X`` usage."""
 
 # New models
+from app.models.ai_action_request import (
+    AIAuditDecision,
+    AIAuditLog,
+    AIActionRequest,
+    AIActionStatus,
+    AIRiskLevel,
+)
 from app.models.ai_conversation import AIConversation, AIMessage, MessageRole
+from app.models.customization import (
+    AIAssistantSettings,
+    CustomGameMode,
+    CustomKnowledgeEntry,
+    CustomTeam,
+    VisualTheme,
+)
 from app.models.device_command import CommandStatus, DeviceCommand
 from app.models.device_event import DeviceEvent, DeviceEventType
 from app.models.device_type import DeviceCategory, DeviceType
@@ -25,9 +39,19 @@ from app.models.user_role import UserRole  # legacy CRUD table kept for backward
 
 __all__ = [
     # New
+    "AIAuditDecision",
+    "AIAuditLog",
+    "AIActionRequest",
+    "AIActionStatus",
+    "AIRiskLevel",
     "AIConversation",
     "AIMessage",
     "MessageRole",
+    "AIAssistantSettings",
+    "CustomGameMode",
+    "CustomKnowledgeEntry",
+    "CustomTeam",
+    "VisualTheme",
     "CommandStatus",
     "DeviceCommand",
     "DeviceEvent",

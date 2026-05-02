@@ -1,7 +1,18 @@
 """Schemas package – re-exports every Pydantic schema for backward-compatible
 ``from app.schemas import X`` and ``from app import schemas`` usage."""
 
-from app.schemas.ai import AIAskRequest, AIAskResponse
+from app.schemas.ai import (
+    AIActionRequestRead,
+    AIAskRequest,
+    AIAskResponse,
+    AIChatReplyResponse,
+    AIConversationClearResponse,
+    AIConversationCreateRequest,
+    AIConversationRead,
+    AIMessageCreateRequest,
+    AIMessageRead,
+    AIResponsePayload,
+)
 from app.schemas.device import DeviceBase, DeviceCreate, DeviceRead
 from app.schemas.game_result import (
     GameResultBase,
@@ -39,8 +50,16 @@ from app.schemas.update_center import (
 from app.schemas.user_role import UserRoleBase, UserRoleCreate, UserRoleRead
 
 __all__ = [
+    "AIActionRequestRead",
     "AIAskRequest",
     "AIAskResponse",
+    "AIChatReplyResponse",
+    "AIConversationClearResponse",
+    "AIConversationCreateRequest",
+    "AIConversationRead",
+    "AIMessageCreateRequest",
+    "AIMessageRead",
+    "AIResponsePayload",
     "DeviceBase",
     "DeviceCreate",
     "DeviceRead",
