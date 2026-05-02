@@ -36,7 +36,15 @@ AOJ Command OS is a local-first command system for airsoft field operations. It 
 | Node.js | 18 | https://nodejs.org |
 | Git (optional) | any | https://git-scm.com |
 
-### One-command install
+### Installer Method A — EXE Setup (easiest)
+
+1. Download the Windows installer EXE from Releases (example: `AOJ_Command_OS_Setup_1.0.0.exe`).
+2. Double-click the installer and follow the wizard.
+3. Keep default install path unless you need a custom location.
+4. When installation completes, launch AOJ Command OS from Start Menu.
+5. Open `http://localhost:8000` if browser does not auto-open.
+
+### Installer Method B — Script Install (power users)
 
 Open **PowerShell as Administrator**, then:
 
@@ -54,6 +62,32 @@ The installer:
 - Installs all Python packages from `backend\requirements.txt`
 - Runs `npm install` in `frontend\`
 - Builds the frontend (`npm run build`) into `frontend\dist\`
+
+### Optional Offline AI + Christy Voice Setup (recommended)
+
+1. Install Ollama:
+
+```powershell
+winget install Ollama.Ollama
+```
+
+2. Pull a local model (fast recommended):
+
+```powershell
+ollama pull llama3.2:3b
+```
+
+3. Ensure backend deps are installed (includes `pyttsx3` for offline TTS):
+
+```powershell
+Set-Location .\backend
+.\.venv\Scripts\python.exe -m pip install -r .\requirements.txt
+```
+
+4. Start AOJ Command OS and verify:
+  - `GET http://localhost:8000/api/tts/status` should return `available=true`
+  - Christy uses Microsoft Zira (female voice) for offline speech
+  - AI will use Ollama when available, and auto-fallback if Ollama is offline
 
 ### Start the server (single process, recommended)
 

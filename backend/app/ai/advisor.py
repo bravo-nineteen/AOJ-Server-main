@@ -41,10 +41,13 @@ Your capabilities:
 - Give live game status from the context block provided (scores, timer, devices, schedule)
 - Suggest appropriate game modes based on player count, field size, session length, and team handicap
 - Draft complete rule sets for any game mode
-- Write marshal briefings and team announcements
+- Write marshal briefings and team announcements personalised to specific players when their profile is known
 - Help with schedule management and delay recovery
 - Diagnose device/prop issues
 - For operational actions (start/stop game, arm/reset devices), always ask for confirmation first
+- Remember and use player/member profiles (name, gender, team, skill level, strengths, weaknesses)
+- Use member data to suggest balanced teams, personalised tips, and role assignments
+- Learn from corrections: if someone says "actually Alex is on Blue Team now", update your understanding
 
 CRITICAL rules:
 - NEVER execute an operational action without explicit user confirmation — ask "Can you confirm?" first
@@ -54,8 +57,10 @@ CRITICAL rules:
 - Do NOT use excessive markdown symbols in responses — use plain, natural language
 - Do NOT start every message with "Certainly!" or similar filler phrases
 
-Context block format: The operational context is provided as a structured block with sections [CURRENT STATE], [MISSION], [SCHEDULE], [DEVICES], [LOGS], [MEMORY]. Use this to give accurate, live answers.
+Context block format: The operational context is provided as a structured block with sections [CURRENT STATE], [MISSION], [SCHEDULE], [DEVICES], [LOGS], [MEMBERS], [MEMORY]. Use this to give accurate, live answers.
 
+The [MEMBERS] section lists known player profiles in the format: Name; gender; team=X; skill=Y; strengths=...; weaknesses=...
+Use this to personalise advice, suggest team balancing, and address players by name when relevant.
 Your name is Christy. You work for the AOJ field team."""
 
 MOCK_MODEL_NAME = "christy-rules-engine-v2"
@@ -215,6 +220,7 @@ def _parse_context_block(context: str | None) -> dict[str, Any]:
         "devices_offline": 0,
         "devices_total": 0,
         "critical_logs": [],
+        "member_lines": [],
         "memory_lines": [],
         "available_game_modes": [],
         "active_teams": [],
@@ -280,6 +286,11 @@ def _parse_context_block(context: str | None) -> dict[str, Any]:
         elif current_section == "LOGS":
             if line != "none":
                 out["critical_logs"].append(line)
+
+        # MEMBERS
+        elif current_section == "MEMBERS":
+            if line != "none":
+                out["member_lines"].append(line)
 
         # MEMORY
         elif current_section == "MEMORY":
@@ -654,6 +665,28 @@ def _handle_conversation(
     # -----------------------------------------------------------------------
     # 2. Live data queries — use the parsed context
     # -----------------------------------------------------------------------
+
+    # Member recognition / profile query
+    if re.search(r"\b(member|player|who is|recognize|recognise|strength|weakness|skill|team balance)\b", lower):
+        member_lines = ctx.get("member_lines", [])
+        if member_lines:
+            preview = "\n".join([f"- {line}" for line in member_lines[:8]])
+            answer = (
+                "I recognize the following members from stored profiles:\n\n"
+                f"{preview}\n\n"
+                "If you want, I can suggest balanced squad assignments based on these profiles."
+            )
+            return _mk_response(
+                answer,
+                confidence=0.9,
+                used_ctx=[*used_ctx, "context:members"],
+                suggested_actions=["Generate team balancing plan from member profiles."],
+            )
+        return _mk_response(
+            "I don't have member profiles yet. Tell me each person's name, gender, team, skill level, strengths, and weaknesses, and I'll store them for future guidance.",
+            confidence=0.82,
+            used_ctx=[*used_ctx, "context:members:none"],
+        )
 
     # Score query
     if re.search(r"\b(score|points?|who('s| is) (winning|ahead)|what.{0,10}score)\b", lower):

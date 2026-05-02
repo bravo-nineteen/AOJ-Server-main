@@ -215,6 +215,7 @@ function App() {
   const [aiConversationId, setAiConversationId] = useState(null);
   const [aiTyping, setAiTyping] = useState(false);
   const aiChatEndRef = useRef(null);
+  const [announcementText, setAnnouncementText] = useState('');
   const [aiMessages, setAiMessages] = useState([
     {
       role: 'assistant',
@@ -365,6 +366,7 @@ function App() {
     recognition.onresult = (event) => {
       const transcript = event.results?.[0]?.[0]?.transcript?.trim() || '';
       if (!transcript) return;
+      setAiInput(transcript);
       askAI(transcript);
     };
 
@@ -402,6 +404,30 @@ function App() {
     }
     const clean = stripSpeechSymbols(latestAssistant.text);
     if (!clean) return;
+    setSpeechError('');
+    try {
+      const resp = await fetch(`${apiBase}/tts/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clean }),
+      });
+      if (!resp.ok) throw new Error('tts_unavailable');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    } catch {
+      setSpeechError('Christy voice unavailable. Check backend TTS service.');
+    }
+  }
+
+  async function speakAnnouncementText() {
+    const clean = stripSpeechSymbols(announcementText || '');
+    if (!clean) {
+      setSpeechError('Type a message first, then click Announce Aloud.');
+      return;
+    }
     setSpeechError('');
     try {
       const resp = await fetch(`${apiBase}/tts/speak`, {
@@ -1855,6 +1881,22 @@ function App() {
                         <button type="button" onClick={clearAiConversation} title="Start a new conversation">
                           New Chat
                         </button>
+                      </div>
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', opacity: 0.8 }}>
+                          Typed Announcement (speak aloud)
+                        </label>
+                        <textarea
+                          value={announcementText}
+                          onChange={(event) => setAnnouncementText(event.target.value)}
+                          placeholder="Type what Christy should announce aloud..."
+                          style={{ width: '100%', minHeight: '68px', resize: 'vertical' }}
+                        />
+                        <div style={{ marginTop: '0.35rem' }}>
+                          <button type="button" onClick={speakAnnouncementText}>
+                            Announce Aloud
+                          </button>
+                        </div>
                       </div>
                       {!speechInputSupported ? <p className="ai-safety-note">Speech input unsupported in this browser.</p> : null}
                       {!speechOutputSupported ? <p className="ai-safety-note">Speech output unsupported in this browser.</p> : null}
