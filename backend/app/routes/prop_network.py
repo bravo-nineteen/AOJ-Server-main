@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app import models, schemas
 from app.database import get_db
 from app.services.log_service import log_action
+from app.services.lora_service import lora_service
 from app.websocket_manager import websocket_manager
 
 router = APIRouter(prefix="/api/props", tags=["Prop Network"])
@@ -84,14 +85,17 @@ async def send_prop_command(
     if item is None:
         raise HTTPException(status_code=404, detail="Prop not found")
 
+    # Dispatch command to LoRa radio (mock in non-Pi mode).
+    lora_service.send_command(item.device_id, payload.command.upper())
+
     item.last_seen = datetime.utcnow()
     if payload.command == "arm":
         item.status = "armed"
-    if payload.command == "disarm":
+    elif payload.command == "disarm":
         item.status = "disarmed"
-    if payload.command == "reset":
+    elif payload.command == "reset":
         item.status = "online"
-    if payload.command == "trigger_alarm":
+    elif payload.command == "trigger_alarm":
         item.status = "alarm"
 
     log_action(

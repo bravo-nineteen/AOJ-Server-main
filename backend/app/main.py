@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
 from app.routes import ai, health, logs, mission_control, prop_network, resources, results, schedule, system, update_center
+from app.services.lora_service import lora_service
 from app.services.mission_control_service import mission_control_service
 from app.websocket_manager import websocket_manager
 
@@ -36,7 +37,13 @@ app.include_router(update_center.router)
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    lora_service.start()
     asyncio.create_task(mission_control_service.ticker())
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    lora_service.stop()
 
 
 @app.websocket("/ws/live")

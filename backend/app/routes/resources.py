@@ -1,6 +1,7 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app import models, schemas
 from app.database import get_db
@@ -16,10 +17,14 @@ def list_devices(db: Session = Depends(get_db)):
 
 @router.post("/devices", response_model=schemas.DeviceRead)
 def create_device(payload: schemas.DeviceCreate, db: Session = Depends(get_db)):
-    item = models.Device(**payload.model_dump())
-    db.add(item)
-    db.commit()
-    db.refresh(item)
+    try:
+        item = models.Device(**payload.model_dump())
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A device with that IP address already exists.")
     log_action(
         db,
         level=models.LogLevel.info,
@@ -58,6 +63,9 @@ def list_game_sessions(db: Session = Depends(get_db)):
 
 @router.post("/game-sessions", response_model=schemas.GameSessionRead)
 def create_game_session(payload: schemas.GameSessionCreate, db: Session = Depends(get_db)):
+    if payload.mission_id is not None:
+        if not db.query(models.Mission).filter(models.Mission.id == payload.mission_id).first():
+            raise HTTPException(status_code=422, detail=f"Mission {payload.mission_id} does not exist.")
     item = models.GameSession(**payload.model_dump())
     db.add(item)
     db.commit()
@@ -79,6 +87,8 @@ def list_teams(db: Session = Depends(get_db)):
 
 @router.post("/teams", response_model=schemas.TeamRead)
 def create_team(payload: schemas.TeamCreate, db: Session = Depends(get_db)):
+    if not db.query(models.GameSession).filter(models.GameSession.id == payload.game_session_id).first():
+        raise HTTPException(status_code=422, detail=f"GameSession {payload.game_session_id} does not exist.")
     item = models.Team(**payload.model_dump())
     db.add(item)
     db.commit()
@@ -100,6 +110,10 @@ def list_score_events(db: Session = Depends(get_db)):
 
 @router.post("/score-events", response_model=schemas.ScoreEventRead)
 def create_score_event(payload: schemas.ScoreEventCreate, db: Session = Depends(get_db)):
+    if not db.query(models.GameSession).filter(models.GameSession.id == payload.game_session_id).first():
+        raise HTTPException(status_code=422, detail=f"GameSession {payload.game_session_id} does not exist.")
+    if not db.query(models.Team).filter(models.Team.id == payload.team_id).first():
+        raise HTTPException(status_code=422, detail=f"Team {payload.team_id} does not exist.")
     item = models.ScoreEvent(**payload.model_dump())
     db.add(item)
     db.commit()
@@ -114,10 +128,8 @@ def create_score_event(payload: schemas.ScoreEventCreate, db: Session = Depends(
     return item
 
 
-@router.get("/schedule-items", response_model=list[schemas.ScheduleItemRead])
-def list_schedule_items(db: Session = Depends(get_db)):
-    return db.query(models.ScheduleItem).order_by(models.ScheduleItem.id.desc()).all()
-
+# GET /api/schedule-items intentionally omitted here.
+# Use GET /api/schedule/items (schedule.py) for the canonical schedule endpoint.
 
 @router.post("/schedule-items", response_model=schemas.ScheduleItemRead)
 def create_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depends(get_db)):

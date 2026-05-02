@@ -11,5 +11,9 @@ router = APIRouter(prefix="/api", tags=["Health"])
 
 @router.get("/health", response_model=HealthResponse)
 def health_check(db: Session = Depends(get_db)) -> HealthResponse:
-    db.execute(text("SELECT 1"))
-    return HealthResponse(status="ok", database="connected")
+    try:
+        db.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "error"
+    return HealthResponse(status="ok", database=db_status)

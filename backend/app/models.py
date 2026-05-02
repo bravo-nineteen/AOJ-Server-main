@@ -80,6 +80,7 @@ class Mission(Base):
 
     game_sessions: Mapped[list["GameSession"]] = relationship(back_populates="mission")
     schedule_items: Mapped[list["ScheduleItem"]] = relationship(back_populates="mission")
+    objectives: Mapped[list["MissionObjective"]] = relationship(back_populates="mission")
 
 
 class GameSession(Base):
@@ -209,3 +210,20 @@ class UserRole(Base):
     permissions: Mapped[str] = mapped_column(Text, default="[]")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MissionObjective(Base):
+    """Persisted objectives belonging to a Mission (mirrors in-memory state)."""
+
+    __tablename__ = "mission_objectives"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    mission_id: Mapped[int] = mapped_column(ForeignKey("missions.id"), nullable=False, index=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-based display order
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    mission: Mapped["Mission"] = relationship(back_populates="objectives")

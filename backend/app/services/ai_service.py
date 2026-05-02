@@ -1,3 +1,5 @@
+import re
+
 from app import schemas
 
 MOCK_MODEL_NAME = "mock-local-advisor-v1"
@@ -23,7 +25,10 @@ def ask_ai(prompt: str) -> schemas.AIAskResponse:
     text = prompt.strip()
     lower = text.lower()
 
-    restricted_detected = any(term in lower for term in RESTRICTED_TERMS)
+    restricted_detected = any(
+        re.search(r"\b" + re.escape(term) + r"\b", lower)
+        for term in RESTRICTED_TERMS
+    )
 
     if restricted_detected:
         answer = (

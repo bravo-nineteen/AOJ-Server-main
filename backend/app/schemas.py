@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DeviceBase(BaseModel):
@@ -213,18 +213,18 @@ class MissionControlStateResponse(BaseModel):
 
 
 class MissionControlCreateMissionRequest(BaseModel):
-    title: str
+    title: str = Field(..., min_length=1, max_length=140)
     description: str = ""
-    game_mode: str
-    main_timer_seconds: int = 1800
-    phase_timer_seconds: int = 300
+    game_mode: str = Field(..., min_length=1, max_length=80)
+    main_timer_seconds: int = Field(default=1800, ge=1)
+    phase_timer_seconds: int = Field(default=300, ge=0)
     objectives: list[str] = []
 
 
 class MissionControlScoreRequest(BaseModel):
     team: Literal["red", "blue"]
-    delta: int
-    reason: str = "manual"
+    delta: int = Field(..., ge=-1000, le=1000)
+    reason: str = Field(default="manual", max_length=200)
 
 
 class MissionControlObjectiveStatusRequest(BaseModel):
@@ -269,9 +269,9 @@ class PropBase(BaseModel):
         "Bomb", "Domination Point", "Respawn Station", "Alarm", "Sensor", "Custom"
     ] = "Custom"
     location: str = ""
-    status: str = "offline"
-    battery_level: int = 100
-    signal_strength: int = 100
+    status: Literal["offline", "online", "armed", "disarmed", "alarm", "maintenance"] = "offline"
+    battery_level: int = Field(default=100, ge=0, le=100)
+    signal_strength: int = Field(default=100, ge=0, le=100)
     last_seen: datetime | None = None
     firmware_version: str = ""
 
@@ -297,7 +297,7 @@ class PropCommandRequest(BaseModel):
 
 
 class AIAskRequest(BaseModel):
-    prompt: str
+    prompt: str = Field(..., min_length=1, max_length=2000)
 
 
 class AIAskResponse(BaseModel):

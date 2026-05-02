@@ -11,22 +11,13 @@ from app.services.log_service import log_action
 router = APIRouter(prefix="/api/schedule", tags=["Schedule"])
 
 
-def _normalize_schedule_item(item: models.ScheduleItem) -> models.ScheduleItem:
-    if item.scheduled_for and not item.start_time:
-        item.start_time = item.scheduled_for
-    if item.scheduled_for and not item.end_time:
-        item.end_time = item.scheduled_for
-    return item
-
-
 @router.get("/items", response_model=list[schemas.ScheduleItemRead])
 def list_schedule_items(db: Session = Depends(get_db)):
-    items = (
+    return (
         db.query(models.ScheduleItem)
         .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
         .all()
     )
-    return [_normalize_schedule_item(item) for item in items]
 
 
 @router.post("/items", response_model=schemas.ScheduleItemRead)
@@ -34,7 +25,7 @@ def add_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depends
     if payload.end_time <= payload.start_time:
         raise HTTPException(status_code=400, detail="end_time must be after start_time")
 
-    item = models.ScheduleItem(**payload.model_dump(), scheduled_for=payload.start_time)
+    item = models.ScheduleItem(**payload.model_dump())
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -45,7 +36,7 @@ def add_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depends
         source="schedule",
         message=f"Schedule item added: {item.title} ({item.activity_type})",
     )
-    return _normalize_schedule_item(item)
+    return item
 
 
 @router.put("/items/{item_id}", response_model=schemas.ScheduleItemRead)
@@ -60,7 +51,6 @@ def edit_schedule_item(
 
     for key, value in payload.model_dump().items():
         setattr(item, key, value)
-    item.scheduled_for = payload.start_time
     item.completed_at = datetime.utcnow() if payload.is_complete else None
     db.commit()
     db.refresh(item)
@@ -71,7 +61,7 @@ def edit_schedule_item(
         source="schedule",
         message=f"Schedule item edited: id={item.id} title={item.title}",
     )
-    return _normalize_schedule_item(item)
+    return item
 
 
 @router.delete("/items/{item_id}")
@@ -108,7 +98,7 @@ def mark_schedule_item_complete(item_id: int, db: Session = Depends(get_db)):
         source="schedule",
         message=f"Schedule item completed: id={item.id} title={item.title}",
     )
-    return _normalize_schedule_item(item)
+    return item
 
 
 @router.get("/overview", response_model=schemas.ScheduleOverviewResponse)
@@ -120,7 +110,6 @@ def get_schedule_overview(db: Session = Depends(get_db)):
         .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
         .all()
     )
-    items = [_normalize_schedule_item(item) for item in items]
 
     current_candidates = [
         item for item in items if not item.is_complete and item.start_time <= now
