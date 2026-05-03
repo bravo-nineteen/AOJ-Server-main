@@ -65,6 +65,9 @@ from app.schemas.system import SystemStatusResponse
 from app.schemas.system_log import SystemLogBase, SystemLogCreate, SystemLogRead
 from app.schemas.team import TeamBase, TeamCreate, TeamRead
 from app.schemas.update_center import (
+    FirmwareApplyRequest,
+    FirmwareApplyResponse,
+    FirmwarePackageRead,
     UpdateCenterActionResponse,
     UpdateCenterStatusResponse,
     UpdatePackagePlaceholderRequest,
@@ -141,6 +144,9 @@ __all__ = [
     "TeamBase",
     "TeamCreate",
     "TeamRead",
+    "FirmwareApplyRequest",
+    "FirmwareApplyResponse",
+    "FirmwarePackageRead",
     "UpdateCenterActionResponse",
     "UpdateCenterStatusResponse",
     "UpdatePackagePlaceholderRequest",
