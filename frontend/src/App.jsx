@@ -100,6 +100,8 @@ const DEFAULT_UPDATE_CENTER_STATUS = {
   database_version: 'unknown',
   database_path: '',
   latest_backup: null,
+  firmware_packages_count: 0,
+  last_firmware_rollout: null,
   changelog: [],
 };
 
@@ -226,6 +228,11 @@ function App() {
   const [updateCenterStatus, setUpdateCenterStatus] = useState(DEFAULT_UPDATE_CENTER_STATUS);
   const [updateMessage, setUpdateMessage] = useState('');
   const [selectedUpdatePackage, setSelectedUpdatePackage] = useState(null);
+  const [firmwarePackages, setFirmwarePackages] = useState([]);
+  const [firmwareVersion, setFirmwareVersion] = useState('');
+  const [firmwareNotes, setFirmwareNotes] = useState('');
+  const [selectedFirmwarePackageId, setSelectedFirmwarePackageId] = useState('');
+  const [selectedFirmwarePropIds, setSelectedFirmwarePropIds] = useState([]);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
   const [voiceNote, setVoiceNote] = useState('');
@@ -538,6 +545,18 @@ function App() {
     setUpdateCenterStatus(payload);
   }
 
+  async function fetchFirmwarePackages() {
+    const response = await fetch(`${apiBase}/update-center/firmware-packages`);
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setFirmwarePackages(payload);
+    if (!selectedFirmwarePackageId && payload.length > 0) {
+      setSelectedFirmwarePackageId(payload[0].id);
+    }
+  }
+
   async function runUpdateCenterAction(path, body) {
     const response = await fetch(`${apiBase}${path}`, {
       method: 'POST',
@@ -551,6 +570,74 @@ function App() {
     const payload = await response.json();
     setUpdateMessage(payload.message);
     fetchUpdateCenterStatus();
+  }
+
+  async function uploadFirmwarePackage() {
+    if (!selectedUpdatePackage) {
+      setUpdateMessage('Select a firmware file first.');
+      return;
+    }
+    if (!firmwareVersion.trim()) {
+      setUpdateMessage('Enter a firmware version before upload.');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', selectedUpdatePackage);
+    formData.append('version', firmwareVersion.trim());
+    formData.append('notes', firmwareNotes.trim());
+
+    const response = await fetch(`${apiBase}/update-center/firmware-upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      setUpdateMessage('Firmware upload failed.');
+      return;
+    }
+
+    const payload = await response.json();
+    setUpdateMessage(`Firmware package uploaded: ${payload.filename} (${payload.version})`);
+    setSelectedFirmwarePackageId(payload.id);
+    fetchFirmwarePackages();
+    fetchUpdateCenterStatus();
+  }
+
+  async function applyFirmwarePackage() {
+    if (!selectedFirmwarePackageId) {
+      setUpdateMessage('Select a firmware package to apply.');
+      return;
+    }
+
+    const response = await fetch(`${apiBase}/update-center/firmware-apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        package_id: selectedFirmwarePackageId,
+        prop_ids: selectedFirmwarePropIds,
+        apply_all: selectedFirmwarePropIds.length === 0,
+      }),
+    });
+
+    if (!response.ok) {
+      setUpdateMessage('Firmware apply failed.');
+      return;
+    }
+
+    const payload = await response.json();
+    setUpdateMessage(payload.message);
+    fetchPropsData();
+    fetchUpdateCenterStatus();
+  }
+
+  function toggleFirmwareTargetProp(propId) {
+    setSelectedFirmwarePropIds((current) => {
+      if (current.includes(propId)) {
+        return current.filter((id) => id !== propId);
+      }
+      return [...current, propId];
+    });
   }
 
   // Ensure a conversation exists and return its id.
@@ -868,6 +955,7 @@ function App() {
     fetchSystemLogs();
     fetchSystemStatus();
     fetchUpdateCenterStatus();
+    fetchFirmwarePackages();
   }, [apiBase]);
 
   useEffect(() => {
@@ -1787,28 +1875,87 @@ function App() {
                       <p className="update-meta">Database Version: {updateCenterStatus.database_version}</p>
                       <p className="update-meta">Database Path: {updateCenterStatus.database_path}</p>
                       <p className="update-meta">Latest Backup: {updateCenterStatus.latest_backup || 'None'}</p>
+                      <p className="update-meta">Firmware Packages: {updateCenterStatus.firmware_packages_count}</p>
+                      <p className="update-meta">
+                        Last Firmware Upload: {updateCenterStatus.last_firmware_rollout || 'None'}
+                      </p>
                     </div>
 
                     <div className="update-card">
-                      <h3>Safe Actions</h3>
+                      <h3>Firmware Rollout</h3>
                       <label>
-                        Offline Update Package Placeholder
+                        Firmware Package File
                         <input
                           type="file"
                           onChange={(event) => setSelectedUpdatePackage(event.target.files?.[0] ?? null)}
                         />
                       </label>
+                      <label>
+                        Firmware Version
+                        <input
+                          value={firmwareVersion}
+                          onChange={(event) => setFirmwareVersion(event.target.value)}
+                          placeholder="e.g. 1.2.3"
+                        />
+                      </label>
+                      <label>
+                        Notes
+                        <input
+                          value={firmwareNotes}
+                          onChange={(event) => setFirmwareNotes(event.target.value)}
+                          placeholder="Optional rollout note"
+                        />
+                      </label>
+                      <label>
+                        Uploaded Packages
+                        <select
+                          value={selectedFirmwarePackageId}
+                          onChange={(event) => setSelectedFirmwarePackageId(event.target.value)}
+                        >
+                          <option value="">Select package...</option>
+                          {firmwarePackages.map((pkg) => (
+                            <option key={pkg.id} value={pkg.id}>
+                              {pkg.version} - {pkg.filename}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <p className="update-warning">
+                        Select target props below. If none are selected, rollout applies to all registered props.
+                      </p>
+                      <div className="update-log-entry" style={{ maxHeight: '140px', overflowY: 'auto' }}>
+                        {propsList.length === 0 ? (
+                          <p className="muted">No props available.</p>
+                        ) : (
+                          propsList.map((item) => (
+                            <label key={item.id} style={{ display: 'block', marginBottom: '0.25rem' }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedFirmwarePropIds.includes(item.id)}
+                                onChange={() => toggleFirmwareTargetProp(item.id)}
+                              />{' '}
+                              {item.name} ({item.device_id})
+                            </label>
+                          ))
+                        )}
+                      </div>
                       <div className="update-actions">
                         <button
                           type="button"
-                          onClick={() =>
-                            runUpdateCenterAction('/update-center/upload-placeholder', {
-                              filename: selectedUpdatePackage?.name || 'no-file-selected.pkg',
-                              size_bytes: selectedUpdatePackage?.size || 0,
-                            })
-                          }
+                          onClick={uploadFirmwarePackage}
                         >
-                          Upload Placeholder
+                          Upload Firmware
+                        </button>
+                        <button type="button" onClick={applyFirmwarePackage}>
+                          Apply Firmware
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFirmwarePropIds([]);
+                          }}
+                        >
+                          Clear Targets
                         </button>
                         <button type="button" onClick={() => runUpdateCenterAction('/update-center/backup')}>
                           Backup Database
@@ -1827,7 +1974,7 @@ function App() {
                         </button>
                       </div>
                       <p className="update-warning">
-                        Safe mode only. No file replacement or rollback is performed yet.
+                        Firmware rollout is queued through LoRa commands. Core app restore and rollback remain safe placeholders.
                       </p>
                       {updateMessage ? <p className="update-status-message">{updateMessage}</p> : null}
                     </div>

@@ -8,7 +8,8 @@ Current goals:
 - show running version information
 - show database path and latest backup
 - allow safe database backup creation
-- reserve future flows for offline package upload, restore, and rollback
+- support in-place firmware package upload and prop rollout without reinstalling AOJ
+- reserve future flows for full core-app restore and rollback
 
 ## Current Implementation
 
@@ -18,6 +19,9 @@ Backend route prefix:
 Implemented endpoints:
 - `GET /status`
 - `POST /backup`
+- `GET /firmware-packages`
+- `POST /firmware-upload`
+- `POST /firmware-apply`
 - `POST /upload-placeholder`
 - `POST /restore-placeholder`
 - `POST /rollback-placeholder`
@@ -36,6 +40,8 @@ The status endpoint reports:
 - database version from SQLite `PRAGMA user_version`
 - database file path
 - latest backup file name
+- firmware package count
+- last firmware upload timestamp
 - changelog list
 
 This gives an operator enough information to verify what build is currently on the Raspberry Pi.
@@ -53,9 +59,24 @@ When a backup is created:
 - the database file is copied
 - an `UPDATE` category system log is written
 
+### Firmware Package Upload and Rollout
+
+Firmware updates can now be queued without reinstalling the AOJ server.
+
+Current behavior:
+- stores uploaded firmware binaries in `backend/firmware/packages/`
+- records package metadata in `backend/firmware/index.json`
+- exposes package history through `GET /firmware-packages`
+- applies selected firmware packages to target props (or all props) through `POST /firmware-apply`
+- queues LoRa command `FIRMWARE_UPDATE` with version/package payload
+- updates target prop records to maintenance state and new firmware version
+- writes update logs for upload and rollout events
+
+This flow updates field devices in place and avoids deleting/reinstalling the AOJ application itself.
+
 ## What Is Still a Placeholder
 
-The following actions intentionally do not modify runtime files:
+The following core-system actions intentionally do not modify runtime files:
 
 ### Upload Package Placeholder
 
@@ -149,9 +170,10 @@ Any future real update implementation should protect against:
 
 ## Current Limitations
 
-- No real package upload handling
-- No restore implementation
-- No rollback implementation
+- Firmware command dispatch is queued; delivery/ACK success depends on LoRa transport health
+- No signed firmware manifest validation yet
+- No full core-app restore implementation
+- No full core-app rollback implementation
 - No authentication or approval enforcement
 
 ## Minimum Safe Next Steps
