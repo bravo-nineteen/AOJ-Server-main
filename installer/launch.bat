@@ -5,6 +5,7 @@ REM You can also double-click this .bat to launch with a visible console.
 
 SET SCRIPT_DIR=%~dp0
 SET VENV_PYTHON=%SCRIPT_DIR%backend\.venv\Scripts\python.exe
+SET DESKTOP_LAUNCHER=%SCRIPT_DIR%backend\desktop_launcher.py
 
 IF NOT EXIST "%VENV_PYTHON%" (
     echo [AOJ] Setup has not been completed yet.
@@ -20,13 +21,16 @@ IF NOT EXIST "%SCRIPT_DIR%frontend\dist\index.html" (
     exit /b 1
 )
 
-echo [AOJ] Starting AOJ Command OS...
-echo [AOJ] Open http://localhost:8000 in your browser.
-echo [AOJ] Close this window to stop the server.
+IF NOT EXIST "%DESKTOP_LAUNCHER%" (
+    echo [AOJ] Desktop launcher missing.
+    echo [AOJ] Please update AOJ and re-run scripts\install_windows.ps1
+    pause
+    exit /b 1
+)
 
-REM Open the browser after a short delay (start is non-blocking)
-start "" /B cmd /C "timeout /t 3 /nobreak >nul && start http://localhost:8000"
+echo [AOJ] Starting AOJ Command OS desktop app...
+echo [AOJ] A native AOJ window will open (no browser required).
+echo [AOJ] Close that window to stop AOJ if it launched the backend.
 
-REM Start the server (blocking — keeps this window open)
 cd /d "%SCRIPT_DIR%backend"
-"%VENV_PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+"%VENV_PYTHON%" "%DESKTOP_LAUNCHER%"

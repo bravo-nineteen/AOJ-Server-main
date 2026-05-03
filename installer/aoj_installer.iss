@@ -77,6 +77,7 @@ Name: "{app}\assets"
 [Files]
 ; ---------- Backend (exclude venv, cache, database, test artifacts) ----------
 Source: "..\backend\app\*";          DestDir: "{app}\backend\app";          Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__,*.pyc,*.pyo"
+Source: "..\backend\desktop_launcher.py"; DestDir: "{app}\backend";        Flags: ignoreversion
 Source: "..\backend\requirements.txt"; DestDir: "{app}\backend";            Flags: ignoreversion
 Source: "..\backend\README.md";      DestDir: "{app}\backend";              Flags: ignoreversion skipifsourcedoesntexist
 
@@ -92,6 +93,7 @@ Source: "..\frontend\package-lock.json"; DestDir: "{app}\frontend";         Flag
 Source: "..\scripts\install_windows.ps1";        DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\start_production_windows.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\start_backend_windows.ps1";  DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\start_desktop_windows.ps1";  DestDir: "{app}\scripts"; Flags: ignoreversion
 
 ; ---------- Launcher helpers -------------------------------------------------
 Source: "..\installer\launch.bat";  DestDir: "{app}";                       Flags: ignoreversion

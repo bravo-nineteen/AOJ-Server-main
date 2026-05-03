@@ -129,6 +129,28 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_production_windows.ps1
 
 Open **http://localhost:8000** in your browser.
 
+### Start as a desktop app (no browser required)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_desktop_windows.ps1
+```
+
+This opens AOJ in a native app window while still serving LAN clients on port 8000.
+
+- Local app window: `http://127.0.0.1:8000`
+- Wi-Fi devices on same network: `http://YOUR_PC_IP:8000`
+- Multiple browser clients can connect at the same time while you use the local app window.
+
+### Build a standalone desktop EXE
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_desktop_exe.ps1
+```
+
+Output: `dist\desktop\AOJ_Command_OS_Desktop.exe`
+
+The EXE launches a local app-style window and also keeps LAN browser access enabled.
+
 ### Start in development mode (two processes)
 
 ```powershell

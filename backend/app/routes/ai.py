@@ -116,5 +116,5 @@ def ai_ask(payload: schemas.AIAskRequest, db: Session = Depends(get_db)) -> sche
             "Advisory only. No hardware command is executed. "
             "Admin confirmation is required before any operational action."
         ),
-        model="mock-local-advisor-v1",
+        model=reply.assistant_message.model or "advisor",
     )

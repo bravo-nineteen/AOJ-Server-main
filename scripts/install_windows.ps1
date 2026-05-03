@@ -59,5 +59,6 @@ finally {
 }
 
 Write-Host '[AOJ] Windows installation complete.'
+Write-Host "[AOJ] Desktop start (no browser): $ProjectRoot\scripts\start_desktop_windows.ps1"
 Write-Host "[AOJ] Backend start: $ProjectRoot\scripts\start_backend_windows.ps1"
 Write-Host "[AOJ] Frontend start: $ProjectRoot\scripts\start_frontend_windows.ps1"

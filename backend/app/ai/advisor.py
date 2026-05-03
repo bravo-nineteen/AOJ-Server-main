@@ -1164,6 +1164,7 @@ def _mk_response(
     suggested_actions: list[str] | None = None,
     requires_admin_confirmation: bool = False,
     blocked_actions: list[str] | None = None,
+    model: str = MOCK_MODEL_NAME,
 ) -> AIAskResponse:
     return AIAskResponse(
         answer=answer,
@@ -1176,7 +1177,75 @@ def _mk_response(
         requires_admin_confirmation=requires_admin_confirmation,
         blocked_action=False,
         safety_notice=SAFETY_NOTICE,
-        model=MOCK_MODEL_NAME,
+        model=model,
+    )
+
+
+def _limit_answer_words(text: str, max_words: int = 200) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text.strip()
+    trimmed = " ".join(words[:max_words]).rstrip(" ,;:")
+    if not trimmed.endswith((".", "!", "?")):
+        trimmed += "..."
+    return trimmed
+
+
+def _handle_ollama_response(
+    prompt: str,
+    llm_answer: str,
+    history: list[dict[str, Any]],
+    injected_context: str | None,
+    model: str,
+) -> AIAskResponse:
+    lower = prompt.strip().lower()
+    used_ctx = ["advisor:ollama", "provider:ollama"]
+    if injected_context:
+        used_ctx.append("context:injected")
+
+    action_key, action_label = _detect_operational_action(prompt)
+    pending = _check_history_for_pending_confirmation(history)
+
+    # Maintain strict confirmation flow even when using LLM output.
+    if action_key:
+        is_confirm = bool(_CONFIRM_PATTERNS.search(lower))
+        if is_confirm and pending == action_key:
+            return _mk_response(
+                f"Confirmed. Here's the procedure to **{action_label}**:\n\n" + _action_guidance(action_key),
+                confidence=0.9,
+                used_ctx=[*used_ctx, "advisor:ollama_confirmed_action"],
+                suggested_actions=[f"Proceed with: {action_label}"],
+                model=f"ollama/{model}",
+            )
+
+        return _mk_response(
+            (
+                f"I can help you **{action_label}**. "
+                "Before I guide you through this, can you confirm that's what you want to do?\n\n"
+                "Reply **yes** or **confirm** to proceed, or tell me more about what you need.\n\n"
+                f"[CONFIRM_ACTION:{action_key}]"
+            ),
+            confidence=0.8,
+            used_ctx=[*used_ctx, "advisor:ollama_awaiting_confirmation"],
+            suggested_actions=["Confirm the action to proceed."],
+            requires_admin_confirmation=True,
+            model=f"ollama/{model}",
+        )
+
+    # If user confirms a previously-requested action, continue safely.
+    if _CONFIRM_PATTERNS.match(lower) and len(lower.split()) <= 3 and pending:
+        return _mk_response(
+            "Confirmed. Here's the procedure:\n\n" + _action_guidance(pending),
+            confidence=0.9,
+            used_ctx=[*used_ctx, "advisor:ollama_confirmed_action"],
+            model=f"ollama/{model}",
+        )
+
+    return _mk_response(
+        _limit_answer_words(llm_answer, max_words=200),
+        confidence=0.84,
+        used_ctx=used_ctx,
+        model=f"ollama/{model}",
     )
 
 
@@ -1966,10 +2035,12 @@ def ask_ai(
             model=_ollama_model,
         )
         if llm_answer:
-            return AIAskResponse(
-                answer=llm_answer,
-                model=f"ollama/{_ollama_model}",
-                context_used=bool(injected_context),
+            return _handle_ollama_response(
+                prompt=prompt,
+                llm_answer=llm_answer,
+                history=history,
+                injected_context=injected_context,
+                model=_ollama_model or "unknown",
             )
         # Ollama request failed at runtime — retry on next request instead of
         # permanently disabling it for this process.
