@@ -20,6 +20,7 @@ from app.models.customization import (
 from app.models.device_command import CommandStatus, DeviceCommand
 from app.models.device_event import DeviceEvent, DeviceEventType
 from app.models.device_type import DeviceCategory, DeviceType
+from app.models.firmware_rollout import FirmwareRolloutJob
 from app.models.game_mode import GameMode
 from app.models.player import Player
 from app.models.system_setting import SystemSetting
@@ -60,6 +61,7 @@ __all__ = [
     "DeviceEventType",
     "DeviceCategory",
     "DeviceType",
+    "FirmwareRolloutJob",
     "GameMode",
     "Player",
     "SystemSetting",

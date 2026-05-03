@@ -46,3 +46,33 @@ class FirmwareApplyResponse(BaseModel):
     package: FirmwarePackageRead
     targeted_props: list[int]
     targeted_count: int
+    rollout_job_id: int
+
+
+class FirmwareRolloutTargetRead(BaseModel):
+    prop_id: int
+    device_id: str
+    name: str
+    status: str
+    message: str = ""
+    updated_at: str
+
+
+class FirmwareRolloutJobRead(BaseModel):
+    id: int
+    package_id: str
+    package_version: str
+    package_filename: str
+    status: str
+    targeted_count: int
+    acknowledged_count: int
+    failed_count: int
+    targets: list[FirmwareRolloutTargetRead]
+    created_at: str
+    updated_at: str
+
+
+class FirmwareRolloutProgressUpdateRequest(BaseModel):
+    prop_id: int
+    status: str
+    message: str = ""

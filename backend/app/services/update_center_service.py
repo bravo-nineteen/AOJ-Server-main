@@ -67,6 +67,68 @@ def _to_firmware_package_read(item: dict) -> schemas.FirmwarePackageRead:
     )
 
 
+def _deserialize_targets(raw_targets: str) -> list[dict]:
+    try:
+        payload = json.loads(raw_targets)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _serialize_targets(targets: list[dict]) -> str:
+    return json.dumps(targets, ensure_ascii=True)
+
+
+def _rollout_status_from_counts(
+    targeted_count: int,
+    acknowledged_count: int,
+    failed_count: int,
+) -> str:
+    if targeted_count <= 0:
+        return "queued"
+    if acknowledged_count >= targeted_count:
+        return "completed"
+    if failed_count >= targeted_count:
+        return "failed"
+    if acknowledged_count > 0 and failed_count > 0:
+        return "partial"
+    if acknowledged_count > 0:
+        return "in_progress"
+    if failed_count > 0:
+        return "in_progress"
+    return "queued"
+
+
+def _to_rollout_job_read(job: models.FirmwareRolloutJob) -> schemas.FirmwareRolloutJobRead:
+    targets = _deserialize_targets(job.targets_json)
+    target_reads = [
+        schemas.FirmwareRolloutTargetRead(
+            prop_id=int(item.get("prop_id", 0)),
+            device_id=str(item.get("device_id", "")),
+            name=str(item.get("name", "")),
+            status=str(item.get("status", "queued")),
+            message=str(item.get("message", "")),
+            updated_at=str(item.get("updated_at", "")),
+        )
+        for item in targets
+    ]
+    return schemas.FirmwareRolloutJobRead(
+        id=job.id,
+        package_id=job.package_id,
+        package_version=job.package_version,
+        package_filename=job.package_filename,
+        status=job.status,
+        targeted_count=job.targeted_count,
+        acknowledged_count=job.acknowledged_count,
+        failed_count=job.failed_count,
+        targets=target_reads,
+        created_at=job.created_at.isoformat(),
+        updated_at=job.updated_at.isoformat(),
+    )
+
+
 def _read_frontend_version() -> str:
     if not FRONTEND_PACKAGE_PATH.exists():
         return "unknown"
@@ -266,6 +328,7 @@ def apply_firmware_package(
 
     target_ids: list[int] = []
     firmware_value = f"{package['version']}|{package['stored_name']}|{package['sha256'][:16]}"
+    rollout_targets: list[dict] = []
     for item in target_props:
         lora_service.send_command(item.device_id, "FIRMWARE_UPDATE", firmware_value)
         item.status = "maintenance"
@@ -273,7 +336,31 @@ def apply_firmware_package(
         item.last_seen = datetime.utcnow()
         target_ids.append(item.id)
 
+        rollout_targets.append(
+            {
+                "prop_id": item.id,
+                "device_id": item.device_id,
+                "name": item.name,
+                "status": "queued",
+                "message": "Firmware update command queued.",
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        )
+
+    rollout_job = models.FirmwareRolloutJob(
+        package_id=str(package["id"]),
+        package_version=str(package["version"]),
+        package_filename=str(package["filename"]),
+        status="queued",
+        targeted_count=len(target_ids),
+        acknowledged_count=0,
+        failed_count=0,
+        targets_json=_serialize_targets(rollout_targets),
+    )
+    db.add(rollout_job)
+
     db.commit()
+    db.refresh(rollout_job)
 
     log_action(
         db,
@@ -296,4 +383,145 @@ def apply_firmware_package(
         package=package_read,
         targeted_props=target_ids,
         targeted_count=len(target_ids),
+        rollout_job_id=rollout_job.id,
     )
+
+
+def list_firmware_rollout_jobs(db: Session) -> list[schemas.FirmwareRolloutJobRead]:
+    rows = (
+        db.query(models.FirmwareRolloutJob)
+        .order_by(models.FirmwareRolloutJob.id.desc())
+        .limit(30)
+        .all()
+    )
+    return [_to_rollout_job_read(item) for item in rows]
+
+
+def get_firmware_rollout_job(db: Session, job_id: int) -> schemas.FirmwareRolloutJobRead | None:
+    row = db.query(models.FirmwareRolloutJob).filter(models.FirmwareRolloutJob.id == job_id).first()
+    if row is None:
+        return None
+    return _to_rollout_job_read(row)
+
+
+def update_firmware_rollout_progress(
+    db: Session,
+    job_id: int,
+    payload: schemas.FirmwareRolloutProgressUpdateRequest,
+) -> schemas.FirmwareRolloutJobRead:
+    row = db.query(models.FirmwareRolloutJob).filter(models.FirmwareRolloutJob.id == job_id).first()
+    if row is None:
+        raise ValueError("Firmware rollout job not found.")
+
+    targets = _deserialize_targets(row.targets_json)
+    target = next((item for item in targets if int(item.get("prop_id", 0)) == payload.prop_id), None)
+    if target is None:
+        raise ValueError("Target prop is not part of this rollout job.")
+
+    target["status"] = payload.status
+    target["message"] = payload.message.strip()
+    target["updated_at"] = datetime.utcnow().isoformat()
+
+    acknowledged_count = sum(1 for item in targets if item.get("status") == "acked")
+    failed_count = sum(1 for item in targets if item.get("status") == "failed")
+    row.acknowledged_count = acknowledged_count
+    row.failed_count = failed_count
+    row.status = _rollout_status_from_counts(row.targeted_count, acknowledged_count, failed_count)
+    row.targets_json = _serialize_targets(targets)
+
+    if payload.status == "acked":
+        prop = db.query(models.Prop).filter(models.Prop.id == payload.prop_id).first()
+        if prop is not None:
+            prop.status = "online"
+            prop.last_seen = datetime.utcnow()
+
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.update,
+        source="update_center",
+        message=(
+            f"Firmware rollout #{row.id} progress: prop {payload.prop_id} -> "
+            f"{payload.status.upper()}"
+        ),
+    )
+
+    db.commit()
+    db.refresh(row)
+    return _to_rollout_job_read(row)
+
+
+def handle_firmware_ack_event(
+    db: Session,
+    device_id: str,
+    ack_value: str,
+    message_id: str,
+) -> None:
+    """Auto-update rollout target progress when a firmware ACK is received from a prop.
+    
+    This callback is invoked by the LoRa service when an ACK message arrives.
+    It looks up the device, finds active rollout jobs, and marks targets as acked.
+    
+    Args:
+        db: Database session.
+        device_id: Device ID from the ACK message (e.g., "PROP_001").
+        ack_value: ACK value from the message (e.g., "OK").
+        message_id: Message ID that was acked.
+    """
+    try:
+        prop = db.query(models.Prop).filter(models.Prop.device_id == device_id).first()
+        if prop is None:
+            # Device not found in database; log and continue.
+            return
+
+        # Find all non-completed rollout jobs that have this prop as a target.
+        rollout_jobs = (
+            db.query(models.FirmwareRolloutJob)
+            .filter(models.FirmwareRolloutJob.status.notin_(["completed", "failed"]))
+            .all()
+        )
+
+        for job in rollout_jobs:
+            targets = _deserialize_targets(job.targets_json)
+            target = next((item for item in targets if int(item.get("prop_id", 0)) == prop.id), None)
+            if target is None:
+                continue
+
+            # Skip if already acked or failed.
+            if target.get("status") in ["acked", "failed"]:
+                continue
+
+            # Update target status to acked.
+            target["status"] = "acked"
+            target["message"] = f"Acknowledged via LoRa message {message_id}: {ack_value}"
+            target["updated_at"] = datetime.utcnow().isoformat()
+
+            # Recalculate job aggregate status from all targets.
+            acknowledged_count = sum(1 for item in targets if item.get("status") == "acked")
+            failed_count = sum(1 for item in targets if item.get("status") == "failed")
+            job.acknowledged_count = acknowledged_count
+            job.failed_count = failed_count
+            job.status = _rollout_status_from_counts(job.targeted_count, acknowledged_count, failed_count)
+            job.targets_json = _serialize_targets(targets)
+
+            # Update prop status.
+            prop.status = "online"
+            prop.last_seen = datetime.utcnow()
+
+            log_action(
+                db,
+                level=models.LogLevel.info,
+                category=models.LogCategory.update,
+                source="update_center",
+                message=(
+                    f"Firmware rollout #{job.id} auto-progressed: prop {prop.id} "
+                    f"({prop.name}) -> acked via LoRa."
+                ),
+            )
+
+        db.commit()
+
+    except Exception as e:
+        # Log but don't raise to avoid breaking the LoRa service.
+        import traceback
+        traceback.print_exc()

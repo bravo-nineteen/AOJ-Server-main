@@ -233,6 +233,7 @@ function App() {
   const [firmwareNotes, setFirmwareNotes] = useState('');
   const [selectedFirmwarePackageId, setSelectedFirmwarePackageId] = useState('');
   const [selectedFirmwarePropIds, setSelectedFirmwarePropIds] = useState([]);
+  const [firmwareRollouts, setFirmwareRollouts] = useState([]);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
   const [voiceNote, setVoiceNote] = useState('');
@@ -557,6 +558,15 @@ function App() {
     }
   }
 
+  async function fetchFirmwareRollouts() {
+    const response = await fetch(`${apiBase}/update-center/firmware-rollouts`);
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setFirmwareRollouts(payload);
+  }
+
   async function runUpdateCenterAction(path, body) {
     const response = await fetch(`${apiBase}${path}`, {
       method: 'POST',
@@ -601,6 +611,7 @@ function App() {
     setUpdateMessage(`Firmware package uploaded: ${payload.filename} (${payload.version})`);
     setSelectedFirmwarePackageId(payload.id);
     fetchFirmwarePackages();
+    fetchFirmwareRollouts();
     fetchUpdateCenterStatus();
   }
 
@@ -628,6 +639,7 @@ function App() {
     const payload = await response.json();
     setUpdateMessage(payload.message);
     fetchPropsData();
+    fetchFirmwareRollouts();
     fetchUpdateCenterStatus();
   }
 
@@ -956,6 +968,7 @@ function App() {
     fetchSystemStatus();
     fetchUpdateCenterStatus();
     fetchFirmwarePackages();
+    fetchFirmwareRollouts();
   }, [apiBase]);
 
   useEffect(() => {
@@ -1977,6 +1990,20 @@ function App() {
                         Firmware rollout is queued through LoRa commands. Core app restore and rollback remain safe placeholders.
                       </p>
                       {updateMessage ? <p className="update-status-message">{updateMessage}</p> : null}
+                    </div>
+
+                    <div className="update-card update-changelog-card">
+                      <h3>Firmware Rollout History</h3>
+                      {firmwareRollouts.length === 0 ? <p className="muted">No rollout jobs yet.</p> : null}
+                      {firmwareRollouts.map((job) => (
+                        <div className="update-log-entry" key={job.id}>
+                          <strong>Job #{job.id}</strong> | {job.package_version} | {job.status}
+                          <br />
+                          Targets: {job.targeted_count} | Acked: {job.acknowledged_count} | Failed: {job.failed_count}
+                          <br />
+                          {new Date(job.created_at).toLocaleString()}
+                        </div>
+                      ))}
                     </div>
 
                     <div className="update-card update-changelog-card">

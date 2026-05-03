@@ -9,11 +9,12 @@ from fastapi.staticfiles import StaticFiles
 from app.config import APP_TITLE, APP_VERSION, CORS_ORIGIN_REGEX
 from app.core.ai_safety import AISafetyMiddleware
 from app.core.websocket import websocket_manager
-from app.database import init_db
+from app.database import init_db, SessionLocal
 from app.lora.service import lora_service
 from app.routes import ai, health, logs, members, mission_control, prop_network, resources, results, schedule, system, update_center, custom_admin, tts
 from app.services.mission_control_service import mission_control_service
 from app.services.christy_service import christy_service
+from app.services.update_center_service import handle_firmware_ack_event
 
 app = FastAPI(title=APP_TITLE, version=APP_VERSION)
 
@@ -45,6 +46,16 @@ app.include_router(members.router)
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    
+    # Wire firmware ACK events to rollout progress tracking.
+    def _ack_callback(device_id: str, ack_value: str, message_id: str) -> None:
+        db = SessionLocal()
+        try:
+            handle_firmware_ack_event(db, device_id, ack_value, message_id)
+        finally:
+            db.close()
+    
+    lora_service.set_on_ack_callback(_ack_callback)
     lora_service.start()
     asyncio.create_task(mission_control_service.ticker())
     asyncio.create_task(christy_service.ticker())

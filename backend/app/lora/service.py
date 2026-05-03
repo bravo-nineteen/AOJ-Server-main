@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Optional
 
 
 @dataclass
@@ -49,6 +49,10 @@ class LoRaService:
         self._lock = threading.Lock()
         self._worker_thread: threading.Thread | None = None
         self._running = False
+        
+        # ACK callback: called when an ACK is successfully processed.
+        # Receives (device_id: str, ack_value: str, message_id: str) -> None
+        self._on_ack_callback: Optional[Callable[[str, str, str], None]] = None
 
         # TODO: Initialize SX1262 driver, SPI bus, and GPIO pins here.
         # TODO: Configure LoRa radio params (frequency, spreading factor, BW, CR).
@@ -62,6 +66,16 @@ class LoRaService:
     def pending_ack_count(self) -> int:
         with self._lock:
             return len(self._pending_acks)
+
+    def set_on_ack_callback(self, callback: Optional[Callable[[str, str, str], None]]) -> None:
+        """Register a callback to be invoked when an ACK is successfully processed.
+        
+        Args:
+            callback: Function with signature (device_id: str, ack_value: str, message_id: str) -> None
+                     or None to unregister.
+        """
+        with self._lock:
+            self._on_ack_callback = callback
 
     def start(self) -> None:
         if self._running:
@@ -127,6 +141,7 @@ class LoRaService:
         if self.calculate_crc(payload_wo_crc) != rx_crc:
             return False
 
+        callback: Optional[Callable[[str, str, str], None]] = None
         with self._lock:
             pending = self._pending_acks.pop(message_id, None)
             self._device_status.setdefault(device_id, {})
@@ -139,6 +154,16 @@ class LoRaService:
                     "last_ack_at": time.time(),
                 }
             )
+            callback = self._on_ack_callback
+
+        # Invoke callback outside the lock to avoid deadlocks.
+        if callback is not None and pending is not None:
+            try:
+                callback(device_id, value, message_id)
+            except Exception as e:
+                # Log but don't raise to avoid breaking the ACK processing loop.
+                import traceback
+                traceback.print_exc()
 
         return pending is not None
 
