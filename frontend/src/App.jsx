@@ -14,12 +14,7 @@ const APPS = [
   { id: 'ai-assistant', title: 'AI Assistant', subtitle: 'Command aide for planning and analysis' },
   { id: 'update-center', title: 'Update Center', subtitle: 'Node sync, package state, firmware rollout' },
   { id: 'logs', title: 'Logs', subtitle: 'Audit stream and anomaly events' },
-  { id: 'settings', title: 'Settings', subtitle: 'Network, access, and interface controls' },
-  { id: 'admin-teams', title: 'Admin: Teams', subtitle: 'Manage custom team configurations' },
-  { id: 'admin-game-modes', title: 'Admin: Game Modes', subtitle: 'Manage custom game modes' },
-  { id: 'admin-knowledge', title: 'Admin: Knowledge Base', subtitle: 'Manage custom knowledge entries' },
-  { id: 'admin-theme', title: 'Admin: Theme', subtitle: 'Customize interface colors and appearance' },
-  { id: 'admin-ai-settings', title: 'Admin: AI Settings', subtitle: 'Configure AI assistant behavior' },
+  { id: 'settings', title: 'Settings', subtitle: 'Teams, game modes, themes, AI, and system controls' },
 ];
 
 const WINDOW_CONTENT = {
@@ -166,6 +161,14 @@ function addMinutesLocal(localIso, mins) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:00`;
 }
 
+function militaryTime(date) {
+  if (!date) return 'TBD';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}${m} hours`;
+}
+
 function toTimeInputValue(isoDate) {
   if (!isoDate) {
     return '';
@@ -199,6 +202,8 @@ function App() {
   const [currentTheme, setCurrentTheme] = useState(null);
   const [customTeams, setCustomTeams] = useState([]);
   const [customGameModes, setCustomGameModes] = useState([]);
+  const [settingsTab, setSettingsTab] = useState('general');
+  const [selectedScheduleGame, setSelectedScheduleGame] = useState(null);
   const [missionState, setMissionState] = useState(DEFAULT_MISSION_STATE);
   const [gameModeOptions, setGameModeOptions] = useState(DEFAULT_GAME_MODES);
   const [missionForm, setMissionForm] = useState({
@@ -1333,11 +1338,7 @@ function App() {
   const isSystemMonitor = activeApp.id === 'system-monitor';
   const isAIAssistant = activeApp.id === 'ai-assistant';
   const isUpdateCenter = activeApp.id === 'update-center';
-  const isAdminTeams = activeApp.id === 'admin-teams';
-  const isAdminGameModes = activeApp.id === 'admin-game-modes';
-  const isAdminKnowledge = activeApp.id === 'admin-knowledge';
-  const isAdminTheme = activeApp.id === 'admin-theme';
-  const isAdminAISettings = activeApp.id === 'admin-ai-settings';
+  const isSettings = activeApp.id === 'settings';
 
   const todayScheduleItems = useMemo(() => {
     const today = new Date().toDateString();
@@ -1365,36 +1366,16 @@ function App() {
   }, [systemStatus.prop_count, propsList]);
 
   const plannedGames = useMemo(() => {
-    const fromSchedule = todayScheduleItems
-      .filter((item) => {
-        const joined = `${item.activity_type || ''} ${item.title || ''} ${item.details || ''}`.toLowerCase();
-        return joined.includes('game') || joined.includes('mission') || joined.includes('match');
-      })
+    return todayScheduleItems
+      .filter((item) => item.activity_type === 'Game')
       .map((item) => ({
         key: `schedule-${item.id}`,
-        name: item.title || item.details,
+        name: item.game_mode || item.title,
         requiredProps: [],
       }))
-      .filter(Boolean);
-
-    const fromModes = customGameModes
-      .map((mode) => ({
-        key: `mode-${mode.id}`,
-        name: mode.name,
-        requiredProps: Array.isArray(mode.required_props_json) ? mode.required_props_json : [],
-      }))
-      .filter((mode) => mode.name);
-
-    const merged = [...fromSchedule, ...fromModes];
-    const seen = new Set();
-    return merged.filter((entry) => {
-      if (seen.has(entry.name)) {
-        return false;
-      }
-      seen.add(entry.name);
-      return true;
-    }).slice(0, 6);
-  }, [todayScheduleItems, customGameModes]);
+      .filter((g) => g.name)
+      .slice(0, 6);
+  }, [todayScheduleItems]);
 
   const usedPropsToday = useMemo(() => {
     const plannedNeedles = plannedGames
@@ -1469,7 +1450,7 @@ function App() {
       return '';
     }
     const start = nextItem.start_time
-      ? new Date(nextItem.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? militaryTime(nextItem.start_time)
       : 'soon';
     return `Next on the agenda is ${nextItem.title}, which should start from ${start}.`;
   }
@@ -1491,7 +1472,7 @@ function App() {
       return;
     }
     const start = nextItem.start_time
-      ? new Date(nextItem.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? militaryTime(nextItem.start_time)
       : 'soon';
     setAiInput(`Draft a short marshal brief for next on the agenda: ${nextItem.title} at ${start}.`);
   }
@@ -1517,7 +1498,7 @@ function App() {
           <button type="button" className="indicator" onClick={() => setSelectedApp('prop-network')}>
             Devices {connectedDeviceCount}
           </button>
-          <div className="clock">{clock.toLocaleTimeString()}</div>
+          <div className="clock">{militaryTime(clock)}</div>
         </div>
       </header>
 
@@ -1578,7 +1559,7 @@ function App() {
                       {todayScheduleItems.slice(0, 6).map((item) => (
                         <div className="overview-row" key={item.id}>
                           <strong>{item.title}</strong>
-                          <span>{item.start_time ? new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD'}</span>
+                          <span>{item.start_time ? militaryTime(item.start_time) : 'TBD'}</span>
                         </div>
                       ))}
                     </div>
@@ -1671,17 +1652,33 @@ function App() {
                 <section className="mission-control">
                   <div className="mc-grid">
                     <div className="mc-card">
-                      <h3>Create Mission</h3>
-                      <label>
-                        Mission Name
-                        <input
-                          value={missionForm.title}
-                          onChange={(event) =>
-                            setMissionForm((current) => ({ ...current, title: event.target.value }))
-                          }
-                        />
-                      </label>
-                      <label>
+                      <h3>Today's Games</h3>
+                      {todayScheduleItems.filter((i) => i.activity_type === 'Game').length === 0 ? (
+                        <p className="muted">No games scheduled today. Add Game items in Schedule.</p>
+                      ) : (
+                        <div className="mc-game-list">
+                          {todayScheduleItems.filter((i) => i.activity_type === 'Game').map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className={selectedScheduleGame && selectedScheduleGame.id === item.id ? 'mc-game-item mc-game-item-active' : 'mc-game-item'}
+                              onClick={() => {
+                                setSelectedScheduleGame(item);
+                                setMissionForm((current) => ({
+                                  ...current,
+                                  title: item.title,
+                                  game_mode: item.game_mode || current.game_mode,
+                                }));
+                              }}
+                            >
+                              <strong>{item.title}</strong>
+                              <span>{item.game_mode ? ` — ${item.game_mode}` : ''}</span>
+                              <span className="schedule-meta">{item.start_time ? militaryTime(item.start_time) : 'TBD'}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <label style={{ marginTop: '0.75rem' }}>
                         Game Mode
                         <select
                           value={missionForm.game_mode}
@@ -1995,7 +1992,7 @@ function App() {
                             <span>{item.activity_type}{item.game_mode ? ` — ${item.game_mode}` : ''}</span>
                           </div>
                           <p className="schedule-meta">
-                            {new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {militaryTime(item.start_time)}
                           </p>
                           <p className="schedule-meta">{item.details || 'No details'}</p>
                           <p className="schedule-meta">Status: {item.is_complete ? 'Complete' : 'Pending'}</p>
@@ -2177,7 +2174,7 @@ function App() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
                               <strong>{item.title}</strong>
                               <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-                                {new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {militaryTime(item.start_time)}
                                 {item.game_mode ? ` — ${item.game_mode}` : ''}
                               </span>
                             </div>
@@ -2705,7 +2702,7 @@ function App() {
                         </p>
                         <p className="schedule-meta" style={{ margin: '0.2rem 0 0.5rem' }}>
                           Next: {scheduleOverview.next_activity
-                            ? `${scheduleOverview.next_activity.title} @ ${new Date(scheduleOverview.next_activity.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                            ? `${scheduleOverview.next_activity.title} @ ${militaryTime(scheduleOverview.next_activity.start_time)}`
                             : 'None'}
                         </p>
                         <div className="ai-prompt-grid">
@@ -2828,16 +2825,47 @@ function App() {
                     </div>
                   </div>
                 </section>
-              ) : isAdminTeams ? (
-                <AdminCustomTeams apiBase={apiBase} />
-              ) : isAdminGameModes ? (
-                <AdminGameModes apiBase={apiBase} />
-              ) : isAdminKnowledge ? (
-                <AdminKnowledgeBase apiBase={apiBase} />
-              ) : isAdminTheme ? (
-                <AdminThemeEditor apiBase={apiBase} />
-              ) : isAdminAISettings ? (
-                <AdminAISettings apiBase={apiBase} />
+              ) : isSettings ? (
+                <section className="settings-module">
+                  <nav className="settings-tabs">
+                    {[
+                      { id: 'general', label: 'General' },
+                      { id: 'teams', label: 'Teams' },
+                      { id: 'game-modes', label: 'Game Modes' },
+                      { id: 'knowledge', label: 'Knowledge Base' },
+                      { id: 'theme', label: 'Theme' },
+                      { id: 'ai', label: 'AI Settings' },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        className={settingsTab === tab.id ? 'settings-tab active' : 'settings-tab'}
+                        onClick={() => setSettingsTab(tab.id)}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </nav>
+                  <div className="settings-panel">
+                    {settingsTab === 'general' ? (
+                      <ul>
+                        {WINDOW_CONTENT['settings'].map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    ) : settingsTab === 'teams' ? (
+                      <AdminCustomTeams apiBase={apiBase} />
+                    ) : settingsTab === 'game-modes' ? (
+                      <AdminGameModes apiBase={apiBase} />
+                    ) : settingsTab === 'knowledge' ? (
+                      <AdminKnowledgeBase apiBase={apiBase} />
+                    ) : settingsTab === 'theme' ? (
+                      <AdminThemeEditor apiBase={apiBase} />
+                    ) : settingsTab === 'ai' ? (
+                      <AdminAISettings apiBase={apiBase} />
+                    ) : null}
+                  </div>
+                </section>
               ) : (
                 <ul>
                   {WINDOW_CONTENT[activeApp.id].map((item) => (
