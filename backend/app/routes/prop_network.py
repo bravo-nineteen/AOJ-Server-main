@@ -1,8 +1,10 @@
+import hashlib
+import secrets
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app import models, schemas
 from app.core.websocket import websocket_manager
@@ -13,6 +15,10 @@ from app.services.log_service import log_action
 router = APIRouter(prefix="/api/props", tags=["Prop Network"])
 
 
+def _hash_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
 @router.get("", response_model=list[schemas.PropRead])
 def list_props(db: Session = Depends(get_db)):
     return db.query(models.Prop).order_by(models.Prop.id.desc()).all()
@@ -20,7 +26,10 @@ def list_props(db: Session = Depends(get_db)):
 
 @router.post("", response_model=schemas.PropRead)
 def add_prop(payload: schemas.PropCreate, db: Session = Depends(get_db)):
-    item = models.Prop(**payload.model_dump())
+    item_data = payload.model_dump(exclude={"auth_token"})
+    item = models.Prop(**item_data)
+    if payload.auth_token:
+        item.auth_token_hash = _hash_token(payload.auth_token)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -40,8 +49,10 @@ def edit_prop(prop_id: int, payload: schemas.PropUpdate, db: Session = Depends(g
     if item is None:
         raise HTTPException(status_code=404, detail="Prop not found")
 
-    for key, value in payload.model_dump().items():
+    for key, value in payload.model_dump(exclude={"auth_token"}).items():
         setattr(item, key, value)
+    if payload.auth_token:
+        item.auth_token_hash = _hash_token(payload.auth_token)
 
     db.commit()
     db.refresh(item)
@@ -58,11 +69,16 @@ def edit_prop(prop_id: int, payload: schemas.PropUpdate, db: Session = Depends(g
 @router.post("/status-report", response_model=schemas.PropRead)
 async def ingest_prop_status_report(
     payload: schemas.PropStatusReport,
+    x_prop_token: str | None = Header(default=None, alias="X-Prop-Token"),
     db: Session = Depends(get_db),
 ):
     item = db.query(models.Prop).filter(models.Prop.device_id == payload.device_id).first()
     if item is None:
         raise HTTPException(status_code=404, detail="Prop not found for device_id")
+
+    if item.auth_token_hash:
+        if not x_prop_token or _hash_token(x_prop_token) != item.auth_token_hash:
+            raise HTTPException(status_code=401, detail="Invalid prop token")
 
     item.status = payload.status
     item.battery_level = payload.battery_level
@@ -102,6 +118,26 @@ async def ingest_prop_status_report(
     )
 
     return item
+
+
+@router.post("/{prop_id}/token/rotate")
+def rotate_prop_token(prop_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+    item = db.query(models.Prop).filter(models.Prop.id == prop_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Prop not found")
+
+    token = secrets.token_urlsafe(24)
+    item.auth_token_hash = _hash_token(token)
+    db.commit()
+
+    log_action(
+        db,
+        level=models.LogLevel.warning,
+        category=models.LogCategory.prop,
+        source="prop_network",
+        message=f"Prop token rotated: {item.device_id}",
+    )
+    return {"status": "ok", "device_id": item.device_id, "token": token}
 
 
 @router.delete("/{prop_id}")

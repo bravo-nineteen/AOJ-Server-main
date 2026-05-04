@@ -31,6 +31,7 @@ def init_db() -> None:
     _ensure_mission_columns()
     _ensure_game_session_columns()
     _ensure_device_columns()
+    _ensure_prop_columns()
     _ensure_ai_columns()
     _ensure_custom_game_mode_columns()
     _seed_preset_themes()
@@ -268,6 +269,20 @@ def _ensure_device_columns() -> None:
             connection.execute(
                 text("UPDATE devices SET updated_at = COALESCE(updated_at, created_at)")
             )
+
+
+def _ensure_prop_columns() -> None:
+    required_columns = {
+        "auth_token_hash": "TEXT NOT NULL DEFAULT ''",
+    }
+
+    with engine.begin() as connection:
+        rows = connection.execute(text("PRAGMA table_info(props)"))
+        existing = {row[1] for row in rows}
+        for column_name, column_sql in required_columns.items():
+            if column_name in existing:
+                continue
+            connection.execute(text(f"ALTER TABLE props ADD COLUMN {column_name} {column_sql}"))
 
 
 def _ensure_custom_game_mode_columns() -> None:

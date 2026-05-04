@@ -31,6 +31,7 @@ class Prop(Base):
     signal_strength: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     firmware_version: Mapped[str] = mapped_column(String(50), default="", nullable=False)
+    auth_token_hash: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

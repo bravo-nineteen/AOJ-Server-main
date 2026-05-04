@@ -15,11 +15,11 @@ class PropBase(BaseModel):
 
 
 class PropCreate(PropBase):
-    pass
+    auth_token: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class PropUpdate(PropBase):
-    pass
+    auth_token: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class PropStatusReport(BaseModel):
