@@ -232,14 +232,24 @@ function App() {
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
   const [voiceNote, setVoiceNote] = useState('');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [aiAudioSettings, setAiAudioSettings] = useState({
+    voice_enabled: false,
+    speech_to_text_enabled: false,
+    text_to_speech_enabled: false,
+  });
   const recognitionRef = useRef(null);
+  const currentAudioRef = useRef(null);
+  const currentAudioUrlRef = useRef(null);
 
   const speechRecognitionCtor = useMemo(() => {
     return window.SpeechRecognition || window.webkitSpeechRecognition || null;
   }, []);
 
   const speechInputSupported = Boolean(speechRecognitionCtor);
-  const speechOutputSupported = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
+  const speechOutputSupported = typeof window.Audio !== 'undefined';
+  const aiVoiceInputEnabled = aiAudioSettings.voice_enabled && aiAudioSettings.speech_to_text_enabled;
+  const aiVoiceOutputEnabled = aiAudioSettings.voice_enabled && aiAudioSettings.text_to_speech_enabled;
 
   const redTeamLabel = customTeams[0]?.name || 'Red Team';
   const blueTeamLabel = customTeams[1]?.name || 'Blue Team';
@@ -301,6 +311,23 @@ function App() {
     }
   }
 
+  async function fetchAiSettings() {
+    try {
+      const response = await fetch(`${apiBase}/ai/settings`);
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      setAiAudioSettings({
+        voice_enabled: Boolean(payload.voice_enabled),
+        speech_to_text_enabled: Boolean(payload.speech_to_text_enabled),
+        text_to_speech_enabled: Boolean(payload.text_to_speech_enabled),
+      });
+    } catch {
+      // Keep current settings on fetch failure.
+    }
+  }
+
   async function postMissionAction(path, body) {
     const response = await fetch(`${apiBase}${path}`, {
       method: 'POST',
@@ -343,6 +370,10 @@ function App() {
   }
 
   function startVoiceInput() {
+    if (!aiVoiceInputEnabled) {
+      setSpeechError('Voice input is disabled in AI settings.');
+      return;
+    }
     if (!speechRecognitionCtor) {
       setSpeechError('Speech input is not supported by this browser.');
       return;
@@ -383,6 +414,79 @@ function App() {
     }
   }
 
+  function stopAudioPlayback() {
+    const activeAudio = currentAudioRef.current;
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio.currentTime = 0;
+      activeAudio.onended = null;
+      activeAudio.onerror = null;
+    }
+    if (currentAudioUrlRef.current) {
+      URL.revokeObjectURL(currentAudioUrlRef.current);
+    }
+    currentAudioRef.current = null;
+    currentAudioUrlRef.current = null;
+    setIsSpeaking(false);
+  }
+
+  async function playTtsText(rawText, { showDisabledError = false } = {}) {
+    const clean = stripSpeechSymbols(rawText || '');
+    if (!clean) {
+      return false;
+    }
+    if (!aiVoiceOutputEnabled) {
+      if (showDisabledError) {
+        setSpeechError('Voice output is disabled in AI settings.');
+      }
+      return false;
+    }
+
+    stopAudioPlayback();
+    setSpeechError('');
+
+    try {
+      const resp = await fetch(`${apiBase}/tts/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clean }),
+      });
+      if (!resp.ok) {
+        throw new Error('tts_unavailable');
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+
+      currentAudioUrlRef.current = url;
+      currentAudioRef.current = audio;
+      setIsSpeaking(true);
+
+      audio.onended = () => {
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+        }
+        currentAudioRef.current = null;
+        currentAudioUrlRef.current = null;
+        setIsSpeaking(false);
+      };
+      audio.onerror = () => {
+        stopAudioPlayback();
+      };
+
+      await audio.play();
+      return true;
+    } catch {
+      stopAudioPlayback();
+      setSpeechError('Christy voice unavailable. Check backend TTS service.');
+      return false;
+    }
+  }
+
+  function stopSpeakingNow() {
+    stopAudioPlayback();
+  }
+
   function stripSpeechSymbols(text) {
     return text
       .replace(/\[CONFIRM_ACTION:[^\]]+\]/g, '')
@@ -405,48 +509,15 @@ function App() {
       setSpeechError('No assistant response available to speak.');
       return;
     }
-    const clean = stripSpeechSymbols(latestAssistant.text);
-    if (!clean) return;
-    setSpeechError('');
-    try {
-      const resp = await fetch(`${apiBase}/tts/speak`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: clean }),
-      });
-      if (!resp.ok) throw new Error('tts_unavailable');
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onended = () => URL.revokeObjectURL(url);
-      await audio.play();
-    } catch {
-      setSpeechError('Christy voice unavailable. Check backend TTS service.');
-    }
+    await playTtsText(latestAssistant.text, { showDisabledError: true });
   }
 
   async function speakAnnouncementText() {
-    const clean = stripSpeechSymbols(announcementText || '');
-    if (!clean) {
+    if (!stripSpeechSymbols(announcementText || '')) {
       setSpeechError('Type a message first, then click Announce Aloud.');
       return;
     }
-    setSpeechError('');
-    try {
-      const resp = await fetch(`${apiBase}/tts/speak`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: clean }),
-      });
-      if (!resp.ok) throw new Error('tts_unavailable');
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onended = () => URL.revokeObjectURL(url);
-      await audio.play();
-    } catch {
-      setSpeechError('Christy voice unavailable. Check backend TTS service.');
-    }
+    await playTtsText(announcementText, { showDisabledError: true });
   }
 
   async function fetchActiveTheme() {
@@ -697,20 +768,8 @@ function App() {
           },
         ]);
       }
-      // Auto-speak Christy's response (fire and forget — don't block UI)
-      const clean = stripSpeechSymbols(displayText);
-      if (clean) {
-        fetch(`${apiBase}/tts/speak`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: clean }),
-        }).then((r) => r.ok ? r.blob() : null).then((blob) => {
-          if (!blob) return;
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          audio.onended = () => URL.revokeObjectURL(url);
-          audio.play().catch(() => {});
-        }).catch(() => {});
+      if (displayText) {
+        await playTtsText(displayText);
       }
     } catch {
       setAiMessages((current) => [
@@ -723,6 +782,7 @@ function App() {
   }
 
   function clearAiConversation() {
+    stopAudioPlayback();
     setAiMessages([]);
     setAiConversationId(null);
   }
@@ -972,6 +1032,7 @@ function App() {
     fetchUpdateCenterStatus();
     fetchFirmwarePackages();
     fetchFirmwareRollouts();
+    fetchAiSettings();
   }, [apiBase]);
 
   useEffect(() => {
@@ -986,6 +1047,7 @@ function App() {
       fetchGameModeOptions();
       fetchCustomTeams();
       fetchActiveTheme();
+      fetchAiSettings();
     };
 
     window.addEventListener('custom-data-changed', handleCustomDataChanged);
@@ -993,6 +1055,22 @@ function App() {
       window.removeEventListener('custom-data-changed', handleCustomDataChanged);
     };
   }, [apiBase]);
+
+  useEffect(() => {
+    if (!aiVoiceOutputEnabled && isSpeaking) {
+      stopAudioPlayback();
+    }
+    if (!aiVoiceInputEnabled && isListening) {
+      stopVoiceInput();
+    }
+  }, [aiVoiceOutputEnabled, aiVoiceInputEnabled, isSpeaking, isListening]);
+
+  useEffect(() => {
+    return () => {
+      stopAudioPlayback();
+      stopVoiceInput();
+    };
+  }, []);
 
   useEffect(() => {
     const intervalId = setInterval(() => {
@@ -1026,24 +1104,7 @@ function App() {
             ...current,
             { role: 'assistant', text: announcementText, meta: 'announcement' },
           ]);
-          // Auto-speak the announcement
-          const clean = announcementText
-            .replace(/\[CONFIRM_ACTION:[^\]]+\]/g, '')
-            .replace(/[*#_~`^|<>{}\\]/g, '')
-            .trim();
-          if (clean) {
-            fetch(`${apiBase}/tts/speak`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: clean }),
-            }).then((r) => r.ok ? r.blob() : null).then((blob) => {
-              if (!blob) return;
-              const url = URL.createObjectURL(blob);
-              const audio = new Audio(url);
-              audio.onended = () => URL.revokeObjectURL(url);
-              audio.play().catch(() => {});
-            }).catch(() => {});
-          }
+          playTtsText(announcementText).catch(() => {});
           return;
         }
         const line = `${new Date().toLocaleTimeString()} :: ${JSON.stringify(data)}`;
@@ -1055,7 +1116,7 @@ function App() {
     };
 
     return () => socket.close();
-  }, [wsUrl]);
+  }, [wsUrl, apiBase, aiVoiceOutputEnabled]);
 
   const activeApp = APPS.find((app) => app.id === selectedApp) ?? APPS[0];
 
@@ -2046,16 +2107,23 @@ function App() {
                         <button
                           type="button"
                           onClick={isListening ? stopVoiceInput : startVoiceInput}
-                          disabled={!speechInputSupported || aiTyping}
+                          disabled={!speechInputSupported || aiTyping || !aiVoiceInputEnabled}
                         >
                           {isListening ? 'Stop Listening' : 'Voice Input'}
                         </button>
                         <button
                           type="button"
                           onClick={speakLatestAssistantMessage}
-                          disabled={!speechOutputSupported}
+                          disabled={!speechOutputSupported || !aiVoiceOutputEnabled}
                         >
                           Speak Last Reply
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopSpeakingNow}
+                          disabled={!isSpeaking}
+                        >
+                          Stop Speaking
                         </button>
                         <button type="button" onClick={clearAiConversation} title="Start a new conversation">
                           New Chat
@@ -2072,11 +2140,13 @@ function App() {
                           style={{ width: '100%', minHeight: '68px', resize: 'vertical' }}
                         />
                         <div style={{ marginTop: '0.35rem' }}>
-                          <button type="button" onClick={speakAnnouncementText}>
+                          <button type="button" onClick={speakAnnouncementText} disabled={!aiVoiceOutputEnabled}>
                             Announce Aloud
                           </button>
                         </div>
                       </div>
+                      {!aiVoiceInputEnabled ? <p className="ai-safety-note">Voice input is disabled in Admin AI Settings.</p> : null}
+                      {!aiVoiceOutputEnabled ? <p className="ai-safety-note">Voice output is disabled in Admin AI Settings.</p> : null}
                       {!speechInputSupported ? <p className="ai-safety-note">Speech input unsupported in this browser.</p> : null}
                       {!speechOutputSupported ? <p className="ai-safety-note">Speech output unsupported in this browser.</p> : null}
                       {voiceNote ? <p className="ai-safety-note">{voiceNote}</p> : null}
