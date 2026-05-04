@@ -1407,8 +1407,13 @@ function App() {
   }, [propsList, plannedGames]);
 
   const todayResultsPoints = useMemo(() => {
-    const today = new Date().toDateString();
-    const todayResults = resultsHistory.filter((r) => r.created_at && new Date(r.created_at).toDateString() === today);
+    const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+    const todayResults = resultsHistory.filter((r) => {
+      if (!r.created_at) return false;
+      // created_at may be UTC ISO or naive local — extract the date part directly
+      const datePart = String(r.created_at).slice(0, 10); // "YYYY-MM-DD"
+      return datePart === todayStr;
+    });
     const redPoints = todayResults.reduce((sum, r) => sum + (Number(r.red_points) || 0), 0);
     const bluePoints = todayResults.reduce((sum, r) => sum + (Number(r.blue_points) || 0), 0);
     const redWins = todayResults.filter((r) => r.winner === 'Red').length;

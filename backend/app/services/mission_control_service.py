@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.core.websocket import websocket_manager
+from app.lora.service import lora_service
 from app.services.log_service import log_action
 
 _IDLE_STATE: dict = {
@@ -28,6 +29,8 @@ class MissionControlService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._state: dict = {**_IDLE_STATE, "updated_at": datetime.utcnow().isoformat()}
+        self._team_ready: dict[str, bool] = {"red": False, "blue": False}
+        self._countdown_task: asyncio.Task | None = None
 
     def get_state(self) -> dict:
         return deepcopy(self._state)
@@ -99,6 +102,11 @@ class MissionControlService:
             )
             self._push_event_locked(f"Mission created: {payload.title}")
             log_msg = f"Mission created: {payload.title} ({payload.game_mode})"
+            # Reset team ready flags for the new mission
+            self._team_ready = {"red": False, "blue": False}
+            if self._countdown_task and not self._countdown_task.done():
+                self._countdown_task.cancel()
+                self._countdown_task = None
             snapshot = self.get_state()
 
         log_action(db, level=models.LogLevel.info, category=models.LogCategory.mission,
@@ -106,9 +114,86 @@ class MissionControlService:
         await self.broadcast_state(snapshot)
         return snapshot
 
-    async def start_game(self, db: Session) -> dict:
+    def get_ready_state(self) -> dict:
+        return {"red": self._team_ready["red"], "blue": self._team_ready["blue"]}
+
+    async def set_team_ready(self, team: str, db: Session) -> dict:
+        """Mark a team as ready. When both are ready, trigger 10-second countdown then start."""
+        if team not in ("red", "blue"):
+            raise HTTPException(status_code=400, detail="team must be 'red' or 'blue'")
         async with self._lock:
-            if self._state["state"] != "ready":
+            if self._state["state"] not in ("ready", "idle"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot set ready from state '{self._state['state']}'.",
+                )
+            self._team_ready[team] = True
+            self._push_event_locked(f"{team.upper()} team ready")
+            both_ready = self._team_ready["red"] and self._team_ready["blue"]
+            snapshot = self.get_state()
+
+        await self.broadcast_state(snapshot)
+        await websocket_manager.broadcast({
+            "event": "game.team_ready",
+            "payload": {"team": team, "ready_state": dict(self._team_ready)},
+        })
+
+        if both_ready:
+            # Cancel any existing countdown
+            if self._countdown_task and not self._countdown_task.done():
+                self._countdown_task.cancel()
+            self._countdown_task = asyncio.create_task(self._run_countdown(db))
+
+        return {"ready_state": dict(self._team_ready), "countdown_started": both_ready}
+
+    async def reset_ready(self) -> dict:
+        """Clear ready state for both teams."""
+        if self._countdown_task and not self._countdown_task.done():
+            self._countdown_task.cancel()
+            self._countdown_task = None
+        self._team_ready = {"red": False, "blue": False}
+        await websocket_manager.broadcast({
+            "event": "game.ready_reset",
+            "payload": {"ready_state": dict(self._team_ready)},
+        })
+        return {"ready_state": dict(self._team_ready)}
+
+    async def _run_countdown(self, db: Session) -> None:
+        """Broadcast countdown ticks via WebSocket and LoRa, then start game."""
+        from app.database import SessionLocal  # avoid circular import at module level
+        for remaining in range(10, 0, -1):
+            await websocket_manager.broadcast({
+                "event": "game.countdown",
+                "payload": {"seconds_remaining": remaining},
+            })
+            # Send countdown tick to all siren props via LoRa
+            try:
+                lora_service.send_command("ALL_SIRENS", "COUNTDOWN", str(remaining))
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+
+        # Final GO broadcast
+        await websocket_manager.broadcast({
+            "event": "game.countdown",
+            "payload": {"seconds_remaining": 0, "go": True},
+        })
+        try:
+            lora_service.send_command("ALL_SIRENS", "START_SIREN", "")
+        except Exception:
+            pass
+
+        # Reset ready flags then start the game
+        self._team_ready = {"red": False, "blue": False}
+        db2 = SessionLocal()
+        try:
+            await self.start_game(db2)
+        except HTTPException:
+            pass
+        finally:
+            db2.close()
+
+    async def start_game(self, db: Session) -> dict:
                 raise HTTPException(
                     status_code=400,
                     detail=(

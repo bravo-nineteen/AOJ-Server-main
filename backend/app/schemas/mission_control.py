@@ -40,3 +40,7 @@ class MissionControlScoreRequest(BaseModel):
 
 class MissionControlObjectiveStatusRequest(BaseModel):
     status: Literal["pending", "active", "complete", "failed"]
+
+
+class TeamReadyRequest(BaseModel):
+    team: Literal["red", "blue"]
