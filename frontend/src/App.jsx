@@ -1467,7 +1467,9 @@ function App() {
   }, [resultsHistory]);
 
   const teamOverviewRows = useMemo(() => {
-    const missionUsesLiveScore = missionState.state === 'running' || missionState.state === 'paused';
+    const missionHasScore =
+      Number(missionState.red_team_score || 0) + Number(missionState.blue_team_score || 0) > 0;
+    const missionUsesLiveScore = missionState.state !== 'idle' && missionHasScore;
     return customTeams.slice(0, 6).map((team, index) => {
       let liveScore = 0;
       let dayPoints = 0;
@@ -1482,7 +1484,7 @@ function App() {
         dayWins = todayResultsPoints.blueWins;
       }
       const showLive = missionUsesLiveScore && index < 2;
-      const status = showLive ? 'Engaged' : 'Ready';
+      const status = missionState.state === 'running' && index < 2 ? 'Engaged' : 'Ready';
       return {
         ...team,
         score: liveScore,
