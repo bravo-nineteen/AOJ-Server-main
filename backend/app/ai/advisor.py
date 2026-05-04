@@ -7,6 +7,7 @@ conversational rules engine so the system always works without internet.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -20,14 +21,26 @@ logger = logging.getLogger(__name__)
 # Ollama configuration
 # ---------------------------------------------------------------------------
 
-OLLAMA_BASE = "http://localhost:11434"
-# Preferred models in order — first one found wins.
+OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
+OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "75"))
+OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.35"))
+OLLAMA_TOP_P = float(os.getenv("OLLAMA_TOP_P", "0.9"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
+# Preferred models in order — first one found wins. Put smarter 7B-class models first.
 OLLAMA_MODEL_PREFERENCE = [
+    "qwen2.5:7b-instruct",
+    "qwen2.5:7b",
+    "qwen2.5",
+    "llama3.1:8b-instruct",
+    "llama3.1:8b",
+    "llama3.2:3b-instruct",
     "llama3.2:3b",
     "llama3.2",
+    "mistral:7b-instruct",
+    "mistral",
     "llama3:8b",
     "llama3",
-    "mistral",
     "phi3:mini",
     "gemma2:2b",
     "gemma:2b",
@@ -35,8 +48,9 @@ OLLAMA_MODEL_PREFERENCE = [
 
 CHRISTY_SYSTEM_PROMPT = """You are Christy, the intelligent field operations advisor for AOJ Command OS — an airsoft command platform operating in Japan.
 
-Your personality: calm, professional, friendly, and knowledgeable. You speak in a natural, conversational tone. You DO NOT use bullet-point walls unless specifically asked for a list. You write in short, clear paragraphs.
-You only respond to direct user requests. Do not speak proactively, do not narrate system state unless asked, and do not add unrelated tips.
+Your personality: calm, professional, friendly, and knowledgeable. You speak like a capable human field assistant, not a generic chatbot. You DO NOT use bullet-point walls unless specifically asked for a list. You write in short, clear paragraphs.
+Default response style: direct answer first, then the useful detail. For casual conversation, reply naturally and briefly. For technical help, give clear steps. For advice, give a recommendation instead of a neutral list.
+You only respond to direct user requests. Do not narrate system state unless asked, and do not add unrelated tips. If the user is simply chatting, continue the conversation naturally instead of forcing AOJ operational content.
 
 Your capabilities:
 - Give live game status from the context block provided (scores, timer, devices, schedule)
@@ -53,7 +67,7 @@ Your capabilities:
 - Provide heat/WBGT safety guidance, emergency protocols, and insurance advice for Japanese events
 
 JAPAN-SPECIFIC KNOWLEDGE (enforce these as hard rules in all relevant responses):
-- Legal outer ceiling for adults: 0.98 J maximum muzzle energy
+- Legal outer ceiling for adults: 0.98 Joule maximum muzzle energy
 - Under-18 players: 0.135 J maximum — switch ALL players to junior ruleset when any minor is present
 - CQB/indoor environments may impose lower limits (e.g. 88.99 m/s with 0.20g BB) — always defer to venue cap
 - Legal classifications matter: toy_airsoft (normal BB-firing), model_gun (display, no BB), quasi_air_gun (prohibited — too powerful), imitation_pistol, suspected_real_firearm. Never treat all airsoft-shaped items as equivalent.
@@ -71,7 +85,7 @@ CRITICAL rules:
 - NEVER execute an operational action without explicit user confirmation — ask "Can you confirm?" first
 - When confirming an action, embed the tag [CONFIRM_ACTION:action_key] at the end of your message (hidden from display)
 - If the user says yes/confirm/proceed, provide step-by-step guidance
-- Keep answers under 200 words unless building a detailed rule set
+- Keep answers under 200 words unless building a detailed rule set, technical guide, safety/legal explanation, or the user asks for detail
 - Do NOT use excessive markdown symbols in responses — use plain, natural language
 - Do NOT start every message with "Certainly!" or similar filler phrases
 - If the prompt is vague or ambiguous, ask one focused clarification question instead of returning a generic help wall
@@ -128,6 +142,69 @@ def _check_ollama() -> tuple[bool, str | None]:
         return False, None
 
 
+
+def _detect_response_mode(text: str) -> str:
+    """Detect the best response style before sending to the LLM."""
+    lower = text.lower().strip()
+    if re.search(r"\b(start|stop|pause|resume|arm|disarm|reset|trigger|activate|shutdown|reboot|score)\b", lower):
+        return "operational"
+    if re.search(r"\b(error|traceback|failed|fix|bug|install|setup|configure|code|python|api|lora|relay|database|sql)\b", lower):
+        return "technical"
+    if re.search(r"\b(legal|law|allowed|compliance|import|quasi|firearm|joule|chrono|under.?18|minor)\b", lower):
+        return "compliance"
+    if re.search(r"\b(should i|what do you think|better|recommend|best option|which one)\b", lower):
+        return "advice"
+    if re.fullmatch(r"\s*(hi|hello|hey|thanks|thank you|lol|haha|ok|okay|yeah|yes)\s*[.!?]*\s*", lower):
+        return "casual"
+    if re.search(r"\b(chat|talk|conversation|explain|what is|why|how does)\b", lower):
+        return "general_info"
+    return "general"
+
+
+_MODE_INSTRUCTIONS: dict[str, str] = {
+    "operational": "Be precise. Preserve the confirmation rule for operational actions. Never imply an action was executed.",
+    "technical": "Give copy-paste-safe, step-by-step help. State assumptions and the next command or code change clearly.",
+    "compliance": "Use cautious Japan-specific compliance reasoning. Ask for missing scope when needed; do not invent legal certainty.",
+    "advice": "Give one clear recommendation first, then explain why. Mention the trade-off only if useful.",
+    "casual": "Reply naturally and briefly. Do not force an operations dashboard response.",
+    "general_info": "Explain clearly with useful context. Avoid filler. Keep it practical.",
+    "general": "Answer the user's actual question directly and naturally. Keep it concise unless detail is necessary.",
+}
+
+
+def _build_runtime_system_prompt(user_prompt: str) -> str:
+    mode = _detect_response_mode(user_prompt)
+    return (
+        CHRISTY_SYSTEM_PROMPT
+        + "\n\n[RUNTIME RESPONSE MODE]\n"
+        + f"Mode: {mode}\n"
+        + _MODE_INSTRUCTIONS.get(mode, _MODE_INSTRUCTIONS["general"])
+        + "\n\n[QUALITY CHECK]\nBefore replying, silently check: did I answer the actual request, avoid guessing, use context where relevant, and keep the reply natural?"
+    )
+
+
+def _sanitize_history(history: list[dict[str, Any]], max_turns: int = 20) -> list[dict[str, str]]:
+    """Keep recent useful turns and avoid sending huge or malformed history to Ollama."""
+    cleaned: list[dict[str, str]] = []
+    for entry in history[-max_turns:]:
+        role = str(entry.get("role", "user"))
+        content = str(entry.get("content", "") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        if len(content) > 2500:
+            content = content[:2500].rstrip() + "..."
+        cleaned.append({"role": role, "content": content})
+    return cleaned
+
+
+def _clean_llm_answer(text: str) -> str:
+    """Remove common local-model artifacts and keep speech output cleaner."""
+    text = (text or "").strip()
+    text = re.sub(r"^\s*(assistant|christy)\s*:\s*", "", text, flags=re.I)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"(?i)^(certainly|sure thing|of course)[,!]?\s+", "", text)
+    return text.strip()
+
 def _ollama_chat(
     prompt: str,
     context: str | None,
@@ -137,7 +214,7 @@ def _ollama_chat(
     """
     Call Ollama /api/chat and return the assistant text, or None on failure.
     """
-    messages: list[dict[str, str]] = [{"role": "system", "content": CHRISTY_SYSTEM_PROMPT}]
+    messages: list[dict[str, str]] = [{"role": "system", "content": _build_runtime_system_prompt(prompt)}]
 
     if context:
         messages.append({
@@ -145,22 +222,29 @@ def _ollama_chat(
             "content": f"[OPERATIONAL CONTEXT]\n{context}",
         })
 
-    for entry in history[-20:]:  # last 20 turns for better continuity
-        role = entry.get("role", "user")
-        content = entry.get("content", "")
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
+    messages.extend(_sanitize_history(history, max_turns=20))
 
     messages.append({"role": "user", "content": prompt})
 
     try:
         resp = httpx.post(
             f"{OLLAMA_BASE}/api/chat",
-            json={"model": model, "messages": messages, "stream": False},
-            timeout=60.0,
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "keep_alive": OLLAMA_KEEP_ALIVE,
+                "options": {
+                    "temperature": OLLAMA_TEMPERATURE,
+                    "top_p": OLLAMA_TOP_P,
+                    "num_ctx": OLLAMA_NUM_CTX,
+                    "repeat_penalty": 1.08,
+                },
+            },
+            timeout=OLLAMA_TIMEOUT_SECONDS,
         )
         if resp.status_code == 200:
-            return resp.json().get("message", {}).get("content", "").strip()
+            return _clean_llm_answer(resp.json().get("message", {}).get("content", ""))
         logger.warning("Ollama returned status %d", resp.status_code)
         return None
     except Exception as exc:
@@ -1322,6 +1406,15 @@ def _handle_ollama_response(
     action_key, action_label = _detect_operational_action(prompt)
     pending = _check_history_for_pending_confirmation(history)
 
+    if _needs_compliance_clarification(prompt) and _detect_response_mode(prompt) == "compliance":
+        # Do not let the LLM guess item-specific Japanese legal/compliance details.
+        return _mk_response(
+            _build_compliance_clarification(prompt),
+            confidence=0.9,
+            used_ctx=[*used_ctx, "advisor:compliance_clarification"],
+            model=f"ollama/{model}",
+        )
+
     # Maintain strict confirmation flow even when using LLM output.
     if action_key:
         is_confirm = bool(_CONFIRM_PATTERNS.search(lower))
@@ -1357,10 +1450,12 @@ def _handle_ollama_response(
             model=f"ollama/{model}",
         )
 
+    mode = _detect_response_mode(prompt)
+    max_words = 320 if mode in {"technical", "compliance", "general_info"} else 220
     return _mk_response(
-        _limit_answer_words(llm_answer, max_words=200),
+        _limit_answer_words(llm_answer, max_words=max_words),
         confidence=0.84,
-        used_ctx=used_ctx,
+        used_ctx=[*used_ctx, f"mode:{mode}"],
         model=f"ollama/{model}",
     )
 
@@ -2114,9 +2209,20 @@ def _handle_conversation(
             "diagnostics, or schedule management. What do you need?"
         )
     else:
-        answer = (
-            "I can help. Tell me your objective in one line, for example: game plan, rules, safety, legal, schedule, or device issue."
-        )
+        # Better general fallback: answer conversationally instead of always forcing AOJ menus.
+        topic = _topic_hint_from_text(lower)
+        if topic == "loadout":
+            answer = _airsoft_loadout_advice(nums.get("players"))
+        elif topic == "tactics":
+            answer = _airsoft_tactics_advice(ctx.get("mission_title"))
+        elif topic == "safety":
+            answer = _airsoft_safety_advice()
+        elif topic == "legal":
+            answer = _build_compliance_clarification(text) if _needs_compliance_clarification(text) else _japan_legal_advice()
+        else:
+            answer = (
+                "I can help with that. Give me the objective and any limits — for example player count, field, time, device involved, or the exact question — and I’ll give you a direct answer."
+            )
 
     return _mk_response(answer, confidence=0.75, used_ctx=[*used_ctx, "advisor:fallback"])
 
@@ -2136,6 +2242,9 @@ def ask_ai(
     so the system always works even without Ollama installed.
     """
     history = conversation_history or []
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return _mk_response("Ready. What do you need?", confidence=0.9, used_ctx=["advisor:empty_prompt"])
 
     # ------------------------------------------------------------------
     # Attempt Ollama (re-check once per cold start, then cache result)

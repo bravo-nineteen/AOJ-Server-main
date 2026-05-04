@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import os
+from contextlib import suppress
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -9,16 +11,31 @@ from fastapi.staticfiles import StaticFiles
 from app.config import APP_TITLE, APP_VERSION, CORS_ORIGIN_REGEX
 from app.core.ai_safety import AISafetyMiddleware
 from app.core.websocket import websocket_manager
-from app.database import init_db, SessionLocal
+from app.database import SessionLocal, init_db
 from app.lora.service import lora_service
-from app.routes import ai, health, logs, members, mission_control, prop_network, resources, results, schedule, system, update_center, custom_admin, tts
-from app.services.mission_control_service import mission_control_service
+from app.routes import (
+    ai,
+    custom_admin,
+    health,
+    logs,
+    members,
+    mission_control,
+    prop_network,
+    resources,
+    results,
+    schedule,
+    system,
+    tts,
+    update_center,
+)
 from app.services.christy_service import christy_service
+from app.services.mission_control_service import mission_control_service
 from app.services.update_center_service import handle_firmware_ack_event
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=APP_TITLE, version=APP_VERSION)
 
-# Local-network oriented CORS configuration for browser clients on LAN devices.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=CORS_ORIGIN_REGEX,
@@ -44,26 +61,55 @@ app.include_router(members.router)
 
 
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
+    """Start database, LoRa service, and background tickers safely."""
+    logger.info("Starting AOJ Command OS backend")
     init_db()
-    
-    # Wire firmware ACK events to rollout progress tracking.
+
     def _ack_callback(device_id: str, ack_value: str, message_id: str) -> None:
         db = SessionLocal()
         try:
             handle_firmware_ack_event(db, device_id, ack_value, message_id)
+        except Exception:
+            logger.exception("Firmware ACK handling failed for device_id=%s", device_id)
         finally:
             db.close()
-    
+
     lora_service.set_on_ack_callback(_ack_callback)
-    lora_service.start()
-    asyncio.create_task(mission_control_service.ticker())
-    asyncio.create_task(christy_service.ticker())
+
+    try:
+        lora_service.start()
+        logger.info("LoRa service started")
+    except Exception:
+        logger.exception("LoRa service failed to start")
+
+    app.state.mission_control_task = asyncio.create_task(
+        mission_control_service.ticker(),
+        name="mission_control_ticker",
+    )
+    app.state.christy_task = asyncio.create_task(
+        christy_service.ticker(),
+        name="christy_ticker",
+    )
 
 
 @app.on_event("shutdown")
-def on_shutdown() -> None:
-    lora_service.stop()
+async def on_shutdown() -> None:
+    """Stop background work cleanly."""
+    logger.info("Stopping AOJ Command OS backend")
+
+    for task_name in ("mission_control_task", "christy_task"):
+        task = getattr(app.state, task_name, None)
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    try:
+        lora_service.stop()
+        logger.info("LoRa service stopped")
+    except Exception:
+        logger.exception("LoRa service failed to stop cleanly")
 
 
 @app.websocket("/ws/live")
@@ -84,17 +130,28 @@ async def live_updates(websocket: WebSocket) -> None:
             },
             websocket,
         )
+
         while True:
             payload = await websocket.receive_text()
             await websocket_manager.broadcast({"event": "echo", "payload": payload})
+
     except WebSocketDisconnect:
         websocket_manager.disconnect(websocket)
+    except Exception:
+        websocket_manager.disconnect(websocket)
+        logger.exception("WebSocket /ws/live failed")
 
 
 # Serve the built React frontend when frontend/dist exists.
-# This enables single-process production mode: one uvicorn process on :8000
-# serves both the API and the UI.  API routes registered above take precedence.
+# API routes registered above take precedence.
 _dist_override = os.getenv("AOJ_FRONTEND_DIST", "").strip()
-_dist_dir = Path(_dist_override) if _dist_override else (Path(__file__).resolve().parent.parent.parent / "frontend" / "dist")
+_dist_dir = (
+    Path(_dist_override)
+    if _dist_override
+    else Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+)
+
 if _dist_dir.is_dir():
     app.mount("/", StaticFiles(directory=str(_dist_dir), html=True), name="frontend")
+else:
+    logger.info("Frontend dist directory not found; API-only mode active: %s", _dist_dir)

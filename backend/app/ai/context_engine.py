@@ -1,25 +1,37 @@
 """
-AI Context Engine - Selectively gathers relevant operational data for AI assistant.
+AI Context Engine - selectively gathers relevant operational data for Christy.
 
-Collects limited, actionable context without overwhelming the AI with full database dumps.
-Each component is optional and can be None if not available.
+Goal:
+- Give the AI enough live context to answer well.
+- Avoid dumping the whole database into the prompt.
+- Keep output stable, compact, and easy for advisor.py to parse.
 """
+
+from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from app import models
 
 
+MAX_GAME_MODES = 15
+MAX_KNOWLEDGE = 6
+MAX_RESULTS = 5
+MAX_CRITICAL_LOGS = 8
+MAX_MODE_DESCRIPTION_CHARS = 220
+MAX_KNOWLEDGE_CHARS = 320
+
+
 class AIContextSnapshot:
     """Structured container for AI assistant context."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_mission: dict[str, Any] | None = None
         self.active_game_session: dict[str, Any] | None = None
         self.schedule_status: dict[str, Any] | None = None
@@ -46,142 +58,226 @@ class AIContextSnapshot:
         }
 
     def to_formatted_text(self) -> str:
-        """Convert context to human-readable AI-friendly text format."""
+        """Convert context to compact AI-friendly text.
+
+        advisor.py can parse the bracket sections, so keep names predictable.
+        """
         lines: list[str] = []
 
         lines.append("[AI CONTEXT SNAPSHOT]")
         lines.append(f"Generated: {self.collected_at}")
         lines.append("")
 
-        if self.active_mission:
-            lines.append("[ACTIVE MISSION]")
-            lines.append(f"- Title: {self.active_mission.get('title', 'unknown')}")
-            lines.append(f"- Status: {self.active_mission.get('status', 'unknown')}")
-            lines.append(f"- Objectives: {self.active_mission.get('objective_count', 0)} total")
+        if self.active_game_session:
+            lines.append("[CURRENT STATE]")
+            lines.append(f"game_state={self.active_game_session.get('state', 'unknown')}")
+            lines.append(f"timer_remaining_seconds={self.active_game_session.get('main_timer_seconds', 0)}")
+            lines.append(
+                "team_scores="
+                f"red:{self.active_game_session.get('red_score', 0)},"
+                f"blue:{self.active_game_session.get('blue_score', 0)}"
+            )
+            lines.append(f"session_name={self.active_game_session.get('name', 'unknown')}")
             lines.append("")
 
-        if self.active_game_session:
-            lines.append("[ACTIVE GAME SESSION]")
-            lines.append(f"- Name: {self.active_game_session.get('name', 'unknown')}")
-            lines.append(f"- State: {self.active_game_session.get('state', 'unknown')}")
-            lines.append(f"- Red Score: {self.active_game_session.get('red_score', 0)}")
-            lines.append(f"- Blue Score: {self.active_game_session.get('blue_score', 0)}")
-            lines.append(f"- Timer: {self.active_game_session.get('main_timer_seconds', 0)}s remaining")
+        if self.active_mission:
+            lines.append("[MISSION]")
+            lines.append(
+                "title="
+                f"{self.active_mission.get('title', 'unknown')}; "
+                f"status={self.active_mission.get('status', 'unknown')}; "
+                f"objectives={self.active_mission.get('objective_count', 0)}"
+            )
             lines.append("")
 
         if self.schedule_status:
-            lines.append("[SCHEDULE STATUS]")
-            if self.schedule_status.get("current"):
-                lines.append(f"- Current: {self.schedule_status['current'].get('title', 'none')}")
-            if self.schedule_status.get("next"):
-                lines.append(f"- Next: {self.schedule_status['next'].get('title', 'none')}")
-            lines.append(f"- Progress: {self.schedule_status.get('completed_count', 0)}/{self.schedule_status.get('total_count', 0)} complete")
-            lines.append("")
-
-        if self.latest_results:
-            lines.append("[LATEST RESULTS]")
-            for result in self.latest_results[:3]:
+            lines.append("[SCHEDULE]")
+            current = self.schedule_status.get("current")
+            next_item = self.schedule_status.get("next")
+            if current:
                 lines.append(
-                    f"- {result.get('session_name', 'Unknown')}: "
-                    f"{result.get('winner', 'draw')} "
-                    f"(RED {result.get('red_points', 0)}, BLUE {result.get('blue_points', 0)})"
+                    f"current={current.get('title', 'none')}; "
+                    f"type={current.get('activity_type', 'unknown')}"
                 )
+            else:
+                lines.append("current=none")
+
+            if next_item:
+                lines.append(
+                    f"next={next_item.get('title', 'none')}; "
+                    f"type={next_item.get('activity_type', 'unknown')}; "
+                    f"start={next_item.get('start_time', 'unknown')}"
+                )
+            else:
+                lines.append("next=none")
+
+            lines.append(
+                f"progress={self.schedule_status.get('completed_count', 0)}/"
+                f"{self.schedule_status.get('total_count', 0)}"
+            )
             lines.append("")
 
         if self.device_summary:
-            lines.append("[DEVICE STATUS SUMMARY]")
-            lines.append(f"- Online: {self.device_summary.get('online_count', 0)}")
-            lines.append(f"- Offline: {self.device_summary.get('offline_count', 0)}")
-            lines.append(f"- Armed: {self.device_summary.get('armed_count', 0)}")
-            if self.device_summary.get("issues"):
-                lines.append(f"- Issues: {len(self.device_summary.get('issues', []))} devices")
+            lines.append("[DEVICES]")
+            lines.append(f"online_count={self.device_summary.get('online_count', 0)}")
+            lines.append(f"offline_count={self.device_summary.get('offline_count', 0)}")
+            lines.append(f"armed_count={self.device_summary.get('armed_count', 0)}")
+            lines.append(f"total={self.device_summary.get('total_count', 0)}")
+            issues = self.device_summary.get("issues", [])
+            if issues:
+                lines.append("issues=" + "; ".join(
+                    f"{d.get('name', 'unknown')}:{d.get('status', 'unknown')}"
+                    for d in issues[:5]
+                ))
+            else:
+                lines.append("issues=none")
             lines.append("")
 
         if self.active_teams:
             lines.append("[ACTIVE TEAMS]")
             for team in self.active_teams:
-                lines.append(f"- {team.get('name', 'Unknown')}: {team.get('callsign', '?')} ({team.get('side', '?')})")
+                lines.append(
+                    f"- {team.get('name', 'Unknown')}; "
+                    f"callsign={team.get('callsign', '?')}; "
+                    f"side={team.get('side', '?')}; "
+                    f"score={team.get('score', 0)}"
+                )
             lines.append("")
 
         if self.active_game_modes:
             lines.append("[ACTIVE GAME MODES]")
             for mode in self.active_game_modes:
                 lines.append(f"- {mode.get('name', 'Unknown')} ({mode.get('category', 'custom')})")
-                if mode.get("description"):
-                    lines.append(f"  Description: {mode['description'][:100]}...")
+                description = mode.get("description")
+                if description:
+                    lines.append(f"  Description: {_clean_inline(description, MAX_MODE_DESCRIPTION_CHARS)}")
+            lines.append("")
+
+        if self.latest_results:
+            lines.append("[LATEST RESULTS]")
+            for result in self.latest_results[:MAX_RESULTS]:
+                lines.append(
+                    f"- {result.get('session_name', 'Unknown')}: "
+                    f"winner={result.get('winner', 'draw')}; "
+                    f"red={result.get('red_points', 0)}; "
+                    f"blue={result.get('blue_points', 0)}; "
+                    f"at={result.get('created_at', 'unknown')}"
+                )
             lines.append("")
 
         if self.relevant_knowledge:
-            lines.append("[RELEVANT KNOWLEDGE BASE]")
+            lines.append("[RELEVANT KNOWLEDGE]")
             for entry in self.relevant_knowledge:
-                lines.append(f"- [{entry.get('category', 'General')}] {entry.get('title', 'Unknown')}")
-                if entry.get("content"):
-                    lines.append(f"  {entry['content'][:120]}...")
+                lines.append(
+                    f"- [{entry.get('category', 'General')}] "
+                    f"{entry.get('title', 'Unknown')} "
+                    f"(score={entry.get('relevance_score', 0)})"
+                )
+                content = entry.get("content")
+                if content:
+                    lines.append(f"  {_clean_inline(content, MAX_KNOWLEDGE_CHARS)}")
             lines.append("")
 
         if self.recent_critical_logs:
-            lines.append("[RECENT CRITICAL LOGS]")
-            for log in self.recent_critical_logs[:5]:
-                timestamp = log.get("created_at", "unknown")
-                message = log.get("message", "no message")
-                lines.append(f"- [{timestamp}] {message[:100]}")
+            lines.append("[LOGS]")
+            for log in self.recent_critical_logs[:MAX_CRITICAL_LOGS]:
+                lines.append(
+                    f"- [{log.get('created_at', 'unknown')}] "
+                    f"{log.get('category', 'system')}: "
+                    f"{_clean_inline(log.get('message', 'no message'), 160)}"
+                )
             lines.append("")
 
-        return "\n".join(lines)
+        return "\n".join(lines).strip()
 
 
-def _extract_keywords(text: str) -> set[str]:
-    """Extract meaningful keywords from text for relevance matching."""
-    if not text:
+def _clean_inline(value: Any, max_chars: int) -> str:
+    """Clean long DB text so it is prompt-safe and readable."""
+    text_value = str(value or "")
+    text_value = re.sub(r"\s+", " ", text_value).strip()
+    if len(text_value) <= max_chars:
+        return text_value
+    return text_value[: max_chars - 3].rstrip() + "..."
+
+
+def _safe_enum_value(value: Any) -> str:
+    """Return enum.value where available, otherwise a safe string."""
+    return str(getattr(value, "value", value))
+
+
+def _extract_keywords(text_value: str) -> set[str]:
+    """Extract useful keywords from English/Japanese mixed prompts."""
+    if not text_value:
         return set()
 
-    tokens = re.findall(r"\b[a-z]{3,}\b", text.lower())
+    english_tokens = re.findall(r"\b[a-zA-Z][a-zA-Z0-9_'-]{2,}\b", text_value.lower())
+    japanese_tokens = re.findall(r"[\u3040-\u30ff\u3400-\u9fff]{2,}", text_value)
+
     stopwords = {
-        "the", "and", "for", "with", "from", "that", "this", "are", "was",
-        "been", "have", "has", "will", "would", "could", "should", "can",
-        "may", "must", "might", "into", "your", "our", "their", "what",
-        "which", "who", "where", "when", "why", "how", "all", "each",
-        "every", "both", "such", "more", "most", "some", "any", "many",
-        "few", "several", "only", "very", "just", "even", "also", "too",
+        "the", "and", "for", "with", "from", "that", "this", "are", "was", "been",
+        "have", "has", "will", "would", "could", "should", "can", "may", "must",
+        "might", "into", "your", "our", "their", "what", "which", "who", "where",
+        "when", "why", "how", "all", "each", "every", "both", "such", "more",
+        "most", "some", "any", "many", "few", "several", "only", "very", "just",
+        "even", "also", "too", "please", "need", "want", "tell", "give", "make",
+        "help", "about", "using", "used", "current", "status", "info",
     }
-    return {token for token in tokens if token not in stopwords}
+
+    return {token for token in english_tokens if token not in stopwords} | set(japanese_tokens)
+
+
+def _parse_tags(raw_tags: Any) -> list[str]:
+    if not raw_tags:
+        return []
+
+    if isinstance(raw_tags, list):
+        return [str(tag) for tag in raw_tags]
+
+    if isinstance(raw_tags, str):
+        try:
+            parsed = json.loads(raw_tags)
+            if isinstance(parsed, list):
+                return [str(tag) for tag in parsed]
+        except (json.JSONDecodeError, TypeError):
+            return [part.strip() for part in raw_tags.split(",") if part.strip()]
+
+    return []
 
 
 def _calculate_relevance(knowledge_entry: models.CustomKnowledgeEntry, prompt_keywords: set[str]) -> float:
-    """Calculate relevance score (0.0 to 1.0) based on keyword matches."""
+    """Calculate simple but stable relevance score from title/category/content/tags."""
     if not prompt_keywords:
         return 0.0
 
-    matched_keywords: set[str] = set()
+    weighted_score = 0.0
 
-    if knowledge_entry.title:
-        matched_keywords.update(_extract_keywords(knowledge_entry.title) & prompt_keywords)
+    title_keywords = _extract_keywords(getattr(knowledge_entry, "title", "") or "")
+    category_keywords = _extract_keywords(getattr(knowledge_entry, "category", "") or "")
+    content_keywords = _extract_keywords(getattr(knowledge_entry, "content", "") or "")
+    tag_keywords: set[str] = set()
+    for tag in _parse_tags(getattr(knowledge_entry, "tags", None)):
+        tag_keywords |= _extract_keywords(tag)
 
-    if knowledge_entry.category:
-        matched_keywords.update(_extract_keywords(knowledge_entry.category) & prompt_keywords)
+    weighted_score += len(title_keywords & prompt_keywords) * 3.0
+    weighted_score += len(category_keywords & prompt_keywords) * 2.0
+    weighted_score += len(tag_keywords & prompt_keywords) * 2.5
+    weighted_score += len(content_keywords & prompt_keywords) * 1.0
 
-    if knowledge_entry.content:
-        matched_keywords.update(_extract_keywords(knowledge_entry.content) & prompt_keywords)
+    # Normalize enough for sorting and display. Not a true probability.
+    return min(1.0, weighted_score / max(3.0, len(prompt_keywords) * 2.0))
 
-    if knowledge_entry.tags:
-        try:
-            tags_list = json.loads(knowledge_entry.tags) if isinstance(knowledge_entry.tags, str) else knowledge_entry.tags
-            if isinstance(tags_list, list):
-                for tag in tags_list:
-                    matched_keywords.update(_extract_keywords(str(tag)) & prompt_keywords)
-        except (json.JSONDecodeError, TypeError):
-            pass
 
-    if not prompt_keywords:
-        return 0.0
-    return len(matched_keywords) / len(prompt_keywords)
+def _safe_query_all(query, fallback: list[Any] | None = None) -> list[Any]:
+    try:
+        return query.all()
+    except Exception:
+        return fallback or []
 
 
 def collect_context(db: Session, prompt: str = "", mission_id: int | None = None) -> AIContextSnapshot:
     """Collect and aggregate limited AI context from the database."""
     snapshot = AIContextSnapshot()
     now = datetime.utcnow()
-
     prompt_keywords = _extract_keywords(prompt)
 
     active_session = (
@@ -194,8 +290,13 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
     active_mission = None
     if mission_id is not None:
         active_mission = db.query(models.Mission).filter(models.Mission.id == mission_id).first()
+
     if active_mission is None and active_session is not None and active_session.mission_id is not None:
-        active_mission = db.query(models.Mission).filter(models.Mission.id == active_session.mission_id).first()
+        active_mission = (
+            db.query(models.Mission)
+            .filter(models.Mission.id == active_session.mission_id)
+            .first()
+        )
 
     if active_mission is not None:
         objectives_count = (
@@ -207,7 +308,7 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         snapshot.active_mission = {
             "id": active_mission.id,
             "title": active_mission.title,
-            "status": active_mission.status.value,
+            "status": _safe_enum_value(active_mission.status),
             "objective_count": objectives_count,
         }
 
@@ -215,7 +316,7 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         snapshot.active_game_session = {
             "id": active_session.id,
             "name": active_session.name,
-            "state": active_session.state,
+            "state": _safe_enum_value(active_session.state),
             "red_score": active_session.red_score,
             "blue_score": active_session.blue_score,
             "main_timer_seconds": active_session.main_timer_seconds,
@@ -225,29 +326,34 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         teams = (
             db.query(models.Team)
             .filter(models.Team.game_session_id == active_session.id)
+            .order_by(models.Team.side.asc(), models.Team.name.asc())
             .all()
         )
         snapshot.active_teams = [
             {
-                "id": t.id,
-                "name": t.name,
-                "callsign": t.callsign,
-                "side": t.side.value,
-                "score": t.score,
+                "id": team.id,
+                "name": team.name,
+                "callsign": team.callsign,
+                "side": _safe_enum_value(team.side),
+                "score": team.score,
             }
-            for t in teams
+            for team in teams
         ]
 
     schedule_query = db.query(models.ScheduleItem).filter(models.ScheduleItem.is_complete.is_(False))
     if active_mission is not None:
         schedule_query = schedule_query.filter(models.ScheduleItem.mission_id == active_mission.id)
 
-    current_schedule = schedule_query.filter(
-        and_(
-            models.ScheduleItem.start_time <= now,
-            models.ScheduleItem.end_time >= now,
+    current_schedule = (
+        schedule_query.filter(
+            and_(
+                models.ScheduleItem.start_time <= now,
+                models.ScheduleItem.end_time >= now,
+            )
         )
-    ).first()
+        .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
+        .first()
+    )
 
     next_schedule = (
         schedule_query
@@ -256,18 +362,12 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         .first()
     )
 
-    total_schedule = (
-        db.query(func.count(models.ScheduleItem.id))
-        .filter(models.ScheduleItem.is_complete.is_(False))
-        .scalar()
-        or 0
-    )
-    completed_schedule = (
-        db.query(func.count(models.ScheduleItem.id))
-        .filter(models.ScheduleItem.is_complete.is_(True))
-        .scalar()
-        or 0
-    )
+    base_schedule_query = db.query(models.ScheduleItem)
+    if active_mission is not None:
+        base_schedule_query = base_schedule_query.filter(models.ScheduleItem.mission_id == active_mission.id)
+
+    total_schedule = base_schedule_query.count()
+    completed_schedule = base_schedule_query.filter(models.ScheduleItem.is_complete.is_(True)).count()
 
     snapshot.schedule_status = {
         "current": {
@@ -280,25 +380,25 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
             "start_time": next_schedule.start_time.isoformat() + "Z",
         } if next_schedule else None,
         "completed_count": completed_schedule,
-        "total_count": total_schedule + completed_schedule,
+        "total_count": total_schedule,
     }
 
     latest_results = (
         db.query(models.GameResult)
         .order_by(models.GameResult.created_at.desc(), models.GameResult.id.desc())
-        .limit(5)
+        .limit(MAX_RESULTS)
         .all()
     )
     snapshot.latest_results = [
         {
-            "id": r.id,
-            "session_name": r.session_name,
-            "winner": r.winner.value,
-            "red_points": r.red_points,
-            "blue_points": r.blue_points,
-            "created_at": r.created_at.isoformat() + "Z",
+            "id": result.id,
+            "session_name": result.session_name,
+            "winner": _safe_enum_value(result.winner),
+            "red_points": result.red_points,
+            "blue_points": result.blue_points,
+            "created_at": result.created_at.isoformat() + "Z",
         }
-        for r in latest_results
+        for result in latest_results
     ]
 
     online_count = (
@@ -319,14 +419,21 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         .scalar()
         or 0
     )
+    total_devices = db.query(func.count(models.Device.id)).scalar() or 0
 
     issues = (
         db.query(models.Device)
         .filter(
             models.Device.status.in_(
-                [models.DeviceStatus.alarm, models.DeviceStatus.maintenance]
+                [
+                    models.DeviceStatus.alarm,
+                    models.DeviceStatus.maintenance,
+                    models.DeviceStatus.offline,
+                ]
             )
         )
+        .order_by(models.Device.updated_at.desc(), models.Device.id.desc())
+        .limit(8)
         .all()
     )
 
@@ -334,35 +441,43 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         "online_count": online_count,
         "offline_count": offline_count,
         "armed_count": armed_count,
-        "total_count": online_count + offline_count,
+        "total_count": total_devices,
         "issues": [
             {
-                "id": d.id,
-                "name": d.name,
-                "status": d.status.value,
+                "id": device.id,
+                "name": device.name,
+                "status": _safe_enum_value(device.status),
             }
-            for d in issues
+            for device in issues
         ],
     }
 
-    active_modes = (
+    active_modes_query = (
         db.query(models.CustomGameMode)
         .filter(models.CustomGameMode.active.is_(True))
-        .limit(10)
-        .all()
     )
+
+    # If user asks about a specific mode/category, bias relevant modes first.
+    if prompt_keywords:
+        like_terms = [f"%{kw}%" for kw in prompt_keywords if len(kw) >= 3 and re.match(r"^[a-zA-Z0-9_'-]+$", kw)]
+        if like_terms:
+            active_modes_query = active_modes_query.order_by(
+                # SQLite-compatible enough when backed by SQLAlchemy.
+                models.CustomGameMode.name.asc()
+            )
+
+    active_modes = active_modes_query.limit(MAX_GAME_MODES).all()
     snapshot.active_game_modes = [
         {
-            "id": m.id,
-            "name": m.name,
-            "category": m.category,
-            "description": m.description[:150] if m.description else "",
+            "id": mode.id,
+            "name": mode.name,
+            "category": mode.category,
+            "description": _clean_inline(mode.description, MAX_MODE_DESCRIPTION_CHARS) if mode.description else "",
         }
-        for m in active_modes
+        for mode in active_modes
     ]
 
     if prompt_keywords:
-        # AI context must use active knowledge entries only.
         relevant_knowledge = (
             db.query(models.CustomKnowledgeEntry)
             .filter(models.CustomKnowledgeEntry.active.is_(True))
@@ -373,35 +488,39 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
             (entry, _calculate_relevance(entry, prompt_keywords))
             for entry in relevant_knowledge
         ]
-        scored_entries.sort(key=lambda x: x[1], reverse=True)
+        scored_entries.sort(key=lambda item: item[1], reverse=True)
 
         snapshot.relevant_knowledge = [
             {
                 "id": entry.id,
                 "title": entry.title,
                 "category": entry.category,
-                "content": entry.content[:200] if entry.content else "",
+                "content": _clean_inline(entry.content, MAX_KNOWLEDGE_CHARS) if entry.content else "",
                 "relevance_score": round(score, 2),
             }
-            for entry, score in scored_entries[:5]
+            for entry, score in scored_entries[:MAX_KNOWLEDGE]
             if score > 0.0
         ]
 
-    critical_logs = db.execute(
-        text(
-            "SELECT created_at, category, message "
-            "FROM system_logs "
-            "WHERE UPPER(level) = 'CRITICAL' "
-            "ORDER BY created_at DESC, id DESC "
-            "LIMIT 10"
-        ),
-    ).fetchall()
+    try:
+        critical_logs = db.execute(
+            text(
+                "SELECT created_at, category, message "
+                "FROM system_logs "
+                "WHERE UPPER(level) IN ('CRITICAL', 'ERROR') "
+                "ORDER BY created_at DESC, id DESC "
+                "LIMIT :limit"
+            ),
+            {"limit": MAX_CRITICAL_LOGS},
+        ).fetchall()
+    except Exception:
+        critical_logs = []
 
     snapshot.recent_critical_logs = [
         {
             "created_at": str(log[0]),
             "category": str(log[1]),
-            "message": str(log[2])[:200],
+            "message": _clean_inline(log[2], 200),
         }
         for log in critical_logs
     ]
