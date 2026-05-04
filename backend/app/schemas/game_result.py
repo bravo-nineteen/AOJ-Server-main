@@ -34,3 +34,12 @@ class ResultsSummaryResponse(BaseModel):
     total_cancelled: int
     total_red_points: int
     total_blue_points: int
+
+
+class ResultsResetDayRequest(BaseModel):
+    day: str
+
+
+class ResultsResetDayResponse(BaseModel):
+    day: str
+    deleted_results: int

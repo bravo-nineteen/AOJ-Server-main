@@ -40,6 +40,8 @@ from app.schemas.game_result import (
     GameResultBase,
     GameResultCreate,
     GameResultRead,
+    ResultsResetDayRequest,
+    ResultsResetDayResponse,
     ResultsSummaryResponse,
 )
 from app.schemas.game_session import GameSessionBase, GameSessionCreate, GameSessionRead
@@ -122,6 +124,8 @@ __all__ = [
     "GameResultBase",
     "GameResultCreate",
     "GameResultRead",
+    "ResultsResetDayRequest",
+    "ResultsResetDayResponse",
     "ResultsSummaryResponse",
     "GameSessionBase",
     "GameSessionCreate",

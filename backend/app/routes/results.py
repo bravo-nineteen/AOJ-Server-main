@@ -1,10 +1,11 @@
 import csv
 import io
+from datetime import datetime, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app import models, schemas
@@ -115,3 +116,34 @@ def export_results_csv(db: Session = Depends(get_db)):
     output.seek(0)
     headers = {"Content-Disposition": "attachment; filename=aoj_results_history.csv"}
     return StreamingResponse(output, media_type="text/csv", headers=headers)
+
+
+@router.post("/reset-day", response_model=schemas.ResultsResetDayResponse)
+def reset_results_for_day(
+    payload: schemas.ResultsResetDayRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        day_start = datetime.strptime(payload.day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="day must be in YYYY-MM-DD format")
+
+    day_end = day_start + timedelta(days=1)
+
+    deleted_count = (
+        db.query(models.GameResult)
+        .filter(models.GameResult.created_at >= day_start)
+        .filter(models.GameResult.created_at < day_end)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+
+    log_action(
+        db,
+        level=models.LogLevel.warning,
+        category=models.LogCategory.mission,
+        source="results",
+        message=f"Results reset for day={payload.day}, deleted={deleted_count}",
+    )
+
+    return schemas.ResultsResetDayResponse(day=payload.day, deleted_results=deleted_count)
