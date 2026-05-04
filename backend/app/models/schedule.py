@@ -21,6 +21,7 @@ class ScheduleItem(Base):
     end_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    game_mode: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(

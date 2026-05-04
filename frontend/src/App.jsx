@@ -146,9 +146,26 @@ function toTodayIsoFromTime(timeValue) {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
     return null;
   }
+  // Build a naive local datetime string (no timezone suffix) so the backend stores
+  // exactly the time the user entered, regardless of timezone.
   const now = new Date();
-  now.setHours(hours, minutes, 0, 0);
-  return now.toISOString();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const hh = String(hours).padStart(2, '0');
+  const mi = String(minutes).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:00`;
+}
+
+function addMinutesLocal(localIso, mins) {
+  const dt = new Date(localIso);
+  dt.setMinutes(dt.getMinutes() + mins);
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mi = String(dt.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:00`;
 }
 
 function toTimeInputValue(isoDate) {
@@ -206,9 +223,18 @@ function App() {
     title: 'Safety Briefing',
     details: 'Operator brief and radio checks.',
     activity_type: 'Safety Brief',
+    game_mode: '',
     start_time: '',
     is_complete: false,
   });
+  const [recordingResultForItemId, setRecordingResultForItemId] = useState(null);
+  const [quickResultForm, setQuickResultForm] = useState({
+    winner: 'Draw',
+    red_points: 0,
+    blue_points: 0,
+    notes: '',
+  });
+  const [presetSaveStatus, setPresetSaveStatus] = useState('');
   const [resultsHistory, setResultsHistory] = useState([]);
   const [resultsSummary, setResultsSummary] = useState({
     total_red_wins: 0,
@@ -1067,6 +1093,7 @@ function App() {
       title: scheduleForm.title,
       details: scheduleForm.details,
       activity_type: scheduleForm.activity_type,
+      game_mode: scheduleForm.activity_type === 'Game' ? scheduleForm.game_mode : '',
       start_time: startIso,
       end_time: null,
       is_complete: scheduleForm.is_complete,
@@ -1087,7 +1114,7 @@ function App() {
     if (!response.ok && response.status === 422) {
       const compatBody = {
         ...body,
-        end_time: new Date(new Date(startIso).getTime() + 30 * 60 * 1000).toISOString(),
+        end_time: addMinutesLocal(startIso, 30),
         activity_type: ['Pickup', 'Drop Off'].includes(body.activity_type) ? 'Custom' : body.activity_type,
       };
       response = await fetch(path, {
@@ -1114,6 +1141,7 @@ function App() {
       title: '',
       details: '',
       activity_type: 'Custom',
+      game_mode: '',
       start_time: '',
       is_complete: false,
     });
@@ -1145,9 +1173,58 @@ function App() {
       title: item.title,
       details: item.details,
       activity_type: item.activity_type,
+      game_mode: item.game_mode || '',
       start_time: toTimeInputValue(item.start_time),
       is_complete: item.is_complete,
     });
+  }
+
+  async function quickRecordResult(item) {
+    const body = {
+      session_name: item.title,
+      winner: quickResultForm.winner,
+      red_points: Number(quickResultForm.red_points),
+      blue_points: Number(quickResultForm.blue_points),
+      notes: quickResultForm.notes,
+      schedule_item_id: item.id,
+    };
+    const response = await fetch(`${apiBase}/results`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (response.ok) {
+      setRecordingResultForItemId(null);
+      setQuickResultForm({ winner: 'Draw', red_points: 0, blue_points: 0, notes: '' });
+      fetchResultsData();
+    }
+  }
+
+  async function saveMissionAsPreset() {
+    setPresetSaveStatus('Saving...');
+    const body = {
+      name: missionForm.title,
+      description: missionForm.description || '',
+      default_duration_minutes: Number(missionForm.main_timer_minutes) || 30,
+      objectives_json: (missionForm.objectivesText || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      active: true,
+    };
+    const response = await fetch(`${apiBase}/custom/game-modes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (response.ok) {
+      setPresetSaveStatus('Preset saved!');
+      fetchGameModeOptions();
+      setTimeout(() => setPresetSaveStatus(''), 3000);
+    } else {
+      setPresetSaveStatus('Save failed.');
+      setTimeout(() => setPresetSaveStatus(''), 3000);
+    }
   }
 
   useEffect(() => {

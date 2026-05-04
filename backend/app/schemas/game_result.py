@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 class GameResultBase(BaseModel):
     game_session_id: int | None = None
+    schedule_item_id: int | None = None
     session_name: str
     winner: Literal["Red", "Blue", "Draw", "Cancelled"]
     red_points: int = 0

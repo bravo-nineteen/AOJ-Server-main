@@ -21,6 +21,9 @@ class GameResult(Base):
     game_session_id: Mapped[int | None] = mapped_column(
         ForeignKey("game_sessions.id"), nullable=True
     )
+    schedule_item_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
     session_name: Mapped[str] = mapped_column(String(120), nullable=False)
     winner: Mapped[ResultWinner] = mapped_column(
         Enum(ResultWinner), default=ResultWinner.draw, nullable=False

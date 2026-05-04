@@ -13,6 +13,7 @@ class ScheduleItemBase(BaseModel):
     ] = "Custom"
     start_time: datetime
     end_time: datetime | None = None
+    game_mode: str = ""
 
 
 class ScheduleItemCreate(ScheduleItemBase):
@@ -36,6 +37,7 @@ class ScheduleItemUpdate(BaseModel):
     ] = "Custom"
     start_time: datetime
     end_time: datetime | None = None
+    game_mode: str = ""
     is_complete: bool = False
 
 

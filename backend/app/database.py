@@ -34,6 +34,7 @@ def init_db() -> None:
     _ensure_prop_columns()
     _ensure_ai_columns()
     _ensure_custom_game_mode_columns()
+    _ensure_game_result_columns()
     _seed_preset_themes()
 
 
@@ -45,6 +46,7 @@ def _ensure_schedule_columns() -> None:
         "is_complete": "BOOLEAN NOT NULL DEFAULT 0",
         "completed_at": "DATETIME",
         "game_session_id": "INTEGER",
+        "game_mode": "TEXT NOT NULL DEFAULT ''",
         "created_at": "DATETIME",
         "updated_at": "DATETIME",
     }
@@ -305,6 +307,23 @@ def _ensure_custom_game_mode_columns() -> None:
                 text(f"ALTER TABLE custom_game_modes ADD COLUMN {column_name} {column_sql}")
             )
 
+
+def _ensure_game_result_columns() -> None:
+    with engine.begin() as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            )
+        }
+        if "game_results" not in tables:
+            return
+        rows = connection.execute(text("PRAGMA table_info(game_results)"))
+        existing = {row[1] for row in rows}
+        if "schedule_item_id" not in existing:
+            connection.execute(
+                text("ALTER TABLE game_results ADD COLUMN schedule_item_id INTEGER")
+            )
 
 
 def _seed_preset_themes() -> None:
