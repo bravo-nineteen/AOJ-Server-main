@@ -944,9 +944,9 @@ function App() {
       return;
     }
 
-    const body = {
-      ...propForm,
-    };
+    const body = { ...propForm };
+    // Backend requires auth_token to be null (not empty string) when not set
+    if (!body.auth_token) body.auth_token = null;
 
     const path = editingPropId ? `${apiBase}/props/${editingPropId}` : `${apiBase}/props`;
     const method = editingPropId ? 'PUT' : 'POST';
@@ -1396,6 +1396,16 @@ function App() {
     return (activeProps.length > 0 ? activeProps : propsList).slice(0, 8);
   }, [propsList, plannedGames]);
 
+  const todayResultsPoints = useMemo(() => {
+    const today = new Date().toDateString();
+    const todayResults = resultsHistory.filter((r) => r.created_at && new Date(r.created_at).toDateString() === today);
+    const redPoints = todayResults.reduce((sum, r) => sum + (Number(r.red_points) || 0), 0);
+    const bluePoints = todayResults.reduce((sum, r) => sum + (Number(r.blue_points) || 0), 0);
+    const redWins = todayResults.filter((r) => r.winner === 'Red').length;
+    const blueWins = todayResults.filter((r) => r.winner === 'Blue').length;
+    return { redPoints, bluePoints, redWins, blueWins, gamesPlayed: todayResults.length };
+  }, [resultsHistory]);
+
   const teamOverviewRows = useMemo(() => {
     return customTeams.slice(0, 6).map((team, index) => {
       let score = 0;
@@ -1664,11 +1674,28 @@ function App() {
                               className={selectedScheduleGame && selectedScheduleGame.id === item.id ? 'mc-game-item mc-game-item-active' : 'mc-game-item'}
                               onClick={() => {
                                 setSelectedScheduleGame(item);
-                                setMissionForm((current) => ({
-                                  ...current,
+                                const nextForm = {
                                   title: item.title,
-                                  game_mode: item.game_mode || current.game_mode,
-                                }));
+                                  description: item.details || '',
+                                  game_mode: item.game_mode || missionForm.game_mode,
+                                  main_timer_minutes: missionForm.main_timer_minutes,
+                                  phase_timer_minutes: missionForm.phase_timer_minutes,
+                                  objectivesText: missionForm.objectivesText,
+                                };
+                                setMissionForm(nextForm);
+                                // Auto-load the mission into Game Controls
+                                const objectives = (nextForm.objectivesText || '')
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean);
+                                postMissionAction('/mission-control/mission', {
+                                  title: nextForm.title,
+                                  description: nextForm.description,
+                                  game_mode: nextForm.game_mode,
+                                  main_timer_seconds: Number(nextForm.main_timer_minutes) * 60,
+                                  phase_timer_seconds: Number(nextForm.phase_timer_minutes) * 60,
+                                  objectives,
+                                });
                               }}
                             >
                               <strong>{item.title}</strong>
