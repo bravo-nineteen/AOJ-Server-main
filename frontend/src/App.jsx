@@ -6,6 +6,7 @@ import { AdminThemeEditor } from './components/AdminThemeEditor';
 import { AdminAISettings } from './components/AdminAISettings';
 
 const APPS = [
+  { id: 'overview', title: 'Overview', subtitle: 'Today plan, team posture, and IoT readiness' },
   { id: 'mission-control', title: 'Mission Control', subtitle: 'Live objectives and squad directives' },
   { id: 'prop-network', title: 'Prop Network', subtitle: 'Field devices, relays, and trigger nodes' },
   { id: 'schedule', title: 'Schedule', subtitle: 'Operations timeline and event sequencing' },
@@ -53,6 +54,8 @@ const ACTIVITY_TYPES = [
   'Game',
   'Break',
   'Lunch',
+  'Pickup',
+  'Drop Off',
   'Setup',
   'Pack Down',
   'Custom',
@@ -133,6 +136,31 @@ function formatUptime(seconds) {
   return `${hours}h ${minutes}m ${secs}s`;
 }
 
+function toTodayIsoFromTime(timeValue) {
+  if (!timeValue) {
+    return null;
+  }
+  const [hRaw, mRaw] = String(timeValue).split(':');
+  const hours = Number(hRaw);
+  const minutes = Number(mRaw);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+  const now = new Date();
+  now.setHours(hours, minutes, 0, 0);
+  return now.toISOString();
+}
+
+function toTimeInputValue(isoDate) {
+  if (!isoDate) {
+    return '';
+  }
+  const dt = new Date(isoDate);
+  const h = String(dt.getHours()).padStart(2, '0');
+  const m = String(dt.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
 function App() {
   const host = window.location.hostname || 'localhost';
   const apiBase = useMemo(() => {
@@ -145,15 +173,17 @@ function App() {
   const wsUrl = useMemo(() => {
     return `ws://${host}:8000/ws/live`;
   }, [host]);
+  const apiOrigin = useMemo(() => {
+    return apiBase.endsWith('/api') ? apiBase.slice(0, -4) : apiBase;
+  }, [apiBase]);
 
   const [networkStatus, setNetworkStatus] = useState('CONNECTING');
   const [events, setEvents] = useState([]);
   const [selectedApp, setSelectedApp] = useState(APPS[0].id);
   const [clock, setClock] = useState(new Date());
-  const [deviceCount] = useState(8);
-  const [alerts] = useState(2);
   const [currentTheme, setCurrentTheme] = useState(null);
   const [customTeams, setCustomTeams] = useState([]);
+  const [customGameModes, setCustomGameModes] = useState([]);
   const [missionState, setMissionState] = useState(DEFAULT_MISSION_STATE);
   const [gameModeOptions, setGameModeOptions] = useState(DEFAULT_GAME_MODES);
   const [missionForm, setMissionForm] = useState({
@@ -176,7 +206,6 @@ function App() {
     details: 'Operator brief and radio checks.',
     activity_type: 'Safety Brief',
     start_time: '',
-    end_time: '',
     is_complete: false,
   });
   const [resultsHistory, setResultsHistory] = useState([]);
@@ -205,10 +234,6 @@ function App() {
     name: '',
     prop_type: 'Custom',
     location: '',
-    status: 'offline',
-    battery_level: 100,
-    signal_strength: 100,
-    last_seen: '',
     firmware_version: '',
   });
   const [systemLogs, setSystemLogs] = useState([]);
@@ -229,6 +254,8 @@ function App() {
   const [selectedFirmwarePackageId, setSelectedFirmwarePackageId] = useState('');
   const [selectedFirmwarePropIds, setSelectedFirmwarePropIds] = useState([]);
   const [firmwareRollouts, setFirmwareRollouts] = useState([]);
+  const [scoreTrend, setScoreTrend] = useState([]);
+  const [deviceHealthTrend, setDeviceHealthTrend] = useState([]);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
   const [voiceNote, setVoiceNote] = useState('');
@@ -254,6 +281,19 @@ function App() {
   const redTeamLabel = customTeams[0]?.name || 'Red Team';
   const blueTeamLabel = customTeams[1]?.name || 'Blue Team';
 
+  function resolveTeamLogoUrl(icon) {
+    if (!icon || typeof icon !== 'string') {
+      return '';
+    }
+    if (icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('data:')) {
+      return icon;
+    }
+    if (icon.startsWith('/')) {
+      return `${apiOrigin}${icon}`;
+    }
+    return `${apiOrigin}/${icon}`;
+  }
+
   async function fetchMissionState() {
     const response = await fetch(`${apiBase}/mission-control/state`);
     if (!response.ok) {
@@ -269,10 +309,13 @@ function App() {
       const response = await fetch(`${apiBase}/custom/game-modes`);
       if (!response.ok) {
         setGameModeOptions(DEFAULT_GAME_MODES);
+        setCustomGameModes([]);
         return;
       }
 
       const rows = await response.json();
+      const activeRows = rows.filter((mode) => mode.active);
+      setCustomGameModes(activeRows);
       const activeCustomModes = rows
         .filter((mode) => mode.active)
         .map((mode) => mode.name)
@@ -293,6 +336,7 @@ function App() {
       });
     } catch {
       setGameModeOptions(DEFAULT_GAME_MODES);
+      setCustomGameModes([]);
     }
   }
 
@@ -816,9 +860,6 @@ function App() {
 
     const body = {
       ...propForm,
-      battery_level: Number(propForm.battery_level) || 0,
-      signal_strength: Number(propForm.signal_strength) || 0,
-      last_seen: propForm.last_seen ? new Date(propForm.last_seen).toISOString() : null,
     };
 
     const path = editingPropId ? `${apiBase}/props/${editingPropId}` : `${apiBase}/props`;
@@ -844,10 +885,6 @@ function App() {
       name: '',
       prop_type: 'Custom',
       location: '',
-      status: 'offline',
-      battery_level: 100,
-      signal_strength: 100,
-      last_seen: '',
       firmware_version: '',
     });
     fetchPropsData();
@@ -860,10 +897,6 @@ function App() {
       name: item.name,
       prop_type: item.prop_type,
       location: item.location,
-      status: item.status,
-      battery_level: item.battery_level,
-      signal_strength: item.signal_strength,
-      last_seen: toDateTimeInputValue(item.last_seen),
       firmware_version: item.firmware_version,
     });
   }
@@ -929,7 +962,12 @@ function App() {
   }
 
   async function saveScheduleItem() {
-    if (!scheduleForm.start_time || !scheduleForm.end_time || !scheduleForm.title.trim()) {
+    if (!scheduleForm.start_time || !scheduleForm.title.trim()) {
+      return;
+    }
+
+    const startIso = toTodayIsoFromTime(scheduleForm.start_time);
+    if (!startIso) {
       return;
     }
 
@@ -937,8 +975,8 @@ function App() {
       title: scheduleForm.title,
       details: scheduleForm.details,
       activity_type: scheduleForm.activity_type,
-      start_time: new Date(scheduleForm.start_time).toISOString(),
-      end_time: new Date(scheduleForm.end_time).toISOString(),
+      start_time: startIso,
+      end_time: null,
       is_complete: scheduleForm.is_complete,
     };
 
@@ -963,7 +1001,6 @@ function App() {
       details: '',
       activity_type: 'Custom',
       start_time: '',
-      end_time: '',
       is_complete: false,
     });
     fetchScheduleData();
@@ -994,8 +1031,7 @@ function App() {
       title: item.title,
       details: item.details,
       activity_type: item.activity_type,
-      start_time: toDateTimeInputValue(item.start_time),
-      end_time: toDateTimeInputValue(item.end_time),
+      start_time: toTimeInputValue(item.start_time),
       is_complete: item.is_complete,
     });
   }
@@ -1097,6 +1133,24 @@ function App() {
           setEvents(data.payload.event_feed ?? []);
           return;
         }
+        if (data.event === 'prop.status_report' && data.payload?.device_id) {
+          setPropsList((current) => current.map((item) => {
+            if (item.device_id !== data.payload.device_id) {
+              return item;
+            }
+            return {
+              ...item,
+              status: data.payload.status ?? item.status,
+              battery_level: Number.isFinite(data.payload.battery_level)
+                ? data.payload.battery_level
+                : item.battery_level,
+              signal_strength: Number.isFinite(data.payload.signal_strength)
+                ? data.payload.signal_strength
+                : item.signal_strength,
+              last_seen: data.payload.last_status_report || item.last_seen,
+            };
+          }));
+        }
         // Christy proactive announcements
         if (data.event === 'christy.announcement' && data.payload?.content) {
           const announcementText = data.payload.content;
@@ -1119,6 +1173,7 @@ function App() {
   }, [wsUrl, apiBase, aiVoiceOutputEnabled]);
 
   const activeApp = APPS.find((app) => app.id === selectedApp) ?? APPS[0];
+  const isOverview = activeApp.id === 'overview';
 
   const isMissionControl = activeApp.id === 'mission-control';
   const isSchedule = activeApp.id === 'schedule';
@@ -1133,6 +1188,115 @@ function App() {
   const isAdminKnowledge = activeApp.id === 'admin-knowledge';
   const isAdminTheme = activeApp.id === 'admin-theme';
   const isAdminAISettings = activeApp.id === 'admin-ai-settings';
+
+  const todayScheduleItems = useMemo(() => {
+    const today = new Date().toDateString();
+    const todays = scheduleItems.filter((item) => {
+      if (!item.start_time) {
+        return false;
+      }
+      return new Date(item.start_time).toDateString() === today;
+    });
+    return todays.length > 0 ? todays : scheduleItems.slice(0, 6);
+  }, [scheduleItems]);
+
+  const alertCount = useMemo(() => {
+    if (typeof systemStatus.alert_count === 'number') {
+      return systemStatus.alert_count;
+    }
+    return systemLogs.filter((log) => ['WARNING', 'ERROR', 'CRITICAL'].includes((log.level || '').toUpperCase())).length;
+  }, [systemStatus.alert_count, systemLogs]);
+
+  const connectedDeviceCount = useMemo(() => {
+    if (typeof systemStatus.prop_count === 'number' && systemStatus.prop_count > 0) {
+      return systemStatus.prop_count;
+    }
+    return propsList.length;
+  }, [systemStatus.prop_count, propsList]);
+
+  const plannedGames = useMemo(() => {
+    const fromSchedule = todayScheduleItems
+      .filter((item) => {
+        const joined = `${item.activity_type || ''} ${item.title || ''} ${item.details || ''}`.toLowerCase();
+        return joined.includes('game') || joined.includes('mission') || joined.includes('match');
+      })
+      .map((item) => ({
+        key: `schedule-${item.id}`,
+        name: item.title || item.details,
+        requiredProps: [],
+      }))
+      .filter(Boolean);
+
+    const fromModes = customGameModes
+      .map((mode) => ({
+        key: `mode-${mode.id}`,
+        name: mode.name,
+        requiredProps: Array.isArray(mode.required_props_json) ? mode.required_props_json : [],
+      }))
+      .filter((mode) => mode.name);
+
+    const merged = [...fromSchedule, ...fromModes];
+    const seen = new Set();
+    return merged.filter((entry) => {
+      if (seen.has(entry.name)) {
+        return false;
+      }
+      seen.add(entry.name);
+      return true;
+    }).slice(0, 6);
+  }, [todayScheduleItems, customGameModes]);
+
+  const usedPropsToday = useMemo(() => {
+    const plannedNeedles = plannedGames
+      .flatMap((game) => game.requiredProps || [])
+      .map((value) => String(value).toLowerCase());
+
+    if (plannedNeedles.length > 0) {
+      const assigned = propsList.filter((item) => {
+        const hay = `${item.name} ${item.device_id} ${item.prop_type}`.toLowerCase();
+        return plannedNeedles.some((needle) => hay.includes(needle));
+      });
+      if (assigned.length > 0) {
+        return assigned.slice(0, 8);
+      }
+    }
+
+    const activeProps = propsList.filter((item) => (item.status || '').toLowerCase() !== 'offline');
+    return (activeProps.length > 0 ? activeProps : propsList).slice(0, 8);
+  }, [propsList, plannedGames]);
+
+  const teamOverviewRows = useMemo(() => {
+    return customTeams.slice(0, 6).map((team, index) => {
+      let score = 0;
+      if (index === 0) {
+        score = missionState.red_team_score;
+      } else if (index === 1) {
+        score = missionState.blue_team_score;
+      }
+      const status = missionState.state === 'active' && index < 2 ? 'Engaged' : 'Ready';
+      return {
+        ...team,
+        score,
+        status,
+        logoUrl: resolveTeamLogoUrl(team.icon),
+      };
+    });
+  }, [customTeams, missionState.red_team_score, missionState.blue_team_score, missionState.state, apiOrigin]);
+
+  useEffect(() => {
+    const total = Math.max(1, connectedDeviceCount);
+    const online = typeof systemStatus.online_prop_count === 'number'
+      ? systemStatus.online_prop_count
+      : propsList.filter((p) => ['online', 'armed', 'disarmed', 'alarm'].includes((p.status || '').toLowerCase())).length;
+    const ratio = Math.round((online / total) * 100);
+
+    setDeviceHealthTrend((current) => [...current.slice(-19), ratio]);
+  }, [systemStatus.online_prop_count, connectedDeviceCount, propsList]);
+
+  useEffect(() => {
+    const spread = Number(missionState.red_team_score || 0) - Number(missionState.blue_team_score || 0);
+    setScoreTrend((current) => [...current.slice(-19), spread]);
+  }, [missionState.red_team_score, missionState.blue_team_score]);
 
   function handleCreateMission() {
     const objectives = missionForm.objectivesText
@@ -1156,7 +1320,7 @@ function App() {
           <span className="brand-mark">AOJ</span>
           <div>
             <h1>Command OS</h1>
-            <p>Raspberry Pi Tactical Field Console</p>
+            <p>AOJ Tactical Field Console</p>
           </div>
         </div>
 
@@ -1164,8 +1328,12 @@ function App() {
           <div className={`indicator net-${networkStatus.toLowerCase()}`}>
             Network {networkStatus}
           </div>
-          <div className="indicator">Alerts {alerts}</div>
-          <div className="indicator">Devices {deviceCount}</div>
+          <button type="button" className="indicator" onClick={() => setSelectedApp('logs')}>
+            Alerts {alertCount}
+          </button>
+          <button type="button" className="indicator" onClick={() => setSelectedApp('prop-network')}>
+            Devices {connectedDeviceCount}
+          </button>
           <div className="clock">{clock.toLocaleTimeString()}</div>
         </div>
       </header>
@@ -1194,7 +1362,129 @@ function App() {
               <small>{activeApp.subtitle}</small>
             </div>
             <div className="window-content">
-              {isMissionControl ? (
+              {isOverview ? (
+                <section className="overview-module">
+                  <div className="overview-grid">
+                    <div className="overview-card overview-hero">
+                      <h3>Operations Snapshot</h3>
+                      <div className="overview-hero-row">
+                        <div>
+                          <p className="overview-kicker">Mission</p>
+                          <strong>{missionState.mission_title}</strong>
+                        </div>
+                        <div>
+                          <p className="overview-kicker">Mode</p>
+                          <strong>{missionState.game_mode}</strong>
+                        </div>
+                        <div>
+                          <p className="overview-kicker">State</p>
+                          <strong>{missionState.state.toUpperCase()}</strong>
+                        </div>
+                      </div>
+                      <div className="overview-score-strip">
+                        <div className="overview-score-pill red">{redTeamLabel}: {missionState.red_team_score}</div>
+                        <div className="overview-score-pill blue">{blueTeamLabel}: {missionState.blue_team_score}</div>
+                        <div className="overview-score-pill neutral">Main {formatDuration(missionState.main_timer_seconds)}</div>
+                        <div className="overview-score-pill neutral">Phase {formatDuration(missionState.phase_timer_seconds)}</div>
+                      </div>
+                    </div>
+
+                    <div className="overview-card">
+                      <h3>Schedule Today</h3>
+                      {todayScheduleItems.length === 0 ? <p className="muted">No schedule items yet.</p> : null}
+                      {todayScheduleItems.slice(0, 6).map((item) => (
+                        <div className="overview-row" key={item.id}>
+                          <strong>{item.title}</strong>
+                          <span>{item.start_time ? new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD'}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="overview-card">
+                      <h3>Planned Games</h3>
+                      {plannedGames.length === 0 ? <p className="muted">No planned games detected.</p> : null}
+                      {plannedGames.map((game) => (
+                        <div className="overview-row" key={game.key}>
+                          <strong>{game.name}</strong>
+                          <span>
+                            {(game.requiredProps || []).length > 0
+                              ? `Needs: ${game.requiredProps.slice(0, 2).join(', ')}`
+                              : 'Planned'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="overview-card">
+                      <h3>Props In Use Today</h3>
+                      {usedPropsToday.length === 0 ? <p className="muted">No props registered.</p> : null}
+                      {usedPropsToday.map((item) => (
+                        <div className="overview-row" key={item.id}>
+                          <strong>{item.name}</strong>
+                          <span>{item.status}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="overview-card overview-team-card">
+                      <h3>Team Status and Scores</h3>
+                      {teamOverviewRows.length === 0 ? <p className="muted">No active teams configured.</p> : null}
+                      {teamOverviewRows.map((team) => (
+                        <div className="overview-team-row" key={team.id}>
+                          <div className="overview-team-left">
+                            {team.logoUrl ? (
+                              <img className="overview-team-logo" src={team.logoUrl} alt={`${team.name} logo`} />
+                            ) : (
+                              <span className="overview-team-color" style={{ backgroundColor: team.color }} />
+                            )}
+                            <div>
+                              <strong>{team.name}</strong>
+                              <p>{team.status}</p>
+                            </div>
+                          </div>
+                          <div className="overview-team-score">{team.score}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="overview-card overview-team-card">
+                      <h3>Live Trend</h3>
+                      <p className="overview-kicker">Score Spread (Red - Blue)</p>
+                      <div className="trend-strip">
+                        {scoreTrend.length === 0 ? <span className="muted">No score data yet.</span> : null}
+                        {scoreTrend.map((point, index) => {
+                          const height = Math.min(100, Math.max(15, 50 + point * 4));
+                          const tone = point >= 0 ? 'var(--success-color)' : 'var(--danger-color)';
+                          return (
+                            <span
+                              key={`score-${index}`}
+                              className="trend-bar"
+                              style={{ height: `${height}%`, backgroundColor: tone }}
+                              title={`Spread ${point}`}
+                            />
+                          );
+                        })}
+                      </div>
+
+                      <p className="overview-kicker" style={{ marginTop: '0.75rem' }}>Device Health (%)</p>
+                      <div className="trend-strip">
+                        {deviceHealthTrend.length === 0 ? <span className="muted">No device health data yet.</span> : null}
+                        {deviceHealthTrend.map((point, index) => {
+                          const height = Math.min(100, Math.max(12, point));
+                          return (
+                            <span
+                              key={`device-${index}`}
+                              className="trend-bar"
+                              style={{ height: `${height}%`, backgroundColor: 'var(--accent-color)' }}
+                              title={`Online ${point}%`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : isMissionControl ? (
                 <section className="mission-control">
                   <div className="mc-grid">
                     <div className="mc-card">
@@ -1423,25 +1713,12 @@ function App() {
                       <label>
                         Start Time
                         <input
-                          type="datetime-local"
+                          type="time"
                           value={scheduleForm.start_time}
                           onChange={(event) =>
                             setScheduleForm((current) => ({
                               ...current,
                               start_time: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        End Time
-                        <input
-                          type="datetime-local"
-                          value={scheduleForm.end_time}
-                          onChange={(event) =>
-                            setScheduleForm((current) => ({
-                              ...current,
-                              end_time: event.target.value,
                             }))
                           }
                         />
@@ -1469,7 +1746,6 @@ function App() {
                               details: '',
                               activity_type: 'Custom',
                               start_time: '',
-                              end_time: '',
                               is_complete: false,
                             });
                           }}
@@ -1510,7 +1786,7 @@ function App() {
                             <span>{item.activity_type}</span>
                           </div>
                           <p className="schedule-meta">
-                            {new Date(item.start_time).toLocaleString()} - {new Date(item.end_time).toLocaleString()}
+                            {new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
                           <p className="schedule-meta">{item.details || 'No details'}</p>
                           <p className="schedule-meta">Status: {item.is_complete ? 'Complete' : 'Pending'}</p>
@@ -1706,53 +1982,6 @@ function App() {
                         />
                       </label>
                       <label>
-                        Status
-                        <input
-                          value={propForm.status}
-                          onChange={(event) =>
-                            setPropForm((current) => ({ ...current, status: event.target.value }))
-                          }
-                        />
-                      </label>
-                      <div className="prop-input-grid">
-                        <label>
-                          Battery Level
-                          <input
-                            type="number"
-                            value={propForm.battery_level}
-                            onChange={(event) =>
-                              setPropForm((current) => ({
-                                ...current,
-                                battery_level: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                        <label>
-                          Signal Strength
-                          <input
-                            type="number"
-                            value={propForm.signal_strength}
-                            onChange={(event) =>
-                              setPropForm((current) => ({
-                                ...current,
-                                signal_strength: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                      </div>
-                      <label>
-                        Last Seen
-                        <input
-                          type="datetime-local"
-                          value={propForm.last_seen}
-                          onChange={(event) =>
-                            setPropForm((current) => ({ ...current, last_seen: event.target.value }))
-                          }
-                        />
-                      </label>
-                      <label>
                         Firmware Version
                         <input
                           value={propForm.firmware_version}
@@ -1774,10 +2003,6 @@ function App() {
                               name: '',
                               prop_type: 'Custom',
                               location: '',
-                              status: 'offline',
-                              battery_level: 100,
-                              signal_strength: 100,
-                              last_seen: '',
                               firmware_version: '',
                             });
                           }}
@@ -1803,7 +2028,7 @@ function App() {
                             Battery: {item.battery_level}% | Signal: {item.signal_strength}%
                           </p>
                           <p className="prop-meta">
-                            Last Seen:{' '}
+                            Last Status Report:{' '}
                             {item.last_seen ? new Date(item.last_seen).toLocaleString() : 'Never'}
                           </p>
                           <p className="prop-meta">Firmware: {item.firmware_version || 'N/A'}</p>

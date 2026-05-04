@@ -9,10 +9,10 @@ class ScheduleItemBase(BaseModel):
     title: str
     details: str = ""
     activity_type: Literal[
-        "Safety Brief", "Game", "Break", "Lunch", "Setup", "Pack Down", "Custom"
+        "Safety Brief", "Game", "Break", "Lunch", "Setup", "Pack Down", "Pickup", "Drop Off", "Custom"
     ] = "Custom"
     start_time: datetime
-    end_time: datetime
+    end_time: datetime | None = None
 
 
 class ScheduleItemCreate(ScheduleItemBase):
@@ -32,10 +32,10 @@ class ScheduleItemUpdate(BaseModel):
     title: str
     details: str = ""
     activity_type: Literal[
-        "Safety Brief", "Game", "Break", "Lunch", "Setup", "Pack Down", "Custom"
+        "Safety Brief", "Game", "Break", "Lunch", "Setup", "Pack Down", "Pickup", "Drop Off", "Custom"
     ] = "Custom"
     start_time: datetime
-    end_time: datetime
+    end_time: datetime | None = None
     is_complete: bool = False
 
 

@@ -52,7 +52,14 @@ from app.schemas.mission_control import (
     MissionControlScoreRequest,
     MissionControlStateResponse,
 )
-from app.schemas.prop import PropBase, PropCommandRequest, PropCreate, PropRead, PropUpdate
+from app.schemas.prop import (
+    PropBase,
+    PropCommandRequest,
+    PropCreate,
+    PropRead,
+    PropStatusReport,
+    PropUpdate,
+)
 from app.schemas.schedule import (
     ScheduleItemBase,
     ScheduleItemCreate,
@@ -131,6 +138,7 @@ __all__ = [
     "PropCommandRequest",
     "PropCreate",
     "PropRead",
+    "PropStatusReport",
     "PropUpdate",
     "ScheduleItemBase",
     "ScheduleItemCreate",

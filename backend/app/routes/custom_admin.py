@@ -1,6 +1,8 @@
 import json
+import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -8,6 +10,7 @@ from app import models, schemas
 from app.database import get_db
 
 router = APIRouter(prefix="/api", tags=["Custom Admin"])
+TEAM_LOGO_DIR = Path(__file__).resolve().parents[2] / "data" / "uploads" / "team-logos"
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -151,6 +154,27 @@ def create_custom_team(payload: schemas.CustomTeamCreate, db: Session = Depends(
         message=f"Created custom team id={item.id} name={item.name}",
     )
     return item
+
+
+@router.post("/custom/teams/logo-upload")
+async def upload_custom_team_logo(file: UploadFile = File(...)) -> dict[str, str]:
+    content_type = (file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise _error(400, "INVALID_FILE_TYPE", "Only image files are allowed.")
+
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}:
+        suffix = ".png"
+
+    TEAM_LOGO_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"team_logo_{uuid.uuid4().hex}{suffix}"
+    destination = TEAM_LOGO_DIR / filename
+    payload = await file.read()
+    if not payload:
+        raise _error(400, "EMPTY_FILE", "Uploaded file is empty.")
+
+    destination.write_bytes(payload)
+    return {"url": f"/uploads/team-logos/{filename}"}
 
 
 @router.put("/custom/teams/{team_id}", response_model=schemas.CustomTeamRead)

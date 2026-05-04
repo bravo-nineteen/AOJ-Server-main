@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -1880,6 +1881,29 @@ def _handle_conversation(
     if re.search(r"\b(schedule|next (activity|event|game|round)|what('s| is) next|current activity)\b", lower):
         cur = ctx["schedule_current"]
         nxt = ctx["schedule_next"]
+
+        def _extract_next_title_and_time(raw: str) -> tuple[str, str | None]:
+            if not raw:
+                return "", None
+            title = raw
+            start_time = None
+            if ";" in raw:
+                parts = [p.strip() for p in raw.split(";") if p.strip()]
+                if parts:
+                    first = parts[0]
+                    title = first.split("=", 1)[1].strip() if "=" in first else first
+                for part in parts:
+                    if part.startswith("start="):
+                        start_time = part.split("=", 1)[1].strip()
+                        break
+            if start_time and "T" in start_time:
+                try:
+                    dt = datetime.fromisoformat(start_time.replace("Z", ""))
+                    start_time = dt.strftime("%H:%M")
+                except Exception:
+                    pass
+            return title, start_time
+
         if not cur and not nxt:
             answer = (
                 "No upcoming schedule items found. "
@@ -1890,7 +1914,14 @@ def _handle_conversation(
             if cur:
                 answer += f"**Current activity:** {cur}\n\n"
             if nxt:
-                answer += f"**Next activity:** {nxt}"
+                nxt_title, nxt_time = _extract_next_title_and_time(nxt)
+                if nxt_time:
+                    answer += (
+                        f"Next on the agenda is **{nxt_title}**, "
+                        f"which should start from **{nxt_time}**."
+                    )
+                else:
+                    answer += f"Next on the agenda is **{nxt_title}**."
             if not answer:
                 answer = "The schedule is clear — no current or upcoming activities."
         return _mk_response(answer, confidence=0.88,

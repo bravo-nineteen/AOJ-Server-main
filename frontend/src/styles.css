@@ -118,6 +118,11 @@ body {
   padding: 0.35rem 0.5rem;
 }
 
+button.indicator {
+  cursor: pointer;
+  font-family: inherit;
+}
+
 .clock {
   font-family: 'Orbitron', sans-serif;
   letter-spacing: 0.06em;
@@ -190,9 +195,22 @@ body {
 
 .window-stack {
   display: grid;
-  grid-template-columns: 1.5fr 1fr;
+  grid-template-columns: 1.9fr minmax(260px, 0.72fr);
   gap: 0.9rem;
   min-height: 0;
+}
+
+.primary-window {
+  min-height: 76vh;
+}
+
+.aux-window {
+  max-height: 66vh;
+  align-self: start;
+}
+
+.aux-window .window-content {
+  max-height: calc(66vh - 64px);
 }
 
 .window {
@@ -254,6 +272,175 @@ body {
 
 .mission-control {
   display: block;
+}
+
+.overview-module {
+  display: block;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 0.75rem;
+}
+
+.overview-card {
+  grid-column: span 6;
+  border: 1px solid rgba(76, 125, 92, 0.5);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 84% 16%, rgba(182, 247, 132, 0.12), transparent 44%),
+    rgba(14, 29, 17, 0.92);
+  padding: 0.7rem;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02), 0 8px 22px rgba(0, 0, 0, 0.22);
+}
+
+.overview-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.55rem;
+  color: var(--hud);
+  font-size: 0.86rem;
+  letter-spacing: 0.05em;
+}
+
+.overview-hero {
+  grid-column: 1 / -1;
+}
+
+.overview-hero-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.overview-kicker {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.overview-hero strong {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.95rem;
+}
+
+.overview-score-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.45rem;
+}
+
+.overview-score-pill {
+  border-radius: 7px;
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  padding: 0.45rem 0.5rem;
+  font-size: 0.76rem;
+  background: rgba(12, 22, 15, 0.95);
+}
+
+.overview-score-pill.red {
+  border-color: rgba(214, 93, 93, 0.6);
+  background: rgba(92, 24, 24, 0.45);
+}
+
+.overview-score-pill.blue {
+  border-color: rgba(108, 151, 232, 0.6);
+  background: rgba(29, 50, 92, 0.45);
+}
+
+.overview-score-pill.neutral {
+  color: var(--text-soft);
+}
+
+.overview-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.46rem 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.overview-row strong {
+  font-size: 0.8rem;
+}
+
+.overview-row span {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+}
+
+.overview-team-card {
+  grid-column: 1 / -1;
+}
+
+.overview-team-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  background: rgba(12, 22, 15, 0.92);
+  padding: 0.46rem 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.overview-team-left {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.overview-team-left p {
+  margin: 0.1rem 0 0;
+  color: var(--text-soft);
+  font-size: 0.73rem;
+}
+
+.overview-team-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(76, 125, 92, 0.7);
+}
+
+.overview-team-color {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(76, 125, 92, 0.7);
+  display: inline-block;
+}
+
+.overview-team-score {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.08rem;
+}
+
+.trend-strip {
+  border: 1px solid rgba(76, 125, 92, 0.45);
+  border-radius: 8px;
+  background: rgba(10, 21, 13, 0.9);
+  min-height: 68px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 0.4rem;
+  overflow: hidden;
+}
+
+.trend-bar {
+  width: 8px;
+  min-height: 8px;
+  border-radius: 4px 4px 2px 2px;
+  display: inline-block;
+  box-shadow: 0 0 8px rgba(182, 247, 132, 0.24);
 }
 
 .mc-grid {
@@ -985,6 +1172,9 @@ body {
   }
 
   .mc-grid,
+  .overview-grid,
+  .overview-hero-row,
+  .overview-score-strip,
   .control-row,
   .timers-row,
   .score-row,
@@ -1007,5 +1197,12 @@ body {
   .ai-grid,
   .ai-chat-input-row {
     grid-template-columns: 1fr;
+  }
+
+  .aux-window,
+  .aux-window .window-content,
+  .primary-window {
+    max-height: none;
+    min-height: 0;
   }
 }

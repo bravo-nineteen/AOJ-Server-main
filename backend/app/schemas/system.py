@@ -17,3 +17,6 @@ class SystemStatusResponse(BaseModel):
     disk_usage_percent: float
     lora_service_status: str
     database_status: str
+    alert_count: int = 0
+    prop_count: int = 0
+    online_prop_count: int = 0

@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app import models
@@ -278,6 +278,8 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
     """Collect and aggregate limited AI context from the database."""
     snapshot = AIContextSnapshot()
     now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
     prompt_keywords = _extract_keywords(prompt)
 
     active_session = (
@@ -340,18 +342,19 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
             for team in teams
         ]
 
-    schedule_query = db.query(models.ScheduleItem).filter(models.ScheduleItem.is_complete.is_(False))
+    schedule_query = db.query(models.ScheduleItem).filter(
+        models.ScheduleItem.is_complete.is_(False),
+        models.ScheduleItem.start_time >= day_start,
+        models.ScheduleItem.start_time < day_end,
+    )
     if active_mission is not None:
         schedule_query = schedule_query.filter(models.ScheduleItem.mission_id == active_mission.id)
 
     current_schedule = (
         schedule_query.filter(
-            and_(
-                models.ScheduleItem.start_time <= now,
-                models.ScheduleItem.end_time >= now,
-            )
+            models.ScheduleItem.start_time <= now
         )
-        .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
+        .order_by(models.ScheduleItem.start_time.desc(), models.ScheduleItem.id.desc())
         .first()
     )
 
@@ -362,7 +365,10 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         .first()
     )
 
-    base_schedule_query = db.query(models.ScheduleItem)
+    base_schedule_query = db.query(models.ScheduleItem).filter(
+        models.ScheduleItem.start_time >= day_start,
+        models.ScheduleItem.start_time < day_end,
+    )
     if active_mission is not None:
         base_schedule_query = base_schedule_query.filter(models.ScheduleItem.mission_id == active_mission.id)
 
@@ -373,6 +379,7 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         "current": {
             "title": current_schedule.title,
             "activity_type": current_schedule.activity_type,
+            "start_time": current_schedule.start_time.isoformat() + "Z",
         } if current_schedule else None,
         "next": {
             "title": next_schedule.title,

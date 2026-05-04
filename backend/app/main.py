@@ -150,6 +150,10 @@ _dist_dir = (
     if _dist_override
     else Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 )
+_uploads_dir = Path(__file__).resolve().parent.parent / "data" / "uploads"
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+
+app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 if _dist_dir.is_dir():
     app.mount("/", StaticFiles(directory=str(_dist_dir), html=True), name="frontend")

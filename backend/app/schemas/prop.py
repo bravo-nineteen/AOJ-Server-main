@@ -11,10 +11,6 @@ class PropBase(BaseModel):
         "Bomb", "Domination Point", "Respawn Station", "Alarm", "Sensor", "Custom"
     ] = "Custom"
     location: str = ""
-    status: Literal["offline", "online", "armed", "disarmed", "alarm", "maintenance"] = "offline"
-    battery_level: int = Field(default=100, ge=0, le=100)
-    signal_strength: int = Field(default=100, ge=0, le=100)
-    last_seen: datetime | None = None
     firmware_version: str = ""
 
 
@@ -26,8 +22,21 @@ class PropUpdate(PropBase):
     pass
 
 
+class PropStatusReport(BaseModel):
+    device_id: str
+    status: Literal["offline", "online", "armed", "disarmed", "alarm", "maintenance"] = "online"
+    battery_level: int = Field(ge=0, le=100)
+    signal_strength: int = Field(ge=0, le=100)
+    firmware_version: str = ""
+    transport: Literal["lora", "wifi"] = "lora"
+
+
 class PropRead(PropBase):
     id: int
+    status: Literal["offline", "online", "armed", "disarmed", "alarm", "maintenance"] = "offline"
+    battery_level: int = Field(default=100, ge=0, le=100)
+    signal_strength: int = Field(default=100, ge=0, le=100)
+    last_seen: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -5,7 +5,23 @@ export function AdminCustomTeams({ apiBase }) {
   const [form, setForm] = useState({ name: '', short_name: '', color: '#ffffff', icon: '', description: '', active: true });
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState('');
+
+  const resolveLogoUrl = (icon) => {
+    if (!icon) {
+      return '';
+    }
+    if (icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('data:')) {
+      return icon;
+    }
+    const origin = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : apiBase;
+    if (icon.startsWith('/')) {
+      return `${origin}${icon}`;
+    }
+    return `${origin}/${icon}`;
+  };
 
   const fetchTeams = async () => {
     try {
@@ -84,6 +100,77 @@ export function AdminCustomTeams({ apiBase }) {
     });
   };
 
+  const toSquareBlob = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error('Image read failed'));
+    reader.readAsDataURL(file);
+
+    img.onload = () => {
+      const side = Math.min(img.width, img.height);
+      const sx = Math.floor((img.width - side) / 2);
+      const sy = Math.floor((img.height - side) / 2);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas unsupported'));
+        return;
+      }
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Image crop failed'));
+          return;
+        }
+        resolve(blob);
+      }, 'image/png', 0.95);
+    };
+
+    img.onerror = () => reject(new Error('Invalid image file'));
+  });
+
+  const uploadLogoFile = async (selectedFile) => {
+    if (!selectedFile) {
+      return;
+    }
+
+    setError('');
+    setUploadingLogo(true);
+    try {
+      const croppedBlob = await toSquareBlob(selectedFile);
+      const formData = new FormData();
+      formData.append('file', croppedBlob, 'team_logo.png');
+      const resp = await fetch(`${apiBase}/custom/teams/logo-upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Upload failed (${resp.status})`);
+      }
+
+      const payload = await resp.json();
+      setForm((current) => ({ ...current, icon: payload.url || '' }));
+    } catch (err) {
+      setError(`Logo upload failed: ${err.message}`);
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const handleLogoUpload = async (event) => {
+    const selectedFile = event.target.files?.[0];
+    await uploadLogoFile(selectedFile);
+    event.target.value = '';
+  };
+
   return (
     <div style={{ padding: '1rem' }}>
       <h2>Team Editor</h2>
@@ -103,8 +190,61 @@ export function AdminCustomTeams({ apiBase }) {
           <input type="color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} style={{ width: '60px', height: '40px' }} />
         </div>
         <div style={{ marginBottom: '1rem' }}>
-          <label>Icon URL</label>
-          <input type="text" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} style={{ width: '100%', padding: '0.5rem' }} />
+          <label>Team Logo</label>
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={async (e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const dropped = e.dataTransfer?.files?.[0];
+              await uploadLogoFile(dropped);
+            }}
+            style={{
+              border: dragOver ? '1px solid var(--line-bright)' : '1px dashed var(--line)',
+              borderRadius: '6px',
+              padding: '0.7rem',
+              marginBottom: '0.4rem',
+              background: dragOver ? 'rgba(182,247,132,0.08)' : 'rgba(255,255,255,0.02)',
+              fontSize: '0.82rem',
+            }}
+          >
+            Drag and drop a logo image here (auto center-cropped to square), or use file picker below.
+          </div>
+          <input type="file" accept="image/*" onChange={handleLogoUpload} style={{ width: '100%', padding: '0.5rem' }} />
+          <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {form.icon ? (
+              <img
+                src={resolveLogoUrl(form.icon)}
+                alt="Team logo preview"
+                style={{ width: '42px', height: '42px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--line)' }}
+              />
+            ) : (
+              <span
+                style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '999px',
+                  backgroundColor: form.color,
+                  border: '1px solid var(--line)',
+                  display: 'inline-block',
+                }}
+              />
+            )}
+            <input
+              type="text"
+              value={form.icon}
+              placeholder="Logo URL (optional)"
+              onChange={(e) => setForm({ ...form, icon: e.target.value })}
+              style={{ width: '100%', padding: '0.5rem' }}
+            />
+          </div>
+          <div style={{ marginTop: '0.3rem', fontSize: '0.8rem', color: 'var(--text-soft)' }}>
+            {uploadingLogo ? 'Uploading logo...' : 'If no logo is set, team color will be used.'}
+          </div>
         </div>
         <div style={{ marginBottom: '1rem' }}>
           <label>Description</label>
@@ -135,6 +275,27 @@ export function AdminCustomTeams({ apiBase }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                   <div>
                     <div style={{ color: team.color, fontSize: '1.1rem', fontWeight: 'bold' }}>{team.name}</div>
+                    <div style={{ marginTop: '0.35rem' }}>
+                      {team.icon ? (
+                        <img
+                          src={resolveLogoUrl(team.icon)}
+                          alt={`${team.name} logo`}
+                          style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--line)' }}
+                        />
+                      ) : (
+                        <span
+                          style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '999px',
+                            backgroundColor: team.color,
+                            border: '1px solid var(--line)',
+                            display: 'inline-block',
+                          }}
+                          title={`${team.name} color token`}
+                        />
+                      )}
+                    </div>
                     {team.short_name && <div style={{ color: 'var(--text-soft)', fontSize: '0.9rem' }}>{team.short_name}</div>}
                     {team.description && <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>{team.description}</div>}
                     <div style={{ marginTop: '0.5rem', color: 'var(--text-soft)', fontSize: '0.85rem' }}>Status: {team.active ? 'Active' : 'Inactive'}</div>

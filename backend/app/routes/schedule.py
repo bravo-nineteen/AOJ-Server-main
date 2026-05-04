@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -13,8 +13,12 @@ router = APIRouter(prefix="/api/schedule", tags=["Schedule"])
 
 @router.get("/items", response_model=list[schemas.ScheduleItemRead])
 def list_schedule_items(db: Session = Depends(get_db)):
+    now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
     return (
         db.query(models.ScheduleItem)
+        .filter(models.ScheduleItem.start_time >= day_start, models.ScheduleItem.start_time < day_end)
         .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
         .all()
     )
@@ -22,10 +26,13 @@ def list_schedule_items(db: Session = Depends(get_db)):
 
 @router.post("/items", response_model=schemas.ScheduleItemRead)
 def add_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depends(get_db)):
-    if payload.end_time <= payload.start_time:
+    resolved_end = payload.end_time or (payload.start_time + timedelta(minutes=30))
+    if resolved_end <= payload.start_time:
         raise HTTPException(status_code=400, detail="end_time must be after start_time")
 
-    item = models.ScheduleItem(**payload.model_dump())
+    item_data = payload.model_dump()
+    item_data["end_time"] = resolved_end
+    item = models.ScheduleItem(**item_data)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -46,10 +53,13 @@ def edit_schedule_item(
     item = db.query(models.ScheduleItem).filter(models.ScheduleItem.id == item_id).first()
     if item is None:
         raise HTTPException(status_code=404, detail="Schedule item not found")
-    if payload.end_time <= payload.start_time:
+    resolved_end = payload.end_time or (payload.start_time + timedelta(minutes=30))
+    if resolved_end <= payload.start_time:
         raise HTTPException(status_code=400, detail="end_time must be after start_time")
 
-    for key, value in payload.model_dump().items():
+    update_data = payload.model_dump()
+    update_data["end_time"] = resolved_end
+    for key, value in update_data.items():
         setattr(item, key, value)
     item.completed_at = datetime.utcnow() if payload.is_complete else None
     db.commit()
@@ -104,16 +114,17 @@ def mark_schedule_item_complete(item_id: int, db: Session = Depends(get_db)):
 @router.get("/overview", response_model=schemas.ScheduleOverviewResponse)
 def get_schedule_overview(db: Session = Depends(get_db)):
     now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
 
     items = (
         db.query(models.ScheduleItem)
+        .filter(models.ScheduleItem.start_time >= day_start, models.ScheduleItem.start_time < day_end)
         .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
         .all()
     )
 
-    current_candidates = [
-        item for item in items if not item.is_complete and item.start_time <= now
-    ]
+    current_candidates = [item for item in items if not item.is_complete and item.start_time <= now]
     current = current_candidates[-1] if current_candidates else None
     next_item = next(
         (item for item in items if not item.is_complete and item.start_time > now),
@@ -121,8 +132,8 @@ def get_schedule_overview(db: Session = Depends(get_db)):
     )
 
     delay_warning = None
-    if current and now > current.end_time:
-        delay_warning = f"{current.title} is running past planned end time"
+    if current and next_item and now > next_item.start_time:
+        delay_warning = f"{current.title} appears to be running behind the next agenda item"
 
     return schemas.ScheduleOverviewResponse(
         current_activity=current,

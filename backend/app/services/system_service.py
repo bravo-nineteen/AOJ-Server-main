@@ -147,6 +147,20 @@ def get_system_status(db: Session) -> SystemStatusResponse:
         or 0
     )
 
+    alert_count = (
+        db.query(func.count(models.SystemLog.id))
+        .filter(models.SystemLog.level.in_([models.LogLevel.warning, models.LogLevel.error, models.LogLevel.critical]))
+        .scalar()
+        or 0
+    )
+    prop_count = db.query(func.count(models.Prop.id)).scalar() or 0
+    online_prop_count = (
+        db.query(func.count(models.Prop.id))
+        .filter(models.Prop.status.in_(["online", "armed", "disarmed", "alarm"]))
+        .scalar()
+        or 0
+    )
+
     if running_on_pi:
         cpu_temperature_c = _read_cpu_temperature()
         cpu_usage_percent = _read_cpu_usage_percent()
@@ -176,4 +190,7 @@ def get_system_status(db: Session) -> SystemStatusResponse:
         disk_usage_percent=disk_usage_percent,
         lora_service_status=_get_lora_service_status(),
         database_status=_get_database_status(db),
+        alert_count=alert_count,
+        prop_count=prop_count,
+        online_prop_count=online_prop_count,
     )
