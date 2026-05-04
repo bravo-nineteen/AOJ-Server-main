@@ -230,6 +230,15 @@ function App() {
   const [propsList, setPropsList] = useState([]);
   const [editingPropId, setEditingPropId] = useState(null);
   const [propSaveError, setPropSaveError] = useState('');
+  const [announcementRules, setAnnouncementRules] = useState([]);
+  const [editingRuleId, setEditingRuleId] = useState(null);
+  const [ruleForm, setRuleForm] = useState({
+    name: '',
+    enabled: true,
+    trigger_activity_types: '',
+    trigger_minutes_before: 15,
+    message_template: '',
+  });
   const [issuedPropTokens, setIssuedPropTokens] = useState({});
   const [propForm, setPropForm] = useState({
     device_id: '',
@@ -579,6 +588,60 @@ function App() {
     } catch (err) {
       console.warn('Failed to load active theme:', err);
     }
+  }
+
+  async function fetchAnnouncementRules() {
+    const res = await fetch(`${apiBase}/announcement-rules`);
+    if (res.ok) setAnnouncementRules(await res.json());
+  }
+
+  async function saveAnnouncementRule() {
+    if (!ruleForm.name.trim() || !ruleForm.message_template.trim()) return;
+    const path = editingRuleId
+      ? `${apiBase}/announcement-rules/${editingRuleId}`
+      : `${apiBase}/announcement-rules`;
+    const method = editingRuleId ? 'PUT' : 'POST';
+    const res = await fetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...ruleForm,
+        trigger_minutes_before: Number(ruleForm.trigger_minutes_before) || 15,
+      }),
+    });
+    if (!res.ok) return;
+    setEditingRuleId(null);
+    setRuleForm({ name: '', enabled: true, trigger_activity_types: '', trigger_minutes_before: 15, message_template: '' });
+    fetchAnnouncementRules();
+  }
+
+  async function toggleAnnouncementRule(rule) {
+    await fetch(`${apiBase}/announcement-rules/${rule.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...rule, enabled: !rule.enabled }),
+    });
+    fetchAnnouncementRules();
+  }
+
+  async function deleteAnnouncementRule(id) {
+    await fetch(`${apiBase}/announcement-rules/${id}`, { method: 'DELETE' });
+    if (editingRuleId === id) {
+      setEditingRuleId(null);
+      setRuleForm({ name: '', enabled: true, trigger_activity_types: '', trigger_minutes_before: 15, message_template: '' });
+    }
+    fetchAnnouncementRules();
+  }
+
+  function startEditRule(rule) {
+    setEditingRuleId(rule.id);
+    setRuleForm({
+      name: rule.name,
+      enabled: rule.enabled,
+      trigger_activity_types: rule.trigger_activity_types,
+      trigger_minutes_before: rule.trigger_minutes_before,
+      message_template: rule.message_template,
+    });
   }
 
   async function fetchScheduleData() {
@@ -1120,6 +1183,7 @@ function App() {
     fetchFirmwarePackages();
     fetchFirmwareRollouts();
     fetchAiSettings();
+    fetchAnnouncementRules();
   }, [apiBase]);
 
   useEffect(() => {
@@ -1890,6 +1954,102 @@ function App() {
                         </div>
                       ))}
                     </div>
+
+                    <div className="schedule-card">
+                      <h3>Announcement Rules</h3>
+                      <p className="schedule-meta muted">Christy will announce automatically at set times before schedule activities. Toggle rules on/off or customise the message.</p>
+
+                      {announcementRules.length === 0 ? (
+                        <p className="muted">No announcement rules yet.</p>
+                      ) : null}
+                      {announcementRules.map((rule) => (
+                        <div className="schedule-item" key={rule.id} style={{ opacity: rule.enabled ? 1 : 0.5 }}>
+                          <div className="schedule-item-header">
+                            <strong>{rule.name}</strong>
+                            <span>{rule.enabled ? 'Enabled' : 'Disabled'}</span>
+                          </div>
+                          <p className="schedule-meta">
+                            Triggers {rule.trigger_minutes_before} min before{' '}
+                            {rule.trigger_activity_types ? `"${rule.trigger_activity_types}"` : 'any activity'}
+                          </p>
+                          <p className="schedule-meta" style={{ fontStyle: 'italic' }}>"{rule.message_template}"</p>
+                          <div className="schedule-item-actions">
+                            <button type="button" onClick={() => startEditRule(rule)}>Edit</button>
+                            <button type="button" onClick={() => toggleAnnouncementRule(rule)}>
+                              {rule.enabled ? 'Disable' : 'Enable'}
+                            </button>
+                            <button type="button" onClick={() => deleteAnnouncementRule(rule.id)}>Delete</button>
+                          </div>
+                        </div>
+                      ))}
+
+                      <div style={{ marginTop: '0.8rem', borderTop: '1px solid var(--border-color, #333)', paddingTop: '0.8rem' }}>
+                        <h4 style={{ margin: '0 0 0.5rem' }}>{editingRuleId ? 'Edit Rule' : 'Add Rule'}</h4>
+                        <label>
+                          Rule Name
+                          <input
+                            value={ruleForm.name}
+                            onChange={(e) => setRuleForm((f) => ({ ...f, name: e.target.value }))}
+                            placeholder="e.g. Drop-off warning"
+                          />
+                        </label>
+                        <label>
+                          Activity Types (comma-separated, blank = all)
+                          <input
+                            value={ruleForm.trigger_activity_types}
+                            onChange={(e) => setRuleForm((f) => ({ ...f, trigger_activity_types: e.target.value }))}
+                            placeholder="e.g. Drop Off, Pickup, Game"
+                          />
+                        </label>
+                        <label>
+                          Minutes Before Start
+                          <input
+                            type="number"
+                            min="1"
+                            max="1440"
+                            value={ruleForm.trigger_minutes_before}
+                            onChange={(e) => setRuleForm((f) => ({ ...f, trigger_minutes_before: e.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Announcement Message
+                          <textarea
+                            rows={3}
+                            value={ruleForm.message_template}
+                            onChange={(e) => setRuleForm((f) => ({ ...f, message_template: e.target.value }))}
+                            placeholder="e.g. All players for {title} at {start_time} — please proceed to the car park now."
+                            style={{ resize: 'vertical' }}
+                          />
+                        </label>
+                        <p className="schedule-meta muted">Placeholders: {'{title}'}, {'{activity_type}'}, {'{start_time}'}</p>
+                        <label style={{ flexDirection: 'row', alignItems: 'center', gap: '0.5rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={ruleForm.enabled}
+                            onChange={(e) => setRuleForm((f) => ({ ...f, enabled: e.target.checked }))}
+                            style={{ width: 'auto' }}
+                          />
+                          Enabled
+                        </label>
+                        <div className="schedule-actions" style={{ marginTop: '0.5rem' }}>
+                          <button type="button" onClick={saveAnnouncementRule}>
+                            {editingRuleId ? 'Update Rule' : 'Add Rule'}
+                          </button>
+                          {editingRuleId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingRuleId(null);
+                                setRuleForm({ name: '', enabled: true, trigger_activity_types: '', trigger_minutes_before: 15, message_template: '' });
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
                 </section>
               ) : isResultsBoard ? (

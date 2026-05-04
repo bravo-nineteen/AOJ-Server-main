@@ -39,6 +39,7 @@ from app.models.team import Team, TeamSide
 from app.models.user_role import UserRole  # legacy CRUD table kept for backward compat
 from app.models.christy_announcement import ChristyAnnouncement
 from app.models.member_profile import MemberProfile
+from app.models.announcement_rule import AnnouncementRule
 
 __all__ = [
     # New
@@ -88,6 +89,7 @@ __all__ = [
     "TeamSide",
     # Legacy
     "UserRole",
+    "AnnouncementRule",
     "ChristyAnnouncement",
     "MemberProfile",
 ]

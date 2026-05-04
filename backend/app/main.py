@@ -15,6 +15,7 @@ from app.database import SessionLocal, init_db
 from app.lora.service import lora_service
 from app.routes import (
     ai,
+    announcement_rules,
     custom_admin,
     health,
     logs,
@@ -30,6 +31,7 @@ from app.routes import (
 )
 from app.services.christy_service import christy_service
 from app.services.mission_control_service import mission_control_service
+from app.services.scheduled_announcements_service import scheduled_announcements_service
 from app.services.update_center_service import handle_firmware_ack_event
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ app.include_router(update_center.router)
 app.include_router(custom_admin.router)
 app.include_router(tts.router)
 app.include_router(members.router)
+app.include_router(announcement_rules.router)
 
 
 @app.on_event("startup")
@@ -91,6 +94,10 @@ async def on_startup() -> None:
         christy_service.ticker(),
         name="christy_ticker",
     )
+    app.state.scheduled_announcements_task = asyncio.create_task(
+        scheduled_announcements_service.ticker(),
+        name="scheduled_announcements_ticker",
+    )
 
 
 @app.on_event("shutdown")
@@ -98,7 +105,7 @@ async def on_shutdown() -> None:
     """Stop background work cleanly."""
     logger.info("Stopping AOJ Command OS backend")
 
-    for task_name in ("mission_control_task", "christy_task"):
+    for task_name in ("mission_control_task", "christy_task", "scheduled_announcements_task"):
         task = getattr(app.state, task_name, None)
         if task is not None:
             task.cancel()
