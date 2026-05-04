@@ -1318,10 +1318,20 @@ function App() {
           return;
         }
         const line = `${new Date().toLocaleTimeString()} :: ${JSON.stringify(data)}`;
-        setEvents((previous) => [line, ...previous].slice(0, 12));
+        // Only show game/mission/warning/error events in the live feed
+        const eventStr = (data.event || '').toLowerCase();
+        const isImportant = eventStr.includes('mission') || eventStr.includes('game') || eventStr.includes('score')
+          || eventStr.includes('warn') || eventStr.includes('error') || eventStr.includes('alarm')
+          || eventStr.includes('start') || eventStr.includes('end') || eventStr.includes('result');
+        if (isImportant) {
+          setEvents((previous) => [line, ...previous].slice(0, 20));
+        }
       } catch {
         const line = `${new Date().toLocaleTimeString()} :: ${message.data}`;
-        setEvents((previous) => [line, ...previous].slice(0, 12));
+        const isImportant = /warn|error|alarm|mission|game|score|result/i.test(line);
+        if (isImportant) {
+          setEvents((previous) => [line, ...previous].slice(0, 20));
+        }
       }
     };
 
@@ -1408,21 +1418,29 @@ function App() {
 
   const teamOverviewRows = useMemo(() => {
     return customTeams.slice(0, 6).map((team, index) => {
-      let score = 0;
+      let liveScore = 0;
+      let dayPoints = 0;
+      let dayWins = 0;
       if (index === 0) {
-        score = missionState.red_team_score;
+        liveScore = missionState.red_team_score;
+        dayPoints = todayResultsPoints.redPoints;
+        dayWins = todayResultsPoints.redWins;
       } else if (index === 1) {
-        score = missionState.blue_team_score;
+        liveScore = missionState.blue_team_score;
+        dayPoints = todayResultsPoints.bluePoints;
+        dayWins = todayResultsPoints.blueWins;
       }
       const status = missionState.state === 'active' && index < 2 ? 'Engaged' : 'Ready';
       return {
         ...team,
-        score,
+        score: liveScore,
+        dayPoints,
+        dayWins,
         status,
         logoUrl: resolveTeamLogoUrl(team.icon),
       };
     });
-  }, [customTeams, missionState.red_team_score, missionState.blue_team_score, missionState.state, apiOrigin]);
+  }, [customTeams, missionState.red_team_score, missionState.blue_team_score, missionState.state, todayResultsPoints, apiOrigin]);
 
   useEffect(() => {
     const total = Math.max(1, connectedDeviceCount);
@@ -1601,24 +1619,57 @@ function App() {
                     </div>
 
                     <div className="overview-card overview-team-card">
-                      <h3>Team Status and Scores</h3>
+                      <h3>Team Standing — Today</h3>
                       {teamOverviewRows.length === 0 ? <p className="muted">No active teams configured.</p> : null}
-                      {teamOverviewRows.map((team) => (
-                        <div className="overview-team-row" key={team.id}>
-                          <div className="overview-team-left">
-                            {team.logoUrl ? (
-                              <img className="overview-team-logo" src={team.logoUrl} alt={`${team.name} logo`} />
-                            ) : (
-                              <span className="overview-team-color" style={{ backgroundColor: team.color }} />
-                            )}
-                            <div>
-                              <strong>{team.name}</strong>
-                              <p>{team.status}</p>
+                      {(() => {
+                        const maxDay = Math.max(...teamOverviewRows.map((t) => t.dayPoints));
+                        return teamOverviewRows.map((team) => {
+                          const isLeader = team.dayPoints > 0 && team.dayPoints === maxDay;
+                          return (
+                            <div className="overview-team-row" key={team.id}>
+                              <div className="overview-team-left">
+                                {team.logoUrl ? (
+                                  <img className="overview-team-logo" src={team.logoUrl} alt={`${team.name} logo`} />
+                                ) : (
+                                  <span className="overview-team-color" style={{ backgroundColor: team.color }} />
+                                )}
+                                <div>
+                                  <strong>{team.name} {isLeader ? '🏆' : ''}</strong>
+                                  <p>{team.status}</p>
+                                </div>
+                              </div>
+                              <div className="overview-team-score">
+                                <span style={{ fontSize: '1.1rem' }}>{team.dayPoints} pts</span>
+                                <span style={{ fontSize: '0.75rem', opacity: 0.65, marginLeft: '0.4rem' }}>{team.dayWins}W</span>
+                                {missionState.state === 'active' ? (
+                                  <span style={{ fontSize: '0.75rem', opacity: 0.5, marginLeft: '0.3rem' }}>(live: {team.score})</span>
+                                ) : null}
+                              </div>
                             </div>
-                          </div>
-                          <div className="overview-team-score">{team.score}</div>
-                        </div>
-                      ))}
+                          );
+                        });
+                      })()}
+                      {(() => {
+                        const gamesLeft = todayScheduleItems.filter((i) => i.activity_type === 'Game').length - todayResultsPoints.gamesPlayed;
+                        const diff = Math.abs(todayResultsPoints.redPoints - todayResultsPoints.bluePoints);
+                        const isImbalanced = gamesLeft > 0 && diff >= 20 && todayResultsPoints.gamesPlayed > 0;
+                        if (!isImbalanced) return null;
+                        const leadingTeam = todayResultsPoints.redPoints > todayResultsPoints.bluePoints ? redTeamLabel : blueTeamLabel;
+                        const trailingTeam = todayResultsPoints.redPoints > todayResultsPoints.bluePoints ? blueTeamLabel : redTeamLabel;
+                        return (
+                          <button
+                            type="button"
+                            className="ai-suggest-btn"
+                            onClick={() => {
+                              setSelectedApp('ai-assistant');
+                              setAiInput(`${leadingTeam} leads by ${diff} points with ${gamesLeft} games remaining today. Suggest realistic handicap adjustments or game format tweaks to balance the remaining games and keep it competitive for ${trailingTeam}.`);
+                            }}
+                            style={{ marginTop: '0.6rem', width: '100%', fontSize: '0.82rem' }}
+                          >
+                            ⚖️ AI: Suggest balance for remaining {gamesLeft} game{gamesLeft !== 1 ? 's' : ''}
+                          </button>
+                        );
+                      })()}
                     </div>
 
                     <div className="overview-card overview-team-card">
