@@ -201,6 +201,7 @@ function App() {
     delay_warning: null,
   });
   const [editingScheduleId, setEditingScheduleId] = useState(null);
+  const [scheduleSaveError, setScheduleSaveError] = useState('');
   const [scheduleForm, setScheduleForm] = useState({
     title: 'Safety Briefing',
     details: 'Operator brief and radio checks.',
@@ -229,12 +230,14 @@ function App() {
   const [propsList, setPropsList] = useState([]);
   const [editingPropId, setEditingPropId] = useState(null);
   const [propSaveError, setPropSaveError] = useState('');
+  const [issuedPropTokens, setIssuedPropTokens] = useState({});
   const [propForm, setPropForm] = useState({
     device_id: '',
     name: '',
     prop_type: 'Custom',
     location: '',
     firmware_version: '',
+    auth_token: '',
   });
   const [systemLogs, setSystemLogs] = useState([]);
   const [logFilters, setLogFilters] = useState({ level: 'ALL', category: 'ALL' });
@@ -886,6 +889,7 @@ function App() {
       prop_type: 'Custom',
       location: '',
       firmware_version: '',
+      auth_token: '',
     });
     fetchPropsData();
   }
@@ -898,7 +902,30 @@ function App() {
       prop_type: item.prop_type,
       location: item.location,
       firmware_version: item.firmware_version,
+      auth_token: '',
     });
+  }
+
+  async function rotatePropToken(id) {
+    const response = await fetch(`${apiBase}/props/${id}/token/rotate`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setIssuedPropTokens((current) => ({
+      ...current,
+      [id]: payload.token,
+    }));
+  }
+
+  async function copyToken(token) {
+    try {
+      await navigator.clipboard.writeText(token);
+    } catch {
+      // no-op fallback for restricted clipboard contexts
+    }
   }
 
   async function deleteProp(id) {
@@ -962,7 +989,9 @@ function App() {
   }
 
   async function saveScheduleItem() {
+    setScheduleSaveError('');
     if (!scheduleForm.start_time || !scheduleForm.title.trim()) {
+      setScheduleSaveError('Title and start time are required.');
       return;
     }
 
@@ -985,13 +1014,35 @@ function App() {
       : `${apiBase}/schedule/items`;
     const method = editingScheduleId ? 'PUT' : 'POST';
 
-    const response = await fetch(path, {
+    let response = await fetch(path, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
 
+    // Compatibility fallback: older backend still requires end_time and lacks newer activity types.
+    if (!response.ok && response.status === 422) {
+      const compatBody = {
+        ...body,
+        end_time: new Date(new Date(startIso).getTime() + 30 * 60 * 1000).toISOString(),
+        activity_type: ['Pickup', 'Drop Off'].includes(body.activity_type) ? 'Custom' : body.activity_type,
+      };
+      response = await fetch(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(compatBody),
+      });
+    }
+
     if (!response.ok) {
+      let msg = `Schedule save failed (${response.status})`;
+      try {
+        const err = await response.json();
+        if (err.detail) {
+          msg = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+        }
+      } catch {}
+      setScheduleSaveError(msg);
       return;
     }
 
@@ -1153,6 +1204,9 @@ function App() {
         }
         // Christy proactive announcements
         if (data.event === 'christy.announcement' && data.payload?.content) {
+          if (data.payload?.type === 'mode_suggestion') {
+            return;
+          }
           const announcementText = data.payload.content;
           setAiMessages((current) => [
             ...current,
@@ -1311,6 +1365,39 @@ function App() {
       phase_timer_seconds: Number(missionForm.phase_timer_minutes) * 60,
       objectives,
     });
+  }
+
+  function buildNextAgendaAnnouncement() {
+    const nextItem = scheduleOverview.next_activity;
+    if (!nextItem) {
+      return '';
+    }
+    const start = nextItem.start_time
+      ? new Date(nextItem.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : 'soon';
+    return `Next on the agenda is ${nextItem.title}, which should start from ${start}.`;
+  }
+
+  async function announceNextAgendaNow() {
+    const text = buildNextAgendaAnnouncement();
+    if (!text) {
+      setSpeechError('No next agenda item found.');
+      return;
+    }
+    setAnnouncementText(text);
+    await playTtsText(text, { showDisabledError: true });
+  }
+
+  function askAiForNextAgendaBrief() {
+    const nextItem = scheduleOverview.next_activity;
+    if (!nextItem) {
+      setAiInput('Create a short agenda brief for the next activity.');
+      return;
+    }
+    const start = nextItem.start_time
+      ? new Date(nextItem.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : 'soon';
+    setAiInput(`Draft a short marshal brief for next on the agenda: ${nextItem.title} at ${start}.`);
   }
 
   return (
@@ -1753,6 +1840,9 @@ function App() {
                           Reset
                         </button>
                       </div>
+                      {scheduleSaveError ? (
+                        <p className="schedule-warning" style={{ marginTop: '0.5rem' }}>{scheduleSaveError}</p>
+                      ) : null}
                     </div>
 
                     <div className="schedule-card">
@@ -1990,6 +2080,16 @@ function App() {
                           }
                         />
                       </label>
+                      <label>
+                        Device Auth Token (optional, min 8 chars)
+                        <input
+                          value={propForm.auth_token}
+                          onChange={(event) =>
+                            setPropForm((current) => ({ ...current, auth_token: event.target.value }))
+                          }
+                          placeholder="Leave blank to keep existing token"
+                        />
+                      </label>
                       {propSaveError ? <p style={{ color: 'var(--danger-color, #e74c3c)', marginTop: '0.4rem' }}>{propSaveError}</p> : null}
                       <div className="prop-actions">
                         <button type="button" onClick={saveProp}>Save Prop</button>
@@ -2034,8 +2134,21 @@ function App() {
                           <p className="prop-meta">Firmware: {item.firmware_version || 'N/A'}</p>
                           <div className="prop-item-actions">
                             <button type="button" onClick={() => startEditProp(item)}>Edit</button>
+                            <button type="button" onClick={() => rotatePropToken(item.id)}>Issue Token</button>
                             <button type="button" onClick={() => deleteProp(item.id)}>Delete</button>
                           </div>
+                          {issuedPropTokens[item.id] ? (
+                            <div className="prop-meta" style={{ marginTop: '0.45rem' }}>
+                              <strong>Issued token:</strong> {issuedPropTokens[item.id]}
+                              <button
+                                type="button"
+                                style={{ marginLeft: '0.45rem', width: 'auto' }}
+                                onClick={() => copyToken(issuedPropTokens[item.id])}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          ) : null}
                           <div className="prop-command-grid">
                             <button type="button" onClick={() => sendPropCommand(item.id, 'arm')}>Arm</button>
                             <button type="button" onClick={() => sendPropCommand(item.id, 'disarm')}>
@@ -2328,6 +2441,25 @@ function App() {
                       <p className="ai-safety-note" style={{ marginTop: '0.6rem' }}>
                         For operational actions, the AI will ask you to confirm before proceeding.
                       </p>
+                      <div className="ai-card" style={{ marginTop: '0.6rem', padding: '0.55rem' }}>
+                        <h3 style={{ marginBottom: '0.4rem' }}>Today Agenda</h3>
+                        <p className="schedule-meta" style={{ margin: '0.2rem 0' }}>
+                          Current: {scheduleOverview.current_activity ? scheduleOverview.current_activity.title : 'None'}
+                        </p>
+                        <p className="schedule-meta" style={{ margin: '0.2rem 0 0.5rem' }}>
+                          Next: {scheduleOverview.next_activity
+                            ? `${scheduleOverview.next_activity.title} @ ${new Date(scheduleOverview.next_activity.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                            : 'None'}
+                        </p>
+                        <div className="ai-prompt-grid">
+                          <button type="button" onClick={announceNextAgendaNow} disabled={!scheduleOverview.next_activity}>
+                            Announce Next Activity
+                          </button>
+                          <button type="button" onClick={askAiForNextAgendaBrief}>
+                            Prepare Next Brief in Chat
+                          </button>
+                        </div>
+                      </div>
                       <div className="ai-prompt-grid" style={{ marginTop: '0.6rem' }}>
                         <button
                           type="button"

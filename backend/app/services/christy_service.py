@@ -11,11 +11,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+CHRISTY_PROACTIVE_ENABLED = _env_bool("AOJ_CHRISTY_PROACTIVE", default=False)
 
 # ---------------------------------------------------------------------------
 # Built-in announcement templates (used when Ollama is unavailable)
@@ -75,6 +86,9 @@ class ChristyProactiveService:
 
     async def _check_and_announce(self) -> None:
         """Compare current mission state against last-known state and broadcast."""
+        if not CHRISTY_PROACTIVE_ENABLED:
+            return
+
         # Lazy import to avoid circular deps at module load time
         from app.services.mission_control_service import mission_control_service
         from app.core.websocket import websocket_manager

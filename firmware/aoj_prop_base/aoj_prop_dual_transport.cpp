@@ -35,6 +35,7 @@
 
 static const char* DEVICE_ID = "PROP-001";
 static const char* FIRMWARE_VERSION = "1.0.0";
+static const char* PROP_AUTH_TOKEN = "REPLACE_WITH_ISSUED_PROP_TOKEN";
 
 static const char* WIFI_SSID = "YOUR_WIFI_SSID";
 static const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
@@ -133,6 +134,7 @@ bool postStatusReport(const char* transport, int battery, int signal) {
   String url = String(SERVER_BASE_URL) + "/api/props/status-report";
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Prop-Token", PROP_AUTH_TOKEN);
 
   String body = "{";
   body += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
