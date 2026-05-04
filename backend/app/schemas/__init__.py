@@ -51,6 +51,7 @@ from app.schemas.mission_control import (
     MissionControlObjectiveStatusRequest,
     MissionControlScoreRequest,
     MissionControlStateResponse,
+    TeamReadyRequest,
 )
 from app.schemas.prop import (
     PropBase,

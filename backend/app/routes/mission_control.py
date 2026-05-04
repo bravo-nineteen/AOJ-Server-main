@@ -8,6 +8,7 @@ from app.schemas import (
     MissionControlObjectiveStatusRequest,
     MissionControlScoreRequest,
     MissionControlStateResponse,
+    TeamReadyRequest,
 )
 from app.services.mission_control_service import mission_control_service
 
@@ -68,3 +69,21 @@ async def set_objective_status(
 ) -> MissionControlStateResponse:
     state = await mission_control_service.set_objective_status(objective_id, payload, db)
     return MissionControlStateResponse(**state)
+
+
+@router.get("/ready")
+async def get_ready_state():
+    return mission_control_service.get_ready_state()
+
+
+@router.post("/ready")
+async def set_team_ready(
+    payload: TeamReadyRequest,
+    db: Session = Depends(get_db),
+):
+    return await mission_control_service.set_team_ready(payload.team, db)
+
+
+@router.delete("/ready")
+async def reset_ready():
+    return await mission_control_service.reset_ready()
