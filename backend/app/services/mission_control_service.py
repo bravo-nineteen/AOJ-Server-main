@@ -295,11 +295,6 @@ class MissionControlService:
         log_action(db, level=models.LogLevel.info, category=models.LogCategory.mission,
                    source="mission_control", message=log_msg)
         await self.broadcast_state(snapshot)
-
-        # Reset to idle so subsequent GET /state reflects a clean slate.
-        async with self._lock:
-            self._state = {**_IDLE_STATE, "updated_at": datetime.utcnow().isoformat()}
-
         return snapshot
 
     # ------------------------------------------------------------------
