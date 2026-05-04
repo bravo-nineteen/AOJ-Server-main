@@ -1273,3 +1273,47 @@ button.indicator {
   border-color: var(--accent, #b6f784);
   background: rgba(182,247,132,0.12);
 }
+
+/* Ready row */
+.ready-row {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+  flex-wrap: wrap;
+}
+
+.ready-btn {
+  flex: 1;
+  padding: 0.45rem 0.6rem;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.83rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: transparent;
+  color: var(--text);
+  min-width: 80px;
+}
+
+.ready-btn.ready-red { border-color: #c0392b; color: #e74c3c; }
+.ready-btn.ready-blue { border-color: #2980b9; color: #3498db; }
+.ready-btn.ready-reset { border-color: var(--border); font-weight: 400; opacity: 0.7; }
+.ready-btn.ready-active { opacity: 1; background: rgba(182,247,132,0.18); border-color: var(--accent, #b6f784); color: var(--accent, #b6f784); }
+.ready-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Countdown display */
+.countdown-display {
+  text-align: center;
+  font-size: 3.5rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  padding: 0.4rem 0;
+  color: var(--accent, #b6f784);
+  animation: pulse-count 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-count {
+  from { opacity: 0.7; transform: scale(0.97); }
+  to   { opacity: 1;   transform: scale(1.04); }
+}

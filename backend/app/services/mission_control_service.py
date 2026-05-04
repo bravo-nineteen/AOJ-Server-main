@@ -194,6 +194,8 @@ class MissionControlService:
             db2.close()
 
     async def start_game(self, db: Session) -> dict:
+        async with self._lock:
+            if self._state["state"] != "ready":
                 raise HTTPException(
                     status_code=400,
                     detail=(
