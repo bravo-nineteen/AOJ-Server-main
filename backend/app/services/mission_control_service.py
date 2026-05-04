@@ -282,6 +282,9 @@ class MissionControlService:
             self._state["phase_timer_seconds"] = 0
             self._state["updated_at"] = datetime.utcnow().isoformat()
             self._push_event_locked("Game ended")
+            red_points = int(self._state["red_team_score"])
+            blue_points = int(self._state["blue_team_score"])
+            mission_title = str(self._state["mission_title"])
             db.query(models.Mission).filter(
                 models.Mission.id == mission_id
             ).update({"status": models.MissionStatus.complete, "end_time": datetime.utcnow()})
@@ -289,6 +292,38 @@ class MissionControlService:
                 models.GameSession.mission_id == mission_id
             ).update({"is_active": False, "end_time": datetime.utcnow()})
             db.commit()
+
+            game_session = (
+                db.query(models.GameSession)
+                .filter(models.GameSession.mission_id == mission_id)
+                .order_by(models.GameSession.id.desc())
+                .first()
+            )
+            if game_session:
+                existing_result = (
+                    db.query(models.GameResult)
+                    .filter(models.GameResult.game_session_id == game_session.id)
+                    .first()
+                )
+                if existing_result is None:
+                    if red_points > blue_points:
+                        winner = models.ResultWinner.red
+                    elif blue_points > red_points:
+                        winner = models.ResultWinner.blue
+                    else:
+                        winner = models.ResultWinner.draw
+                    db.add(
+                        models.GameResult(
+                            game_session_id=game_session.id,
+                            session_name=mission_title,
+                            winner=winner,
+                            red_points=red_points,
+                            blue_points=blue_points,
+                            notes="Auto-saved from Mission Control end",
+                        )
+                    )
+                    db.commit()
+
             log_msg = f"Game ended for mission_id={mission_id}"
             snapshot = self.get_state()  # captures "ended" state for response/broadcast
 

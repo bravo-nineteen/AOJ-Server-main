@@ -419,6 +419,9 @@ function App() {
     const payload = await response.json();
     setMissionState(payload);
     setEvents(payload.event_feed ?? []);
+    if (path === '/mission-control/end') {
+      fetchResultsData();
+    }
   }
 
   async function applyManualScore(team, direction = 1) {
@@ -1189,6 +1192,21 @@ function App() {
     }
   }
 
+  async function resetTodayResults() {
+    const today = new Date().toLocaleDateString('en-CA');
+    const ok = window.confirm(`Reset all saved results for ${today}? This cannot be undone.`);
+    if (!ok) return;
+
+    const response = await fetch(`${apiBase}/results/reset-day`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ day: today }),
+    });
+    if (response.ok) {
+      fetchResultsData();
+    }
+  }
+
   async function saveMissionAsPreset() {
     setPresetSaveStatus('Saving...');
     const body = {
@@ -1467,9 +1485,7 @@ function App() {
   }, [resultsHistory]);
 
   const teamOverviewRows = useMemo(() => {
-    const missionHasScore =
-      Number(missionState.red_team_score || 0) + Number(missionState.blue_team_score || 0) > 0;
-    const missionUsesLiveScore = missionState.state !== 'idle' && missionHasScore;
+    const missionInProgress = missionState.state === 'running' || missionState.state === 'paused';
     return customTeams.slice(0, 6).map((team, index) => {
       let liveScore = 0;
       let dayPoints = 0;
@@ -1483,12 +1499,12 @@ function App() {
         dayPoints = todayResultsPoints.bluePoints;
         dayWins = todayResultsPoints.blueWins;
       }
-      const showLive = missionUsesLiveScore && index < 2;
+      const showLive = missionInProgress && index < 2;
       const status = missionState.state === 'running' && index < 2 ? 'Engaged' : 'Ready';
       return {
         ...team,
         score: liveScore,
-        displayPoints: showLive ? liveScore : dayPoints,
+        displayPoints: dayPoints + (showLive ? liveScore : 0),
         showLive,
         dayPoints,
         dayWins,
@@ -1726,6 +1742,15 @@ function App() {
                           </button>
                         );
                       })()}
+
+                      <button
+                        type="button"
+                        className="ai-suggest-btn"
+                        onClick={resetTodayResults}
+                        style={{ marginTop: '0.5rem', width: '100%', fontSize: '0.8rem', opacity: 0.9 }}
+                      >
+                        Reset Today Points
+                      </button>
                     </div>
 
                     <div className="overview-card overview-team-card">
