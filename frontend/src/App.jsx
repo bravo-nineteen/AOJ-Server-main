@@ -1784,6 +1784,12 @@ function App() {
                         />
                       </label>
                       <button type="button" onClick={handleCreateMission}>Create Mission</button>
+                      <button type="button" onClick={saveMissionAsPreset} style={{ marginLeft: '0.5rem' }}>
+                        Save as Preset
+                      </button>
+                      {presetSaveStatus ? (
+                        <p className="schedule-meta" style={{ marginTop: '0.3rem' }}>{presetSaveStatus}</p>
+                      ) : null}
                     </div>
 
                     <div className="mc-card">
@@ -2031,7 +2037,7 @@ function App() {
                         <div className="schedule-item" key={item.id}>
                           <div className="schedule-item-header">
                             <strong>{item.title}</strong>
-                            <span>{item.activity_type}</span>
+                            <span>{item.activity_type}{item.game_mode ? ` — ${item.game_mode}` : ''}</span>
                           </div>
                           <p className="schedule-meta">
                             {new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -2043,8 +2049,56 @@ function App() {
                             <button type="button" onClick={() => completeScheduleItem(item.id)}>
                               Mark Complete
                             </button>
+                            {item.activity_type === 'Game' ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRecordingResultForItemId(recordingResultForItemId === item.id ? null : item.id);
+                                  setQuickResultForm({ winner: 'Draw', red_points: 0, blue_points: 0, notes: '' });
+                                }}
+                              >
+                                {recordingResultForItemId === item.id ? 'Cancel Result' : 'Record Result'}
+                              </button>
+                            ) : null}
                             <button type="button" onClick={() => deleteScheduleItem(item.id)}>Delete</button>
                           </div>
+                          {recordingResultForItemId === item.id ? (
+                            <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'var(--card-bg, #1a1a1a)', borderRadius: '4px', border: '1px solid var(--border-color, #333)' }}>
+                              <p style={{ margin: '0 0 0.4rem', fontWeight: 600, fontSize: '0.85rem' }}>Quick Result — {item.title}</p>
+                              <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.3rem' }}>
+                                Winner
+                                <select
+                                  value={quickResultForm.winner}
+                                  onChange={(e) => setQuickResultForm((f) => ({ ...f, winner: e.target.value }))}
+                                  style={{ flex: 1 }}
+                                >
+                                  <option>Red</option>
+                                  <option>Blue</option>
+                                  <option>Draw</option>
+                                  <option>Cancelled</option>
+                                </select>
+                              </label>
+                              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.3rem' }}>
+                                <label style={{ flex: 1 }}>
+                                  Red pts
+                                  <input type="number" min="0" value={quickResultForm.red_points}
+                                    onChange={(e) => setQuickResultForm((f) => ({ ...f, red_points: e.target.value }))} />
+                                </label>
+                                <label style={{ flex: 1 }}>
+                                  Blue pts
+                                  <input type="number" min="0" value={quickResultForm.blue_points}
+                                    onChange={(e) => setQuickResultForm((f) => ({ ...f, blue_points: e.target.value }))} />
+                                </label>
+                              </div>
+                              <label style={{ marginBottom: '0.3rem' }}>
+                                Notes
+                                <input value={quickResultForm.notes}
+                                  onChange={(e) => setQuickResultForm((f) => ({ ...f, notes: e.target.value }))}
+                                  placeholder="Optional notes" />
+                              </label>
+                              <button type="button" onClick={() => quickRecordResult(item)}>Save Result</button>
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                     </div>
