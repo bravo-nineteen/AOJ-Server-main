@@ -75,11 +75,11 @@ def _strip_symbols(text: str) -> str:
 
 def _normalize_for_speech(text: str) -> str:
     """Shape text for more natural rhythm and intonation in SAPI voices."""
-    # Expand common abbreviations/acronyms that sound clipped otherwise.
+    # Expand only selected acronyms. Keep unit abbreviations compact per operator preference.
     text = re.sub(r"\bAOJ\b", "A O J", text, flags=re.IGNORECASE)
     text = re.sub(r"\bETA\b", "E T A", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bCTF\b", "capture the flag", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bKOTH\b", "king of the hill", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bCTF\b", "C T F", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bKOTH\b", "K O T H", text, flags=re.IGNORECASE)
     text = re.sub(r"\bLoRa\b", "low rah", text, flags=re.IGNORECASE)
 
     # Humanize score and time notations for cleaner pronunciation.
@@ -89,22 +89,16 @@ def _normalize_for_speech(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(
-        r"\b(\d{1,2}):(\d{2})\b",
-        lambda m: f"{int(m.group(1))} minutes {int(m.group(2))} seconds",
-        text,
-    )
-    text = re.sub(
-        r"\b(\d+)m\b",
-        lambda m: f"{m.group(1)} meters",
-        text,
-        flags=re.IGNORECASE,
-    )
+    # Preserve compact unit speech: mins, secs, J.
+    text = re.sub(r"\b(\d+)\s*[- ]\s*min(?:ute)?s?\b", r"\1 mins", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\d+)\s*[- ]\s*sec(?:ond)?s?\b", r"\1 secs", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(\d+(?:\.\d+)?)\s*joules?\b", r"\1 J", text, flags=re.IGNORECASE)
 
     # Punctuation tuning for pauses.
     text = text.replace(";", ", ")
     text = text.replace(":", ", ")
-    text = re.sub(r"\s*-\s*", ", ", text)
+    # Keep hyphenated compounds flowing naturally instead of forcing a long pause.
+    text = re.sub(r"(?<=\w)-(?=\w)", " ", text)
     text = re.sub(r"\.{3,}", ".", text)
     text = re.sub(r"\s*/\s*", " over ", text)
 

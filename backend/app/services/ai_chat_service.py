@@ -33,6 +33,10 @@ _TREND_STOPWORDS = {
     "are", "be", "we", "i", "you", "it", "this", "that", "what", "why", "how",
     "can", "could", "should", "would", "please", "now", "next", "game", "session",
 }
+_CONFIRM_ONLY_PATTERN = re.compile(
+    r"^\s*(yes|yeah|yep|ok|okay|confirm|confirmed|proceed|go ahead|do it|approved|affirmative)\s*[!.?]*\s*$",
+    re.IGNORECASE,
+)
 
 
 def _to_json_list(items: list[str]) -> str:
@@ -65,6 +69,20 @@ def _parse_json_list(raw: str | None) -> list[str]:
     except json.JSONDecodeError:
         return []
     return [str(item) for item in data] if isinstance(data, list) else []
+
+
+def _last_assistant_text(db: Session, conversation_id: int) -> str:
+    row = (
+        db.query(models.AIMessage)
+        .filter(
+            models.AIMessage.conversation_id == conversation_id,
+            models.AIMessage.role == models.MessageRole.assistant,
+        )
+        .order_by(models.AIMessage.created_at.desc(), models.AIMessage.id.desc())
+        .first()
+    )
+    return row.content if row and row.content else ""
+
 
 
 def _trim_conversation_history(db: Session, conversation: models.AIConversation) -> dict[str, int]:
@@ -906,14 +924,17 @@ def send_message(
     db.add(user_message)
     db.flush()
 
-    policy = evaluate_ai_prompt(payload.content)
+    last_assistant = _last_assistant_text(db, conversation_id)
+    normalized_prompt = (payload.content or "").strip()
+
+    policy = evaluate_ai_prompt(normalized_prompt)
     context_summary = _build_operational_context(db, conversation)
-    custom_knowledge_block = _build_custom_knowledge_block(db, payload.content)
+    custom_knowledge_block = _build_custom_knowledge_block(db, normalized_prompt)
 
     injected_prompt_parts = [
         context_summary['context_block'],
         custom_knowledge_block['block_text'],
-        f"[USER REQUEST]\n{payload.content}",
+        f"[USER REQUEST]\n{normalized_prompt}",
     ]
     injected_prompt = "\n\n".join([part for part in injected_prompt_parts if part])
 
@@ -932,7 +953,7 @@ def send_message(
     ]
 
     advisor_response = ask_ai(
-        payload.content,
+        normalized_prompt,
         injected_context=injected_prompt,
         conversation_history=conv_history,
     )
@@ -993,7 +1014,7 @@ def send_message(
             user_message_id=user_message.id,
             user_id=payload.user_id,
             blocked_actions=blocked_actions,
-            prompt=payload.content,
+            prompt=normalized_prompt,
         )
 
     assistant_message = models.AIMessage(
@@ -1043,7 +1064,7 @@ def send_message(
         action_request_id=action_request.id if action_request else None,
         decision=audit_decision,
         risk_level=risk_level,
-        prompt_excerpt=payload.content[:300],
+        prompt_excerpt=normalized_prompt[:300],
         response_excerpt=answer[:300],
         used_context=used_context,
         blocked_actions=blocked_actions,

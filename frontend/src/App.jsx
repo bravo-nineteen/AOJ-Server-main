@@ -218,13 +218,7 @@ function App() {
   const [aiTyping, setAiTyping] = useState(false);
   const aiChatEndRef = useRef(null);
   const [announcementText, setAnnouncementText] = useState('');
-  const [aiMessages, setAiMessages] = useState([
-    {
-      role: 'assistant',
-      text: "Hi! I'm Christy, your AOJ field advisor. Ask me to suggest a game, build rules, or generate a player briefing. What are we working on today?",
-      meta: null,
-    },
-  ]);
+  const [aiMessages, setAiMessages] = useState([]);
   const [updateCenterStatus, setUpdateCenterStatus] = useState(DEFAULT_UPDATE_CENTER_STATUS);
   const [updateMessage, setUpdateMessage] = useState('');
   const [selectedUpdatePackage, setSelectedUpdatePackage] = useState(null);
@@ -399,7 +393,7 @@ function App() {
       .replace(/`([^`]+)`/g, '$1')
       .replace(/[*#_~`^|<>{}\\]/g, '')
       .replace(/\n{2,}/g, '. ')
-      .replace(/\n/g, ', ')
+        .replace(/\n/g, '. ')
       .replace(/\s{2,}/g, ' ')
       .trim();
   }
@@ -692,14 +686,16 @@ function App() {
       const payload = await response.json();
       // Strip the internal [CONFIRM_ACTION:...] tag from displayed text.
       const displayText = payload.answer.replace(/\[CONFIRM_ACTION:[^\]]+\]/g, '').trim();
-      setAiMessages((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          text: displayText,
-          awaiting_confirm: payload.requires_admin_confirmation && payload.blocked_actions.length === 0,
-        },
-      ]);
+      if (displayText) {
+        setAiMessages((current) => [
+          ...current,
+          {
+            role: 'assistant',
+            text: displayText,
+            awaiting_confirm: payload.requires_admin_confirmation && payload.blocked_actions.length === 0,
+          },
+        ]);
+      }
       // Auto-speak Christy's response (fire and forget — don't block UI)
       const clean = stripSpeechSymbols(displayText);
       if (clean) {
@@ -726,9 +722,7 @@ function App() {
   }
 
   function clearAiConversation() {
-    setAiMessages([
-      { role: 'assistant', text: "New session started. I'm Christy. What can I help you with today?", meta: null },
-    ]);
+    setAiMessages([]);
     setAiConversationId(null);
   }
 

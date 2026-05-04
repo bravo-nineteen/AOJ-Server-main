@@ -36,6 +36,7 @@ OLLAMA_MODEL_PREFERENCE = [
 CHRISTY_SYSTEM_PROMPT = """You are Christy, the intelligent field operations advisor for AOJ Command OS — an airsoft command platform operating in Japan.
 
 Your personality: calm, professional, friendly, and knowledgeable. You speak in a natural, conversational tone. You DO NOT use bullet-point walls unless specifically asked for a list. You write in short, clear paragraphs.
+You only respond to direct user requests. Do not speak proactively, do not narrate system state unless asked, and do not add unrelated tips.
 
 Your capabilities:
 - Give live game status from the context block provided (scores, timer, devices, schedule)
@@ -73,7 +74,10 @@ CRITICAL rules:
 - Keep answers under 200 words unless building a detailed rule set
 - Do NOT use excessive markdown symbols in responses — use plain, natural language
 - Do NOT start every message with "Certainly!" or similar filler phrases
+- If the prompt is vague or ambiguous, ask one focused clarification question instead of returning a generic help wall
 - NEVER provide guidance on converting, importing illegally, or evading Japan's Firearms and Swords Control Act
+- For legal/compliance questions, use a layered model: national law baseline, then prefectural/municipal rules, then venue rules, then event overrides
+- If a compliance answer is under-specified, ask clarifying questions first (age band, venue municipality/prefecture, item class, import/modified status)
 
 Context block format: The operational context is provided as a structured block with sections [CURRENT STATE], [MISSION], [SCHEDULE], [DEVICES], [LOGS], [MEMBERS], [MEMORY]. Use this to give accurate, live answers.
 
@@ -217,6 +221,89 @@ def _extract_numbers(text: str) -> dict[str, int]:
         if m:
             result[key] = int(m.group(1))
     return result
+
+
+def _is_game_suggestion_request(text: str, nums: dict[str, int]) -> bool:
+    """Detect natural game recommendation asks, including short/plain phrasing."""
+    if re.search(
+        r"\b(suggest|recommend|what.{0,10}game|which.{0,10}game|best\s+game|pick\s+a\s+game|help.{0,10}choose|good game for)\b",
+        text,
+    ):
+        return True
+
+    # Natural phrasing examples this catches:
+    # - "quick and easy game for 20 people"
+    # - "need a game for 16 players"
+    # - "give me a beginner game mode"
+    if re.search(r"\b(game|mode|ruleset)\b", text):
+        if re.search(r"\b(need|want|looking for|give me|find|plan|setup|run)\b", text):
+            return True
+        if re.search(r"\b(quick|easy|simple|beginner|starter|fast)\b", text):
+            return True
+        if nums.get("players") or nums.get("per_team"):
+            return True
+
+    return False
+
+
+def _detect_game_preference(text: str) -> str | None:
+    """Capture high-level preference to tune recommendations."""
+    if re.search(r"\b(quick|fast|rapid|short)\b", text):
+        return "quick"
+    if re.search(r"\b(easy|simple|low setup|minimal setup|beginner|starter)\b", text):
+        return "easy"
+    if re.search(r"\b(advanced|complex|hardcore|milsim|realistic)\b", text):
+        return "advanced"
+    return None
+
+
+def _extract_theme_hint(text: str) -> str | None:
+    """Extract light theme/style hints so recommendations feel less repetitive."""
+    if re.search(r"\b(cyberpunk|sci[- ]?fi|future|futuristic)\b", text):
+        return "cyberpunk"
+    if re.search(r"\b(zombie|horror|infected|survival horror)\b", text):
+        return "horror"
+    if re.search(r"\b(milsim|mil[- ]?sim|realism|recon|patrol)\b", text):
+        return "milsim"
+    if re.search(r"\b(family|kids|casual|beginner day|starter)\b", text):
+        return "casual"
+    if re.search(r"\b(tournament|competitive|ranked|serious)\b", text):
+        return "competitive"
+    return None
+
+
+def _needs_compliance_clarification(text: str) -> bool:
+    """Determine if this is a product/compliance question that needs scoped inputs."""
+    return bool(
+        re.search(
+            r"\b(is this legal|can i use|can i import|is it allowed|is this okay|legal to use|classification|classify|what category)\b",
+            text,
+        )
+    )
+
+
+def _build_compliance_clarification(text: str) -> str:
+    """Ask for minimum inputs before giving item-specific legal guidance."""
+    missing: list[str] = []
+    if not re.search(r"\b(under.?18|minor|junior|adult|18\+|10\+)\b", text):
+        missing.append("player age band (adult or under-18)")
+    if not re.search(r"\b(tokyo|osaka|kanagawa|chiba|saitama|aichi|fukuoka|prefecture|municipality|city|venue)\b", text):
+        missing.append("venue municipality/prefecture")
+    if not re.search(r"\b(toy airsoft|model gun|quasi|imitation pistol|bb|airsoft gun|replica)\b", text):
+        missing.append("item class and what it fires")
+    if not re.search(r"\b(import|imported|domestic|modified|modded|custom)\b", text):
+        missing.append("imported/domestic and modified status")
+
+    if not missing:
+        return (
+            "I can give a precise compliance answer. Confirm these four scope points: age band, municipality/prefecture, item class, and import/modified status."
+        )
+
+    return (
+        "To answer safely for Japan, I need a few details first:\n\n"
+        + "\n".join(f"- {m}" for m in missing)
+        + "\n\nOnce you share those, I'll resolve it in this order: national law -> local ordinance -> venue rule -> event override."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1033,6 +1120,8 @@ def _suggest_game(
     available_modes: list[str] | None,
     skill_hint: str | None = None,
     has_minors: bool = False,
+    preference: str | None = None,
+    theme_hint: str | None = None,
 ) -> str:
     p = players or 0
     f = field_m or 0
@@ -1082,8 +1171,21 @@ def _suggest_game(
     if density == "cqb":
         cqb_note = "\n\n**CQB environment:** Semi-auto only and full-face protection are the defaults. Enforce venue power cap."
 
-    # Step 4: Select mode family based on density + readiness
-    if density == "cqb" and readiness in ("novice", "mixed"):
+    # Step 4: Select mode family based on density + readiness + preference
+    if preference in ("quick", "easy"):
+        if density == "cqb":
+            recommendations = ["Skirmish", "Capture The Flag", "Objective Raid"]
+            mode_style = "quick-start CQB"
+            rule_note = "Use 8-12 min rounds, one clear objective, and simple scoring."
+        elif p <= 20:
+            recommendations = ["Capture The Flag", "Skirmish", "King of the Hill"]
+            mode_style = "easy-to-run medium team"
+            rule_note = "Keep briefing under 2 minutes; first-to-target score format works well."
+        else:
+            recommendations = ["Domination", "Attack / Defend", "Capture The Flag"]
+            mode_style = "quick-control large team"
+            rule_note = "Run 15-20 min blocks with wave respawns to reduce downtime."
+    elif density == "cqb" and readiness in ("novice", "mixed"):
         recommendations = ["Skirmish", "Objective Raid", "Capture The Flag"]
         mode_style = "close-quarters, fast-paced"
         rule_note = "Keep rounds short (8–12 min) with 20-sec wave respawn. Semi-auto only."
@@ -1128,6 +1230,18 @@ def _suggest_game(
             "10 points at game start or one extra respawn ticket."
         )
 
+    theme_line = ""
+    if theme_hint == "cyberpunk":
+        theme_line = "Theme option: add a 'Data Heist' objective layer with terminal capture and extraction."
+    elif theme_hint == "horror":
+        theme_line = "Theme option: run an 'Infection Relay' variant with timed extraction checkpoints."
+    elif theme_hint == "milsim":
+        theme_line = "Theme option: use radio-verified intel tasks and limited-ticket logistics."
+    elif theme_hint == "casual":
+        theme_line = "Theme option: simplify scoring and use short briefing cards for first-timers."
+    elif theme_hint == "competitive":
+        theme_line = "Theme option: lock symmetrical spawns and fixed respawn cadence for fairness."
+
     lines = [
         f"Based on **{p} players** ({per_team} per team)"
         + (f", **{f} m²** field ({density})" if f else "")
@@ -1141,6 +1255,8 @@ def _suggest_game(
         f"Style: {mode_style}.{handicap_note}",
         f"Rule tip: {rule_note}",
     ]
+    if theme_line:
+        lines.append(theme_line)
     if minor_note:
         lines.append(minor_note)
     if cqb_note:
@@ -1721,6 +1837,13 @@ def _handle_conversation(
 
     # Japan legal classification queries
     if re.search(r"\b(legal|classif|import|quasi.air|model gun|firearm|permit|ordinance|age.?band|under.?18|minor|age.?verif)\b", lower):
+        if _needs_compliance_clarification(lower):
+            return _mk_response(
+                _build_compliance_clarification(lower),
+                confidence=0.9,
+                used_ctx=[*used_ctx, "advisor:japan_legal:clarify_scope"],
+                suggested_actions=["Provide age band, venue location, item class, and import/modified status."],
+            )
         return _mk_response(
             _japan_legal_advice(),
             confidence=0.9,
@@ -1766,11 +1889,10 @@ def _handle_conversation(
     # -----------------------------------------------------------------------
     # 3. Game suggestion flow
     # -----------------------------------------------------------------------
-    if re.search(
-        r"\b(suggest|recommend|what.{0,10}game|which.{0,10}game|best\s+game|pick\s+a\s+game|help.{0,10}choose|good game for)\b",
-        lower,
-    ):
+    if _is_game_suggestion_request(lower, nums):
         has_minors = bool(re.search(r"\b(minor|child|kid|under.?18|junior|youth)\b", lower))
+        preference = _detect_game_preference(lower)
+        theme_hint = _extract_theme_hint(lower)
         skill_hint = None
         if re.search(r"\b(novice|beginner|new player|first.?time)\b", lower):
             skill_hint = "novice"
@@ -1784,6 +1906,8 @@ def _handle_conversation(
             available_modes=ctx["available_game_modes"] or None,
             skill_hint=skill_hint,
             has_minors=has_minors,
+            preference=preference,
+            theme_hint=theme_hint,
         )
         return _mk_response(answer, confidence=0.86,
                              used_ctx=[*used_ctx, "advisor:game_suggestion"],
@@ -1991,14 +2115,7 @@ def _handle_conversation(
         )
     else:
         answer = (
-            "I'm your AOJ field advisor, ready to help. Try asking:\n\n"
-            "- 'Suggest a game for 16 players on a 4000m² field'\n"
-            "- 'What's the score?'\n"
-            "- 'Build VIP escort rules for 20 players'\n"
-            "- 'What are the Japan chrono rules?'\n"
-            "- 'What are the WBGT heat thresholds?'\n"
-            "- 'How do I run an event for 40 players?'\n"
-            "- 'Generate a marshal briefing'"
+            "I can help. Tell me your objective in one line, for example: game plan, rules, safety, legal, schedule, or device issue."
         )
 
     return _mk_response(answer, confidence=0.75, used_ctx=[*used_ctx, "advisor:fallback"])
