@@ -205,6 +205,8 @@ function App() {
   const [settingsTab, setSettingsTab] = useState('general');
   const [selectedScheduleGame, setSelectedScheduleGame] = useState(null);
   const [missionState, setMissionState] = useState(DEFAULT_MISSION_STATE);
+  const [teamReadyState, setTeamReadyState] = useState({ red: false, blue: false });
+  const [countdown, setCountdown] = useState(null);
   const [gameModeOptions, setGameModeOptions] = useState(DEFAULT_GAME_MODES);
   const [missionForm, setMissionForm] = useState({
     title: 'Operation Echo',
@@ -416,6 +418,18 @@ function App() {
     const payload = await response.json();
     setMissionState(payload);
     setEvents(payload.event_feed ?? []);
+  }
+
+  async function markTeamReady(team) {
+    await fetch(`${apiBase}/mission-control/ready`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team }),
+    });
+  }
+
+  async function resetReady() {
+    await fetch(`${apiBase}/mission-control/ready`, { method: 'DELETE' });
   }
 
   function applyThemeToDOM(theme) {
@@ -1304,6 +1318,23 @@ function App() {
             };
           }));
         }
+        // Team ready / countdown events
+        if (data.event === 'game.team_ready' && data.payload?.ready_state) {
+          setTeamReadyState(data.payload.ready_state);
+          return;
+        }
+        if (data.event === 'game.countdown' && data.payload != null) {
+          setCountdown(data.payload.seconds_remaining);
+          if (data.payload.seconds_remaining === 0) {
+            setTimeout(() => setCountdown(null), 1500);
+          }
+          return;
+        }
+        if (data.event === 'game.ready_reset') {
+          setTeamReadyState({ red: false, blue: false });
+          setCountdown(null);
+          return;
+        }
         // Christy proactive announcements
         if (data.event === 'christy.announcement' && data.payload?.content) {
           if (data.payload?.type === 'mode_suggestion') {
@@ -1833,14 +1864,47 @@ function App() {
                       <p className="mc-heading">Mode: {missionState.game_mode}</p>
                       <p className="mc-heading">State: {missionState.state.toUpperCase()}</p>
 
+                      {missionState.state === 'ready' && (
+                        <div className="ready-row">
+                          <button
+                            type="button"
+                            className={`ready-btn ready-red${teamReadyState.red ? ' ready-active' : ''}`}
+                            onClick={() => markTeamReady('red')}
+                            disabled={teamReadyState.red || countdown !== null}
+                          >
+                            {teamReadyState.red ? `${redTeamLabel} ✓` : `${redTeamLabel} Ready?`}
+                          </button>
+                          <button
+                            type="button"
+                            className={`ready-btn ready-blue${teamReadyState.blue ? ' ready-active' : ''}`}
+                            onClick={() => markTeamReady('blue')}
+                            disabled={teamReadyState.blue || countdown !== null}
+                          >
+                            {teamReadyState.blue ? `${blueTeamLabel} ✓` : `${blueTeamLabel} Ready?`}
+                          </button>
+                          <button
+                            type="button"
+                            className="ready-btn ready-reset"
+                            onClick={resetReady}
+                            disabled={countdown !== null}
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      )}
+
+                      {countdown !== null && (
+                        <div className="countdown-display">
+                          {countdown === 0 ? 'GO!' : countdown}
+                        </div>
+                      )}
+
                       <div className="control-row">
-                        <button type="button" onClick={() => postMissionAction('/mission-control/start')}>
-                          Start Game
-                        </button>
-                        <button type="button" onClick={() => postMissionAction('/mission-control/pause')}>
-                          Pause Game
-                        </button>
-                        <button type="button" onClick={() => postMissionAction('/mission-control/resume')}>
+                        <button
+                          type="button"
+                          onClick={() => postMissionAction('/mission-control/start')}
+                          disabled={countdown !== null}
+                        >
                           Resume Game
                         </button>
                         <button type="button" onClick={() => postMissionAction('/mission-control/end')}>
