@@ -1938,6 +1938,22 @@ function App() {
                           ))}
                         </select>
                       </label>
+                      {scheduleForm.activity_type === 'Game' ? (
+                        <label>
+                          Game Mode
+                          <select
+                            value={scheduleForm.game_mode}
+                            onChange={(event) =>
+                              setScheduleForm((current) => ({ ...current, game_mode: event.target.value }))
+                            }
+                          >
+                            <option value="">— none —</option>
+                            {gameModeOptions.map((mode) => (
+                              <option key={mode} value={mode}>{mode}</option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
                       <label>
                         Start Time
                         <input
@@ -1973,6 +1989,7 @@ function App() {
                               title: '',
                               details: '',
                               activity_type: 'Custom',
+                              game_mode: '',
                               start_time: '',
                               is_complete: false,
                             });
