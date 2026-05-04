@@ -205,6 +205,7 @@ function App() {
   const [settingsTab, setSettingsTab] = useState('general');
   const [selectedScheduleGame, setSelectedScheduleGame] = useState(null);
   const [missionState, setMissionState] = useState(DEFAULT_MISSION_STATE);
+  const [manualScoreDelta, setManualScoreDelta] = useState({ red: 10, blue: 10 });
   const [teamReadyState, setTeamReadyState] = useState({ red: false, blue: false });
   const [countdown, setCountdown] = useState(null);
   const [gameModeOptions, setGameModeOptions] = useState(DEFAULT_GAME_MODES);
@@ -418,6 +419,19 @@ function App() {
     const payload = await response.json();
     setMissionState(payload);
     setEvents(payload.event_feed ?? []);
+  }
+
+  async function applyManualScore(team, direction = 1) {
+    const raw = Number.parseInt(String(manualScoreDelta[team] ?? 0), 10);
+    const amount = Number.isFinite(raw) ? Math.abs(raw) : 0;
+    if (!amount) {
+      return;
+    }
+    await postMissionAction('/mission-control/score', {
+      team,
+      delta: direction * amount,
+      reason: 'manual',
+    });
   }
 
   async function markTeamReady(team) {
@@ -1453,6 +1467,7 @@ function App() {
   }, [resultsHistory]);
 
   const teamOverviewRows = useMemo(() => {
+    const missionUsesLiveScore = missionState.state === 'running' || missionState.state === 'paused';
     return customTeams.slice(0, 6).map((team, index) => {
       let liveScore = 0;
       let dayPoints = 0;
@@ -1466,10 +1481,13 @@ function App() {
         dayPoints = todayResultsPoints.bluePoints;
         dayWins = todayResultsPoints.blueWins;
       }
-      const status = missionState.state === 'active' && index < 2 ? 'Engaged' : 'Ready';
+      const showLive = missionUsesLiveScore && index < 2;
+      const status = showLive ? 'Engaged' : 'Ready';
       return {
         ...team,
         score: liveScore,
+        displayPoints: showLive ? liveScore : dayPoints,
+        showLive,
         dayPoints,
         dayWins,
         status,
@@ -1658,9 +1676,9 @@ function App() {
                       <h3>Team Standing — Today</h3>
                       {teamOverviewRows.length === 0 ? <p className="muted">No active teams configured.</p> : null}
                       {(() => {
-                        const maxDay = Math.max(...teamOverviewRows.map((t) => t.dayPoints));
+                        const maxDay = Math.max(...teamOverviewRows.map((t) => Number(t.displayPoints || 0)));
                         return teamOverviewRows.map((team) => {
-                          const isLeader = team.dayPoints > 0 && team.dayPoints === maxDay;
+                          const isLeader = Number(team.displayPoints || 0) > 0 && Number(team.displayPoints || 0) === maxDay;
                           return (
                             <div className="overview-team-row" key={team.id}>
                               <div className="overview-team-left">
@@ -1675,10 +1693,10 @@ function App() {
                                 </div>
                               </div>
                               <div className="overview-team-score">
-                                <span style={{ fontSize: '1.1rem' }}>{team.dayPoints} pts</span>
+                                <span style={{ fontSize: '1.1rem' }}>{team.displayPoints} pts</span>
                                 <span style={{ fontSize: '0.75rem', opacity: 0.65, marginLeft: '0.4rem' }}>{team.dayWins}W</span>
-                                {missionState.state === 'active' ? (
-                                  <span style={{ fontSize: '0.75rem', opacity: 0.5, marginLeft: '0.3rem' }}>(live: {team.score})</span>
+                                {team.showLive ? (
+                                  <span style={{ fontSize: '0.75rem', opacity: 0.5, marginLeft: '0.3rem' }}>(today: {team.dayPoints})</span>
                                 ) : null}
                               </div>
                             </div>
@@ -1928,29 +1946,29 @@ function App() {
                           <p>{redTeamLabel}</p>
                           <strong>{missionState.red_team_score}</strong>
                           <div>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={manualScoreDelta.red}
+                              onChange={(event) =>
+                                setManualScoreDelta((current) => ({
+                                  ...current,
+                                  red: event.target.value,
+                                }))
+                              }
+                            />
                             <button
                               type="button"
-                              onClick={() =>
-                                postMissionAction('/mission-control/score', {
-                                  team: 'red',
-                                  delta: 10,
-                                  reason: 'objective',
-                                })
-                              }
+                              onClick={() => applyManualScore('red', 1)}
                             >
-                              +10
+                              + Add
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                postMissionAction('/mission-control/score', {
-                                  team: 'red',
-                                  delta: -10,
-                                  reason: 'penalty',
-                                })
-                              }
+                              onClick={() => applyManualScore('red', -1)}
                             >
-                              -10
+                              - Deduct
                             </button>
                           </div>
                         </div>
@@ -1958,29 +1976,29 @@ function App() {
                           <p>{blueTeamLabel}</p>
                           <strong>{missionState.blue_team_score}</strong>
                           <div>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={manualScoreDelta.blue}
+                              onChange={(event) =>
+                                setManualScoreDelta((current) => ({
+                                  ...current,
+                                  blue: event.target.value,
+                                }))
+                              }
+                            />
                             <button
                               type="button"
-                              onClick={() =>
-                                postMissionAction('/mission-control/score', {
-                                  team: 'blue',
-                                  delta: 10,
-                                  reason: 'objective',
-                                })
-                              }
+                              onClick={() => applyManualScore('blue', 1)}
                             >
-                              +10
+                              + Add
                             </button>
                             <button
                               type="button"
-                              onClick={() =>
-                                postMissionAction('/mission-control/score', {
-                                  team: 'blue',
-                                  delta: -10,
-                                  reason: 'penalty',
-                                })
-                              }
+                              onClick={() => applyManualScore('blue', -1)}
                             >
-                              -10
+                              - Deduct
                             </button>
                           </div>
                         </div>
