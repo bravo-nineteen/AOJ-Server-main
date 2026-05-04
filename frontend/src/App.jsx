@@ -199,6 +199,7 @@ function App() {
   });
   const [propsList, setPropsList] = useState([]);
   const [editingPropId, setEditingPropId] = useState(null);
+  const [propSaveError, setPropSaveError] = useState('');
   const [propForm, setPropForm] = useState({
     device_id: '',
     name: '',
@@ -747,7 +748,9 @@ function App() {
   }
 
   async function saveProp() {
+    setPropSaveError('');
     if (!propForm.device_id.trim() || !propForm.name.trim()) {
+      setPropSaveError('Device ID and Name are required.');
       return;
     }
 
@@ -766,6 +769,12 @@ function App() {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
+      let msg = `Save failed (${response.status})`;
+      try {
+        const err = await response.json();
+        if (err.detail) msg = typeof err.detail === 'string' ? err.detail : (err.detail.message || msg);
+      } catch {}
+      setPropSaveError(msg);
       return;
     }
 
@@ -1691,12 +1700,14 @@ function App() {
                           }
                         />
                       </label>
+                      {propSaveError ? <p style={{ color: 'var(--danger-color, #e74c3c)', marginTop: '0.4rem' }}>{propSaveError}</p> : null}
                       <div className="prop-actions">
                         <button type="button" onClick={saveProp}>Save Prop</button>
                         <button
                           type="button"
                           onClick={() => {
                             setEditingPropId(null);
+                            setPropSaveError('');
                             setPropForm({
                               device_id: '',
                               name: '',

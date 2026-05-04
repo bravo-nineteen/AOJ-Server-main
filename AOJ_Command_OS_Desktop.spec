@@ -1,4 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+
+# Resolve paths relative to this spec file so the build works from any cwd.
+spec_dir = os.path.dirname(os.path.abspath(SPEC))
+icon_path = os.path.join(spec_dir, 'installer', 'assets', 'aoj_icon.ico')
 
 
 a = Analysis(
@@ -35,4 +40,14 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon_path if os.path.exists(icon_path) else None,
+    version_info={
+        'FileVersion': (1, 0, 0, 0),
+        'ProductVersion': (1, 0, 0, 0),
+        'CompanyName': 'Airsoft Online Japan',
+        'FileDescription': 'AOJ Command OS Desktop',
+        'ProductName': 'AOJ Command OS',
+        'LegalCopyright': 'Airsoft Online Japan — is Nineteen',
+        'OriginalFilename': 'AOJ_Command_OS_Desktop.exe',
+    },
 )

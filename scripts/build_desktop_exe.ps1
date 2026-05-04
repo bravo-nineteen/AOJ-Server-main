@@ -9,7 +9,8 @@ param(
     [string]$CertificatePassword = $env:AOJ_SIGN_CERT_PASSWORD,
     [string]$TimestampUrl = $(if ($env:AOJ_SIGN_TIMESTAMP_URL) { $env:AOJ_SIGN_TIMESTAMP_URL } else { 'http://timestamp.digicert.com' }),
     [string]$SignToolPath = $env:AOJ_SIGNTOOL_PATH,
-    [string]$ProductUrl = $(if ($env:AOJ_PRODUCT_URL) { $env:AOJ_PRODUCT_URL } else { 'https://github.com/YOUR_ORG/AOJ-Server' })
+    [string]$ProductUrl = $(if ($env:AOJ_PRODUCT_URL) { $env:AOJ_PRODUCT_URL } else { 'https://github.com/YOUR_ORG/AOJ-Server' }),
+    [string]$Version = '1.0.0'
 )
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -18,6 +19,8 @@ $BackendDir = Join-Path $ProjectRoot 'backend'
 $VenvPython = Join-Path $BackendDir '.venv\Scripts\python.exe'
 $FrontendDist = Join-Path $ProjectRoot 'frontend\dist'
 $Launcher = Join-Path $BackendDir 'desktop_launcher.py'
+$SpecFile = Join-Path $ProjectRoot 'AOJ_Command_OS_Desktop.spec'
+$IconFile = Join-Path $ProjectRoot 'installer\assets\aoj_icon.ico'
 $OutDir = Join-Path $ProjectRoot 'dist\desktop'
 $DesktopExe = Join-Path $OutDir 'AOJ_Command_OS_Desktop.exe'
 
@@ -75,7 +78,25 @@ if (-not (Test-Path $OutDir)) {
 
 Push-Location $ProjectRoot
 try {
-    & $VenvPython -m PyInstaller --noconfirm --clean --onefile --windowed --name AOJ_Command_OS_Desktop --distpath $OutDir --add-data "frontend/dist;frontend/dist" backend/desktop_launcher.py
+    # Use the .spec file so the icon, version info, and metadata are always applied.
+    # Fall back to explicit CLI flags if the spec file is missing.
+    if (Test-Path $SpecFile) {
+        Write-Host "[AOJ] Building from spec file: $SpecFile" -ForegroundColor Cyan
+        & $VenvPython -m PyInstaller --noconfirm --clean --distpath $OutDir $SpecFile
+    } else {
+        Write-Host "[AOJ] Spec file not found, building from CLI flags" -ForegroundColor Yellow
+        $iconArg = if (Test-Path $IconFile) { "--icon=$IconFile" } else { '' }
+        $args = @(
+            '-m', 'PyInstaller',
+            '--noconfirm', '--clean', '--onefile', '--windowed',
+            '--name', 'AOJ_Command_OS_Desktop',
+            '--distpath', $OutDir,
+            '--add-data', 'frontend/dist;frontend/dist'
+        )
+        if ($iconArg) { $args += $iconArg }
+        $args += 'backend/desktop_launcher.py'
+        & $VenvPython @args
+    }
 }
 finally {
     Pop-Location
@@ -103,7 +124,7 @@ if ($Sign) {
     }
 
     Write-Host "[AOJ] Signing desktop executable..." -ForegroundColor Cyan
-    & $resolvedSignTool sign /fd SHA256 /td SHA256 /tr $TimestampUrl /f $CertificatePath /p $CertificatePassword /d 'AOJ Command OS Desktop (Airsoft Online Japan)' /du $ProductUrl $DesktopExe
+    & $resolvedSignTool sign /fd SHA256 /td SHA256 /tr $TimestampUrl /f $CertificatePath /p $CertificatePassword /d "AOJ Command OS Desktop v$Version (Airsoft Online Japan)" /du $ProductUrl $DesktopExe
     if ($LASTEXITCODE -ne 0) {
         throw "signtool sign failed (exit code $LASTEXITCODE)."
     }
