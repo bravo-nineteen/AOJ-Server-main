@@ -1555,9 +1555,6 @@ function App() {
                           <p className="overview-kicker">Mission</p>
                           <strong>{missionState.mission_title}</strong>
                         </div>
-                      </section>
-                    ) : isPropNetwork ? (
-                      <section className="prop-module">
                         <div>
                           <p className="overview-kicker">Mode</p>
                           <strong>{missionState.game_mode}</strong>
@@ -2156,138 +2153,135 @@ function App() {
                       </div>
                     </div>
 
+                    <div className="mc-card">
+                      <h3>Today&#39;s Game Results</h3>
+                      <p className="mc-heading" style={{ marginBottom: '0.6rem' }}>
+                        {redTeamLabel} wins: {resultsSummary.total_red_wins} &nbsp;|&nbsp;
+                        {blueTeamLabel} wins: {resultsSummary.total_blue_wins} &nbsp;|&nbsp;
+                        Draws: {resultsSummary.total_draws} &nbsp;|&nbsp;
+                        Cancelled: {resultsSummary.total_cancelled}
+                      </p>
+                      <p className="mc-heading" style={{ marginBottom: '0.8rem' }}>
+                        {redTeamLabel} total pts: {resultsSummary.total_red_points} &nbsp;|&nbsp;
+                        {blueTeamLabel} total pts: {resultsSummary.total_blue_points}
+                      </p>
+
+                      {scheduleItems.filter((i) => i.activity_type === 'Game').length === 0 ? (
+                        <p className="muted">No games scheduled today. Add Game items in the Schedule tab.</p>
+                      ) : null}
+
+                      {scheduleItems.filter((i) => i.activity_type === 'Game').map((item) => {
+                        const linked = resultsHistory.find((r) => r.schedule_item_id === item.id);
+                        return (
+                          <div key={item.id} style={{ marginBottom: '1rem', padding: '0.6rem', background: 'var(--card-bg, #1a1a1a)', borderRadius: '6px', border: '1px solid var(--border-color, #333)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                              <strong>{item.title}</strong>
+                              <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                                {new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {item.game_mode ? ` — ${item.game_mode}` : ''}
+                              </span>
+                            </div>
+
+                            {linked ? (
+                              <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span style={{ padding: '2px 8px', borderRadius: '4px', background: linked.winner === 'Red' ? 'var(--red-color, #c0392b)' : linked.winner === 'Blue' ? 'var(--blue-color, #2980b9)' : '#555', color: '#fff', fontSize: '0.8rem' }}>
+                                  {linked.winner}
+                                </span>
+                                <span style={{ fontSize: '0.85rem' }}>{redTeamLabel} {linked.red_points} pts</span>
+                                <span style={{ fontSize: '0.85rem' }}>{blueTeamLabel} {linked.blue_points} pts</span>
+                                {linked.red_penalties > 0 || linked.blue_penalties > 0 ? (
+                                  <span style={{ fontSize: '0.78rem', opacity: 0.65 }}>
+                                    Penalties - {redTeamLabel}: {linked.red_penalties} | {blueTeamLabel}: {linked.blue_penalties}
+                                  </span>
+                                ) : null}
+                                {linked.notes ? <span style={{ fontSize: '0.78rem', opacity: 0.65 }}>{linked.notes}</span> : null}
+                                <button
+                                  type="button"
+                                  style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '2px 8px' }}
+                                  onClick={() => {
+                                    setRecordingResultForItemId(recordingResultForItemId === item.id ? null : item.id);
+                                    setQuickResultForm({ winner: linked.winner, red_points: linked.red_points, blue_points: linked.blue_points, notes: linked.notes || '' });
+                                  }}
+                                >
+                                  Edit Result
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRecordingResultForItemId(recordingResultForItemId === item.id ? null : item.id);
+                                  setQuickResultForm({ winner: 'Draw', red_points: 0, blue_points: 0, notes: '' });
+                                }}
+                              >
+                                {recordingResultForItemId === item.id ? 'Cancel' : 'Record Result'}
+                              </button>
+                            )}
+
+                            {recordingResultForItemId === item.id ? (
+                              <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.4rem' }}>
+                                <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                  Winner
+                                  <select
+                                    value={quickResultForm.winner}
+                                    onChange={(e) => setQuickResultForm((f) => ({ ...f, winner: e.target.value }))}
+                                    style={{ flex: 1 }}
+                                  >
+                                    <option>Red</option><option>Blue</option><option>Draw</option><option>Cancelled</option>
+                                  </select>
+                                </label>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <label style={{ flex: 1 }}>
+                                    {redTeamLabel} points
+                                    <input type="number" min="0" value={quickResultForm.red_points}
+                                      onChange={(e) => setQuickResultForm((f) => ({ ...f, red_points: e.target.value }))} />
+                                  </label>
+                                  <label style={{ flex: 1 }}>
+                                    {blueTeamLabel} points
+                                    <input type="number" min="0" value={quickResultForm.blue_points}
+                                      onChange={(e) => setQuickResultForm((f) => ({ ...f, blue_points: e.target.value }))} />
+                                  </label>
+                                </div>
+                                <label>
+                                  Notes (optional)
+                                  <input value={quickResultForm.notes}
+                                    onChange={(e) => setQuickResultForm((f) => ({ ...f, notes: e.target.value }))} />
+                                </label>
+                                <button type="button" onClick={() => quickRecordResult(item)}>Save Result</button>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mc-card">
+                      <h3>Session History</h3>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+                        <button type="button" onClick={exportResultsCsv} style={{ fontSize: '0.8rem' }}>Export CSV</button>
+                      </div>
+                      {resultsHistory.length === 0 ? <p className="muted">No results recorded yet.</p> : null}
+                      {resultsHistory.map((result) => (
+                        <div key={result.id} style={{ marginBottom: '0.6rem', padding: '0.5rem', background: 'var(--card-bg, #1a1a1a)', borderRadius: '5px', border: '1px solid var(--border-color, #333)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <strong style={{ fontSize: '0.9rem' }}>{result.session_name}</strong>
+                            <span style={{ padding: '1px 7px', borderRadius: '4px', background: result.winner === 'Red' ? 'var(--red-color, #c0392b)' : result.winner === 'Blue' ? 'var(--blue-color, #2980b9)' : '#555', color: '#fff', fontSize: '0.78rem' }}>
+                              {result.winner}
+                            </span>
+                          </div>
+                          <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', opacity: 0.75 }}>
+                            {redTeamLabel} {result.red_points} pts &nbsp;|&nbsp; {blueTeamLabel} {result.blue_points} pts
+                          </p>
+                          {result.notes ? <p style={{ margin: '0.1rem 0 0', fontSize: '0.78rem', opacity: 0.6 }}>{result.notes}</p> : null}
+                          <p style={{ margin: '0.1rem 0 0', fontSize: '0.72rem', opacity: 0.45 }}>{new Date(result.created_at).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+
+
                   </div>
                 </section>
               ) : isPropNetwork ? (
-                      <div className="mc-card">
-                        <h3>Today&#39;s Game Results</h3>
-                        <p className="mc-heading" style={{ marginBottom: '0.6rem' }}>
-                          {redTeamLabel} wins: {resultsSummary.total_red_wins} &nbsp;|&nbsp;
-                          {blueTeamLabel} wins: {resultsSummary.total_blue_wins} &nbsp;|&nbsp;
-                          Draws: {resultsSummary.total_draws} &nbsp;|&nbsp;
-                          Cancelled: {resultsSummary.total_cancelled}
-                        </p>
-                        <p className="mc-heading" style={{ marginBottom: '0.8rem' }}>
-                          {redTeamLabel} total pts: {resultsSummary.total_red_points} &nbsp;|&nbsp;
-                          {blueTeamLabel} total pts: {resultsSummary.total_blue_points}
-                        </p>
-
-                        {scheduleItems.filter((i) => i.activity_type === 'Game').length === 0 ? (
-                          <p className="muted">No games scheduled today. Add Game items in the Schedule tab.</p>
-                        ) : null}
-
-                        {scheduleItems.filter((i) => i.activity_type === 'Game').map((item) => {
-                          const linked = resultsHistory.find((r) => r.schedule_item_id === item.id);
-                          return (
-                            <div key={item.id} style={{ marginBottom: '1rem', padding: '0.6rem', background: 'var(--card-bg, #1a1a1a)', borderRadius: '6px', border: '1px solid var(--border-color, #333)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
-                                <strong>{item.title}</strong>
-                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-                                  {new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  {item.game_mode ? ` — ${item.game_mode}` : ''}
-                                </span>
-                              </div>
-
-                              {linked ? (
-                                <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                                  <span style={{ padding: '2px 8px', borderRadius: '4px', background: linked.winner === 'Red' ? 'var(--red-color, #c0392b)' : linked.winner === 'Blue' ? 'var(--blue-color, #2980b9)' : '#555', color: '#fff', fontSize: '0.8rem' }}>
-                                    {linked.winner}
-                                  </span>
-                                  <span style={{ fontSize: '0.85rem' }}>{redTeamLabel} {linked.red_points} pts</span>
-                                  <span style={{ fontSize: '0.85rem' }}>{blueTeamLabel} {linked.blue_points} pts</span>
-                                  {linked.red_penalties > 0 || linked.blue_penalties > 0 ? (
-                                    <span style={{ fontSize: '0.78rem', opacity: 0.65 }}>
-                                      Penalties — {redTeamLabel}: {linked.red_penalties} | {blueTeamLabel}: {linked.blue_penalties}
-                                    </span>
-                                  ) : null}
-                                  {linked.notes ? <span style={{ fontSize: '0.78rem', opacity: 0.65 }}>{linked.notes}</span> : null}
-                                  <button
-                                    type="button"
-                                    style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '2px 8px' }}
-                                    onClick={() => {
-                                      setRecordingResultForItemId(recordingResultForItemId === item.id ? null : item.id);
-                                      setQuickResultForm({ winner: linked.winner, red_points: linked.red_points, blue_points: linked.blue_points, notes: linked.notes || '' });
-                                    }}
-                                  >
-                                    Edit Result
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setRecordingResultForItemId(recordingResultForItemId === item.id ? null : item.id);
-                                    setQuickResultForm({ winner: 'Draw', red_points: 0, blue_points: 0, notes: '' });
-                                  }}
-                                >
-                                  {recordingResultForItemId === item.id ? 'Cancel' : 'Record Result'}
-                                </button>
-                              )}
-
-                              {recordingResultForItemId === item.id ? (
-                                <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.4rem' }}>
-                                  <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                    Winner
-                                    <select
-                                      value={quickResultForm.winner}
-                                      onChange={(e) => setQuickResultForm((f) => ({ ...f, winner: e.target.value }))}
-                                      style={{ flex: 1 }}
-                                    >
-                                      <option>Red</option><option>Blue</option><option>Draw</option><option>Cancelled</option>
-                                    </select>
-                                  </label>
-                                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                    <label style={{ flex: 1 }}>
-                                      {redTeamLabel} points
-                                      <input type="number" min="0" value={quickResultForm.red_points}
-                                        onChange={(e) => setQuickResultForm((f) => ({ ...f, red_points: e.target.value }))} />
-                                    </label>
-                                    <label style={{ flex: 1 }}>
-                                      {blueTeamLabel} points
-                                      <input type="number" min="0" value={quickResultForm.blue_points}
-                                        onChange={(e) => setQuickResultForm((f) => ({ ...f, blue_points: e.target.value }))} />
-                                    </label>
-                                  </div>
-                                  <label>
-                                    Notes (optional)
-                                    <input value={quickResultForm.notes}
-                                      onChange={(e) => setQuickResultForm((f) => ({ ...f, notes: e.target.value }))} />
-                                  </label>
-                                  <button type="button" onClick={() => quickRecordResult(item)}>Save Result</button>
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="mc-card">
-                        <h3>Session History</h3>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-                          <button type="button" onClick={exportResultsCsv} style={{ fontSize: '0.8rem' }}>Export CSV</button>
-                        </div>
-                        {resultsHistory.length === 0 ? <p className="muted">No results recorded yet.</p> : null}
-                        {resultsHistory.map((result) => (
-                          <div key={result.id} style={{ marginBottom: '0.6rem', padding: '0.5rem', background: 'var(--card-bg, #1a1a1a)', borderRadius: '5px', border: '1px solid var(--border-color, #333)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <strong style={{ fontSize: '0.9rem' }}>{result.session_name}</strong>
-                              <span style={{ padding: '1px 7px', borderRadius: '4px', background: result.winner === 'Red' ? 'var(--red-color, #c0392b)' : result.winner === 'Blue' ? 'var(--blue-color, #2980b9)' : '#555', color: '#fff', fontSize: '0.78rem' }}>
-                                {result.winner}
-                              </span>
-                            </div>
-                            <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', opacity: 0.75 }}>
-                              {redTeamLabel} {result.red_points} pts
-                              {result.red_penalties > 0 ? ` (−${result.red_penalties} pen)` : ''}
-                              &nbsp;|&nbsp;
-                              {blueTeamLabel} {result.blue_points} pts
-                              {result.blue_penalties > 0 ? ` (−${result.blue_penalties} pen)` : ''}
-                            </p>
-                            {result.notes ? <p style={{ margin: '0.1rem 0 0', fontSize: '0.78rem', opacity: 0.6 }}>{result.notes}</p> : null}
-                            <p style={{ margin: '0.1rem 0 0', fontSize: '0.72rem', opacity: 0.45 }}>{new Date(result.created_at).toLocaleString()}</p>
-                          </div>
-                        ))}
-                      </div>
-
                 <section className="prop-module">
                   <div className="prop-grid">
                     <div className="prop-card">
