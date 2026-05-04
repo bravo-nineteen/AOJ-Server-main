@@ -39,6 +39,41 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package_release_windows.ps1 -
 
 Output: `aoj-command-os-1.0.0-windows.zip`
 
+### Windows Code Signing (recommended)
+
+- [ ] Use an OV or EV code-signing certificate issued to your legal publisher name
+- [ ] Set signing environment variables in the current shell:
+
+```powershell
+$env:AOJ_SIGN_CERT_PATH = "C:\certs\aoj_codesign.pfx"
+$env:AOJ_SIGN_CERT_PASSWORD = "<pfx-password>"
+$env:AOJ_SIGN_TIMESTAMP_URL = "http://timestamp.digicert.com"
+# Optional if signtool.exe is not on PATH:
+# $env:AOJ_SIGNTOOL_PATH = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
+```
+
+- [ ] Build and sign installer EXE:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installer\build_installer.ps1 -Sign
+```
+
+- [ ] Build and sign desktop EXE (if distributing standalone desktop binary):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_desktop_exe.ps1 -Sign
+```
+
+- [ ] Verify signatures manually from PowerShell (optional defense in depth):
+
+```powershell
+Get-AuthenticodeSignature .\dist\installer\AOJ_Command_OS_Setup_1.0.0.exe
+Get-AuthenticodeSignature .\dist\desktop\AOJ_Command_OS_Desktop.exe
+```
+
+- [ ] Confirm signature status is `Valid` and publisher matches release notes
+- [ ] Publish the same filename/version repeatedly to build SmartScreen reputation over time
+
 ### Linux / Raspberry Pi
 
 ```bash

@@ -3,11 +3,28 @@
 # =============================================================================
 # Usage (from the project root):
 #   powershell -ExecutionPolicy Bypass -File installer\build_installer.ps1
+#   powershell -ExecutionPolicy Bypass -File installer\build_installer.ps1 -Sign
 #
 # Prerequisites:
 #   Inno Setup 6.x must be installed.
 #   Download free from: https://jrsoftware.org/isdl.php
+#
+# Optional signing configuration (recommended for SmartScreen reputation):
+#   $env:AOJ_SIGN_CERT_PATH = "C:\certs\aoj_codesign.pfx"
+#   $env:AOJ_SIGN_CERT_PASSWORD = "<pfx-password>"
+#   $env:AOJ_SIGN_TIMESTAMP_URL = "http://timestamp.digicert.com"
+#   $env:AOJ_SIGNTOOL_PATH = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
+#   $env:AOJ_PRODUCT_URL = "https://github.com/YOUR_ORG/AOJ-Server"
 # =============================================================================
+
+param(
+    [switch]$Sign,
+    [string]$CertificatePath = $env:AOJ_SIGN_CERT_PATH,
+    [string]$CertificatePassword = $env:AOJ_SIGN_CERT_PASSWORD,
+    [string]$TimestampUrl = $(if ($env:AOJ_SIGN_TIMESTAMP_URL) { $env:AOJ_SIGN_TIMESTAMP_URL } else { 'http://timestamp.digicert.com' }),
+    [string]$SignToolPath = $env:AOJ_SIGNTOOL_PATH,
+    [string]$ProductUrl = $(if ($env:AOJ_PRODUCT_URL) { $env:AOJ_PRODUCT_URL } else { 'https://github.com/YOUR_ORG/AOJ-Server' })
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -51,6 +68,40 @@ if (-not $Iscc) {
 
 Write-Host "Found Inno Setup at: $Iscc" -ForegroundColor Cyan
 
+function Find-SignTool {
+    param([string]$PreferredPath)
+
+    if ($PreferredPath -and (Test-Path $PreferredPath)) {
+        return $PreferredPath
+    }
+
+    $fromPath = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($fromPath) {
+        return $fromPath.Source
+    }
+
+    $kitRoots = @(
+        'C:\Program Files (x86)\Windows Kits\10\bin',
+        'C:\Program Files\Windows Kits\10\bin'
+    )
+
+    foreach ($root in $kitRoots) {
+        if (-not (Test-Path $root)) {
+            continue
+        }
+
+        $candidate = Get-ChildItem -Path $root -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+
+        if ($candidate) {
+            return $candidate.FullName
+        }
+    }
+
+    return $null
+}
+
 # Create output directory
 $OutputDir = Join-Path $ProjectRoot 'dist\installer'
 if (-not (Test-Path $OutputDir)) {
@@ -74,6 +125,45 @@ if ($LASTEXITCODE -eq 0) {
     if ($exe) {
         Write-Host "Output: $($exe.FullName)" -ForegroundColor Green
         Write-Host "Size  : $([math]::Round($exe.Length / 1MB, 1)) MB"
+
+        if ($Sign) {
+            if (-not $CertificatePath) {
+                throw 'Signing requested but no certificate path was provided. Set AOJ_SIGN_CERT_PATH or pass -CertificatePath.'
+            }
+            if (-not (Test-Path $CertificatePath)) {
+                throw "Signing certificate not found: $CertificatePath"
+            }
+            if (-not $CertificatePassword) {
+                throw 'Signing requested but no certificate password was provided. Set AOJ_SIGN_CERT_PASSWORD or pass -CertificatePassword.'
+            }
+
+            $resolvedSignTool = Find-SignTool -PreferredPath $SignToolPath
+            if (-not $resolvedSignTool) {
+                throw 'Signing requested but signtool.exe was not found. Install Windows SDK Signing Tools or set AOJ_SIGNTOOL_PATH.'
+            }
+
+            Write-Host "" 
+            Write-Host "Signing installer with Authenticode..." -ForegroundColor Cyan
+            Write-Host "SignTool : $resolvedSignTool"
+            Write-Host "Timestamp: $TimestampUrl"
+
+            & $resolvedSignTool sign /fd SHA256 /td SHA256 /tr $TimestampUrl /f $CertificatePath /p $CertificatePassword /d 'AOJ Command OS Installer (Airsoft Online Japan)' /du $ProductUrl $exe.FullName
+            if ($LASTEXITCODE -ne 0) {
+                throw "signtool sign failed (exit code $LASTEXITCODE)."
+            }
+
+            Write-Host "Verifying signature..." -ForegroundColor Cyan
+            & $resolvedSignTool verify /pa /v $exe.FullName
+            if ($LASTEXITCODE -ne 0) {
+                throw "signtool verify failed (exit code $LASTEXITCODE)."
+            }
+
+            Write-Host "Installer is signed and verified." -ForegroundColor Green
+        } else {
+            Write-Host "" 
+            Write-Host "WARNING: Installer is currently unsigned. SmartScreen warnings are expected on other machines." -ForegroundColor Yellow
+            Write-Host "Re-run with -Sign after configuring AOJ_SIGN_CERT_PATH and AOJ_SIGN_CERT_PASSWORD to reduce warnings." -ForegroundColor Yellow
+        }
     }
 } else {
     Write-Host ""

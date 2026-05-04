@@ -39,10 +39,13 @@ AOJ Command OS is a local-first command system for airsoft field operations. It 
 ### Installer Method A — EXE Setup (easiest)
 
 1. Download the Windows installer EXE from Releases (example: `AOJ_Command_OS_Setup_1.0.0.exe`).
-2. Double-click the installer and follow the wizard.
-3. Keep default install path unless you need a custom location.
-4. When installation completes, launch AOJ Command OS from Start Menu.
-5. Open `http://localhost:8000` if browser does not auto-open.
+2. Confirm the file is digitally signed by your publisher name (Right-click -> Properties -> Digital Signatures).
+3. Double-click the installer and follow the wizard.
+4. Keep default install path unless you need a custom location.
+5. When installation completes, launch AOJ Command OS from Start Menu.
+6. Open `http://localhost:8000` if browser does not auto-open.
+
+For maintainers: unsigned installers usually trigger Microsoft SmartScreen warnings. Use a trusted code-signing certificate and sign every release EXE to reduce warnings.
 
 ### Installer Method B — Script Install (power users)
 

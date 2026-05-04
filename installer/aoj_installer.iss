@@ -17,7 +17,8 @@
 
 #define AppName      "AOJ Command OS"
 #define AppVersion   "1.0.0"
-#define AppPublisher "AOJ"
+#define AppPublisher "Airsoft Online Japan"
+#define AppCreator   "is Nineteen"
 #define AppURL       "https://github.com/YOUR_ORG/AOJ-Server"
 #define AppExe       "AOJ Command OS.lnk"
 
@@ -27,6 +28,7 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
+AppCopyright=Created by {#AppCreator}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
@@ -56,6 +58,10 @@ ArchitecturesInstallIn64BitMode=x64
 ; Uninstaller
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\assets\aoj_icon.ico
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription={#AppName} Installer
+VersionInfoProductName={#AppName}
+VersionInfoCopyright=Created by {#AppCreator}
 ; After install, ask to launch
 InfoAfterFile=..\installer\after_install.txt
 
