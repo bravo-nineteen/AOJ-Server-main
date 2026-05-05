@@ -1,10 +1,11 @@
-"""LoRa messaging service – mock transport with ACK/retry handling.
+"""LoRa messaging service with dual-radio transport and ACK/retry handling.
 
-Message format:  AOJ|DEVICE_ID|COMMAND|VALUE|MESSAGE_ID|CRC
+Message format: AOJ|DEVICE_ID|COMMAND|VALUE|MESSAGE_ID|CRC
 
-TODO: Replace mock transport with a real SX1262 driver once hardware is wired.
-      Initialize SPI bus, GPIO chip-select, and radio parameters
-      (frequency, spreading factor, bandwidth, coding rate) in LoRaService.__init__.
+Modes:
+- mock: in-memory loopback (default for development)
+- serial-single: one serial modem for send+receive
+- serial-dual: dedicated TX modem and RX modem (recommended for field reliability)
 """
 
 from __future__ import annotations
@@ -14,7 +15,143 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Protocol
+import logging
+
+from app import config
+
+try:
+    import serial  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional dependency in mock mode
+    serial = None
+
+
+class LoRaTransport(Protocol):
+    """Transport contract for LoRa modem backends."""
+
+    def start(self) -> None:
+        ...
+
+    def stop(self) -> None:
+        ...
+
+    def send(self, payload: str) -> None:
+        ...
+
+    def poll(self) -> list[str]:
+        ...
+
+
+class MockTransport:
+    """Development transport that loopbacks TX and auto-generates ACKs."""
+
+    def __init__(self, crc_func: Callable[[str], str]) -> None:
+        self._incoming: queue.Queue[str] = queue.Queue()
+        self._crc = crc_func
+
+    def start(self) -> None:
+        return
+
+    def stop(self) -> None:
+        return
+
+    def send(self, payload: str) -> None:
+        self._incoming.put(payload)
+
+        parts = payload.split("|")
+        if len(parts) == 6:
+            _, device_id, _, _, message_id, _ = parts
+            ack_payload = f"AOJ|{device_id}|ACK|OK|{message_id}"
+            self._incoming.put(f"{ack_payload}|{self._crc(ack_payload)}")
+
+    def poll(self) -> list[str]:
+        frames: list[str] = []
+        while True:
+            try:
+                frames.append(self._incoming.get_nowait())
+            except queue.Empty:
+                return frames
+
+
+class SerialDualTransport:
+    """Dual-modem serial transport: one modem dedicated to TX, one to RX.
+
+    Expected modem behavior:
+    - Writing a newline-terminated AOJ frame transmits over radio.
+    - Incoming radio frames are emitted as newline-terminated text lines.
+    """
+
+    def __init__(self, tx_port: str, rx_port: str, baudrate: int) -> None:
+        if serial is None:
+            raise RuntimeError("pyserial is required for serial LoRa modes")
+
+        self.tx_port = tx_port
+        self.rx_port = rx_port
+        self.baudrate = baudrate
+        self._tx = None
+        self._rx = None
+
+    def start(self) -> None:
+        self._tx = serial.Serial(self.tx_port, self.baudrate, timeout=0.05)
+        self._rx = serial.Serial(self.rx_port, self.baudrate, timeout=0.05)
+
+    def stop(self) -> None:
+        if self._tx is not None and self._tx.is_open:
+            self._tx.close()
+        if self._rx is not None and self._rx.is_open:
+            self._rx.close()
+
+    def send(self, payload: str) -> None:
+        if self._tx is None:
+            return
+        self._tx.write((payload.strip() + "\n").encode("utf-8"))
+        self._tx.flush()
+
+    def poll(self) -> list[str]:
+        if self._rx is None:
+            return []
+
+        frames: list[str] = []
+        while self._rx.in_waiting > 0:
+            line = self._rx.readline().decode("utf-8", errors="ignore").strip()
+            if line:
+                frames.append(line)
+        return frames
+
+
+class SerialSingleTransport:
+    """Single-modem serial transport for installations with one radio path."""
+
+    def __init__(self, port: str, baudrate: int) -> None:
+        if serial is None:
+            raise RuntimeError("pyserial is required for serial LoRa modes")
+        self.port = port
+        self.baudrate = baudrate
+        self._serial = None
+
+    def start(self) -> None:
+        self._serial = serial.Serial(self.port, self.baudrate, timeout=0.05)
+
+    def stop(self) -> None:
+        if self._serial is not None and self._serial.is_open:
+            self._serial.close()
+
+    def send(self, payload: str) -> None:
+        if self._serial is None:
+            return
+        self._serial.write((payload.strip() + "\n").encode("utf-8"))
+        self._serial.flush()
+
+    def poll(self) -> list[str]:
+        if self._serial is None:
+            return []
+
+        frames: list[str] = []
+        while self._serial.in_waiting > 0:
+            line = self._serial.readline().decode("utf-8", errors="ignore").strip()
+            if line:
+                frames.append(line)
+        return frames
 
 
 @dataclass
@@ -28,8 +165,17 @@ class QueuedCommand:
     last_sent_at: float = 0.0
 
 
+@dataclass
+class LoRaIncomingFrame:
+    device_id: str
+    command: str
+    value: str
+    message_id: str
+    raw_frame: str
+
+
 class LoRaService:
-    """LoRa messaging with mock transport and ACK/retry handling."""
+    """LoRa messaging service with transport abstraction and ACK/retry handling."""
 
     def __init__(
         self,
@@ -37,9 +183,10 @@ class LoRaService:
         max_retries: int = 3,
         mock_mode: bool = True,
     ) -> None:
+        self._logger = logging.getLogger(__name__)
         self.ack_timeout_seconds = ack_timeout_seconds
         self.max_retries = max_retries
-        self.mock_mode = mock_mode
+        self.mock_mode = mock_mode or config.LORA_MODE == "mock"
 
         self._command_queue: queue.Queue[QueuedCommand] = queue.Queue()
         self._incoming_queue: queue.Queue[str] = queue.Queue()
@@ -49,13 +196,48 @@ class LoRaService:
         self._lock = threading.Lock()
         self._worker_thread: threading.Thread | None = None
         self._running = False
+        self._transport: LoRaTransport = self._build_transport()
+
+        self._configured_mode = config.LORA_MODE.lower().strip()
+        self._effective_mode = self._configured_mode
+        self._fallback_in_use = False
+        self._transport_started = False
+        self._tx_count = 0
+        self._rx_count = 0
+        self._last_tx_at = 0.0
+        self._last_rx_at = 0.0
+        self._last_error: str | None = None
         
         # ACK callback: called when an ACK is successfully processed.
         # Receives (device_id: str, ack_value: str, message_id: str) -> None
         self._on_ack_callback: Optional[Callable[[str, str, str], None]] = None
+        self._on_incoming_callback: Optional[Callable[[LoRaIncomingFrame], None]] = None
 
-        # TODO: Initialize SX1262 driver, SPI bus, and GPIO pins here.
-        # TODO: Configure LoRa radio params (frequency, spreading factor, BW, CR).
+    def _build_transport(self) -> LoRaTransport:
+        mode = config.LORA_MODE.lower().strip()
+        if mode == "mock":
+            return MockTransport(self.calculate_crc)
+        if mode == "serial-dual":
+            self.mock_mode = False
+            return SerialDualTransport(
+                tx_port=config.LORA_TX_SERIAL_PORT,
+                rx_port=config.LORA_RX_SERIAL_PORT,
+                baudrate=config.LORA_SERIAL_BAUDRATE,
+            )
+        if mode == "serial-single":
+            self.mock_mode = False
+            return SerialSingleTransport(
+                port=config.LORA_TX_SERIAL_PORT,
+                baudrate=config.LORA_SERIAL_BAUDRATE,
+            )
+        raise ValueError(f"Unsupported LORA_MODE: {config.LORA_MODE}")
+
+    def _build_single_fallback_transport(self) -> LoRaTransport:
+        fallback_port = config.LORA_SINGLE_FALLBACK_PORT or config.LORA_RX_SERIAL_PORT or config.LORA_TX_SERIAL_PORT
+        return SerialSingleTransport(
+            port=fallback_port,
+            baudrate=config.LORA_SERIAL_BAUDRATE,
+        )
 
     @property
     def device_status(self) -> dict[str, dict[str, Any]]:
@@ -77,9 +259,58 @@ class LoRaService:
         with self._lock:
             self._on_ack_callback = callback
 
+    def set_on_incoming_callback(self, callback: Optional[Callable[[LoRaIncomingFrame], None]]) -> None:
+        """Register callback for valid non-ACK incoming frames."""
+        with self._lock:
+            self._on_incoming_callback = callback
+
+    def diagnostics(self) -> dict[str, Any]:
+        with self._lock:
+            now = time.time()
+            return {
+                "configured_mode": self._configured_mode,
+                "effective_mode": self._effective_mode,
+                "fallback_in_use": self._fallback_in_use,
+                "transport_started": self._transport_started,
+                "pending_ack": len(self._pending_acks),
+                "tx_count": self._tx_count,
+                "rx_count": self._rx_count,
+                "last_tx_at": self._last_tx_at or None,
+                "last_rx_at": self._last_rx_at or None,
+                "tx_alive": (now - self._last_tx_at) < 30 if self._last_tx_at else False,
+                "rx_alive": (now - self._last_rx_at) < 30 if self._last_rx_at else False,
+                "tx_port": config.LORA_TX_SERIAL_PORT,
+                "rx_port": config.LORA_RX_SERIAL_PORT,
+                "serial_baudrate": config.LORA_SERIAL_BAUDRATE,
+                "last_error": self._last_error,
+            }
+
     def start(self) -> None:
         if self._running:
             return
+
+        try:
+            self._transport.start()
+            self._transport_started = True
+            self._effective_mode = self._configured_mode
+            self._fallback_in_use = False
+        except Exception as exc:
+            self._transport_started = False
+            self._last_error = str(exc)
+            if self._configured_mode == "serial-dual" and config.LORA_FALLBACK_TO_SINGLE:
+                self._logger.warning(
+                    "LoRa dual transport start failed (%s). Falling back to serial-single.",
+                    exc,
+                )
+                self._transport = self._build_single_fallback_transport()
+                self._transport.start()
+                self._transport_started = True
+                self._effective_mode = "serial-single"
+                self._fallback_in_use = True
+                self.mock_mode = False
+            else:
+                raise
+
         self._running = True
         self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker_thread.start()
@@ -88,6 +319,9 @@ class LoRaService:
         self._running = False
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=1.0)
+        self._transport.stop()
+        with self._lock:
+            self._transport_started = False
 
     def send_command(self, device_id: str, command: str, value: str = "") -> str:
         message_id = uuid.uuid4().hex[:10].upper()
@@ -160,10 +394,8 @@ class LoRaService:
         if callback is not None and pending is not None:
             try:
                 callback(device_id, value, message_id)
-            except Exception as e:
-                # Log but don't raise to avoid breaking the ACK processing loop.
-                import traceback
-                traceback.print_exc()
+            except Exception:
+                self._logger.exception("ACK callback failed for device_id=%s", device_id)
 
         return pending is not None
 
@@ -190,8 +422,85 @@ class LoRaService:
     def _worker_loop(self) -> None:
         while self._running:
             self._flush_command_queue()
+            self._poll_incoming_transport()
+            self._drain_incoming_queue()
             self._process_ack_timeouts()
             time.sleep(0.1)
+
+    def _poll_incoming_transport(self) -> None:
+        try:
+            frames = self._transport.poll()
+        except Exception as exc:
+            with self._lock:
+                self._last_error = f"poll_failed:{exc}"
+            self._logger.exception("LoRa transport poll failed")
+            return
+
+        for frame in frames:
+            with self._lock:
+                self._rx_count += 1
+                self._last_rx_at = time.time()
+            self._incoming_queue.put(frame)
+
+    def _drain_incoming_queue(self) -> None:
+        while True:
+            raw = self.receive_message()
+            if raw is None:
+                return
+            self._process_incoming(raw)
+
+    def _process_incoming(self, raw_message: str) -> None:
+        parts = raw_message.strip().split("|")
+        if len(parts) != 6:
+            return
+
+        header, device_id, command, value, message_id, rx_crc = parts
+        if header != "AOJ":
+            return
+
+        payload_wo_crc = "|".join(parts[:-1])
+        if self.calculate_crc(payload_wo_crc) != rx_crc:
+            return
+
+        if command == "ACK":
+            self.handle_ack(raw_message)
+            return
+
+        callback: Optional[Callable[[LoRaIncomingFrame], None]] = None
+
+        # Generic inbound frame update (STATUS/DEFUSED/EXPLODED/RESPAWN/etc).
+        with self._lock:
+            self._device_status.setdefault(device_id, {})
+            self._device_status[device_id].update(
+                {
+                    "last_seen": time.time(),
+                    "last_message_id": message_id,
+                    "last_incoming_command": command,
+                    "last_incoming_value": value,
+                    "last_incoming_frame": raw_message,
+                }
+            )
+
+            if command == "STATUS":
+                status_parts = value.split(":")
+                if status_parts:
+                    self._device_status[device_id]["state"] = status_parts[0]
+
+            callback = self._on_incoming_callback
+
+        if callback is not None:
+            try:
+                callback(
+                    LoRaIncomingFrame(
+                        device_id=device_id,
+                        command=command,
+                        value=value,
+                        message_id=message_id,
+                        raw_frame=raw_message,
+                    )
+                )
+            except Exception:
+                self._logger.exception("Incoming frame callback failed for device_id=%s", device_id)
 
     def _flush_command_queue(self) -> None:
         while True:
@@ -216,14 +525,15 @@ class LoRaService:
                 }
             )
 
-        if self.mock_mode:
-            # In mock mode: loop message back and auto-ACK.
-            self._incoming_queue.put(queued.payload)
-            ack_payload = f"AOJ|{queued.device_id}|ACK|OK|{queued.message_id}"
-            ack_crc = self.calculate_crc(ack_payload)
-            self._incoming_queue.put(f"{ack_payload}|{ack_crc}")
-
-        # TODO: Replace mock block above with SX1262 send() call.
+        try:
+            self._transport.send(queued.payload)
+            with self._lock:
+                self._tx_count += 1
+                self._last_tx_at = time.time()
+        except Exception as exc:
+            with self._lock:
+                self._last_error = f"send_failed:{exc}"
+            self._logger.exception("LoRa transport send failed for message_id=%s", queued.message_id)
 
     def _process_ack_timeouts(self) -> None:
         now = time.time()
