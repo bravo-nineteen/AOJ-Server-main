@@ -8,11 +8,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app import models
 from app.config import APP_TITLE, APP_VERSION, CORS_ORIGIN_REGEX
 from app.core.ai_safety import AISafetyMiddleware
 from app.core.websocket import websocket_manager
 from app.database import SessionLocal, init_db
-from app.lora.service import lora_service
+from app.lora.service import LoRaIncomingFrame, lora_service
 from app.routes import (
     ai,
     announcement_rules,
@@ -30,6 +31,7 @@ from app.routes import (
     update_center,
 )
 from app.services.christy_service import christy_service
+from app.services.log_service import log_action
 from app.services.mission_control_service import mission_control_service
 from app.services.scheduled_announcements_service import scheduled_announcements_service
 from app.services.update_center_service import handle_firmware_ack_event
@@ -78,7 +80,29 @@ async def on_startup() -> None:
         finally:
             db.close()
 
+    def _incoming_callback(frame: LoRaIncomingFrame) -> None:
+        db = SessionLocal()
+        try:
+            level = models.LogLevel.info
+            if frame.command in {"EXPLODED", "TRIGGER_ALARM"}:
+                level = models.LogLevel.warning
+            log_action(
+                db,
+                level=level,
+                category=models.LogCategory.lora,
+                source="lora_inbound",
+                message=(
+                    f"RX {frame.device_id} {frame.command} value={frame.value} "
+                    f"message_id={frame.message_id}"
+                ),
+            )
+        except Exception:
+            logger.exception("Inbound LoRa logging failed for device_id=%s", frame.device_id)
+        finally:
+            db.close()
+
     lora_service.set_on_ack_callback(_ack_callback)
+    lora_service.set_on_incoming_callback(_incoming_callback)
 
     try:
         lora_service.start()

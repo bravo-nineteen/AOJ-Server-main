@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends
 
 from app.database import get_db
+from app.lora.service import lora_service
 from app.schemas import HealthResponse
 
 router = APIRouter(prefix="/api", tags=["Health"])
@@ -16,4 +17,5 @@ def health_check(db: Session = Depends(get_db)) -> HealthResponse:
         db_status = "connected"
     except Exception:
         db_status = "error"
-    return HealthResponse(status="ok", database=db_status)
+    lora_diag = lora_service.diagnostics()
+    return HealthResponse(status="ok", database=db_status, lora=lora_diag)

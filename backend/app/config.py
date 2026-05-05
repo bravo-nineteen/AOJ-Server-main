@@ -15,15 +15,12 @@ CORS_ORIGIN_REGEX = (
 
 
 # LoRa transport settings.
-# LORA_MODE options: mock | serial-single | serial-dual
+# LORA_MODE options: mock | serial-single
+# Raspberry Pi 5 deployment: set LORA_MODE=serial-single, LORA_SERIAL_PORT=/dev/ttyUSB0
 LORA_MODE = os.getenv("LORA_MODE", "mock").strip().lower()
 LORA_SERIAL_BAUDRATE = int(os.getenv("LORA_SERIAL_BAUDRATE", "115200"))
-LORA_TX_SERIAL_PORT = os.getenv("LORA_TX_SERIAL_PORT", "/dev/ttyUSB0").strip()
-LORA_RX_SERIAL_PORT = os.getenv("LORA_RX_SERIAL_PORT", "/dev/ttyUSB1").strip()
-LORA_FALLBACK_TO_SINGLE = os.getenv("LORA_FALLBACK_TO_SINGLE", "1").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-LORA_SINGLE_FALLBACK_PORT = os.getenv("LORA_SINGLE_FALLBACK_PORT", "").strip()
+LORA_SERIAL_PORT = os.getenv("LORA_SERIAL_PORT", "/dev/ttyUSB0").strip()
+# Legacy alias kept for backward-compat with older env files.
+_LORA_TX_SERIAL_PORT = os.getenv("LORA_TX_SERIAL_PORT", "").strip()
+if _LORA_TX_SERIAL_PORT and not os.getenv("LORA_SERIAL_PORT"):
+    LORA_SERIAL_PORT = _LORA_TX_SERIAL_PORT

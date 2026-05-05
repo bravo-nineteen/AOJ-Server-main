@@ -19,6 +19,10 @@ firmware/props/
 ├── prop_bomb/
 │   └── prop_bomb.ino       ← Countdown bomb, defuse button
 │
+├── prop_bomb_heltec_v2_keypad/
+│   └── prop_bomb_heltec_v2_keypad.ino
+│                          ← Keypad + LCD + web-config bomb for Heltec V2
+│
 ├── domination_point/
 │   └── domination_point.ino ← Capture-and-hold point
 │
@@ -122,6 +126,16 @@ Override before flashing if your regional band differs:
 | Events | `EXPLODED`, `DEFUSED`, `STATUS` |
 | Defuse | Hold `DEFUSE_BTN` for `DEFUSE_HOLD_MS` (default 3 s) |
 | Timer | Default 5 min — server can override with `ARM VALUE=180` |
+
+### prop_bomb_heltec_v2_keypad
+
+| # | Detail |
+|---|---|
+| Target | Heltec WiFi LoRa 32 V2 (SX1276) |
+| Features | 4x3 keypad arming/defuse, 16x2 I2C LCD, EEPROM config, AP web config |
+| Server Commands | `ARM`, `DISARM`, `RESET`, `SET_TIMER`, `STATUS_REQUEST`, `TRIGGER_ALARM` |
+| Events | `STATUS`, `ARMED`, `DEFUSED`, `EXPLODED` |
+| Note | Uses Heltec-safe GPIO remap so LoRa remains stable |
 
 ### domination_point
 
