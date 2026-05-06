@@ -26,8 +26,12 @@ firmware/props/
 ├── domination_point/
 │   └── domination_point.ino ← Capture-and-hold point
 │
-└── respawn_station/
-    └── respawn_station.ino  ← Player respawn button station
+├── respawn_station/
+│   └── respawn_station.ino  ← Player respawn button station
+│
+└── respawn_station_dual_team/
+    └── respawn_station_dual_team.ino
+                         ← Dual-unit ready/countdown respawn station for Heltec V3
 ```
 
 ---
@@ -154,6 +158,17 @@ Override before flashing if your regional band differs:
 | Events | `RESPAWN VALUE=TEAM:remaining`, `STATUS` |
 | Cooldown | `RESPAWN_COOLDOWN_MS` (default 5 s) between spawns at this station |
 | Count limit | `SET_RESPAWN_COUNT 10` — station disables automatically when exhausted |
+
+### respawn_station_dual_team
+
+| # | Detail |
+|---|---|
+| Target | Heltec WiFi LoRa 32 V3 with SSD1309 OLED, READY button, ACTION button, buzzer |
+| Server LoRa | AOJ-compatible `STATUS`, `RESPAWN`, `GAMEOVER`, and `ACK` frames using `DEVICE_ID` |
+| Peer LoRa | Uses `AOJCP|...` packets for ready sync, countdown, count sync, and settings sync between the two field units |
+| Commands | `STATUS_REQUEST`, `RESET`, `ENABLE`/`ARM`, `DISABLE`/`DISARM`, `TRIGGER_ALARM`, plus optional `SET_MODE`, `SET_LIMIT`, `SET_COUNTDOWN`, `SET_RESPAWN_DELAY`, `SET_TEAM` |
+| Modes | Record-only, kill limit, limited respawns, flag capture |
+| Portal | Hold READY during boot to open AP config page at `http://192.168.4.1` |
 
 ---
 
