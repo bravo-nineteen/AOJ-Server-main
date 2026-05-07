@@ -29,9 +29,11 @@ firmware/props/
 ├── respawn_station/
 │   └── respawn_station.ino  ← Player respawn button station
 │
-└── respawn_station_dual_team/
-    └── respawn_station_dual_team.ino
-                         ← Dual-unit ready/countdown respawn station for Heltec V3
+├── CP_Unit/
+│   └── CP_Unit.ino      ← Dual-unit ready/countdown respawn station for Heltec V3
+│
+└── GM_Unit/
+   └── GM_Unit.ino      ← Heltec V3 game horn/siren unit (LoRa + dedicated WiFi remote)
 ```
 
 ---
@@ -159,7 +161,7 @@ Override before flashing if your regional band differs:
 | Cooldown | `RESPAWN_COOLDOWN_MS` (default 5 s) between spawns at this station |
 | Count limit | `SET_RESPAWN_COUNT 10` — station disables automatically when exhausted |
 
-### respawn_station_dual_team
+### CP_Unit
 
 | # | Detail |
 |---|---|
@@ -169,6 +171,31 @@ Override before flashing if your regional band differs:
 | Commands | `STATUS_REQUEST`, `RESET`, `ENABLE`/`ARM`, `DISABLE`/`DISARM`, `TRIGGER_ALARM`, plus optional `SET_MODE`, `SET_LIMIT`, `SET_COUNTDOWN`, `SET_RESPAWN_DELAY`, `SET_TEAM` |
 | Modes | Record-only, kill limit, limited respawns, flag capture |
 | Portal | Hold READY during boot to open AP config page at `http://192.168.4.1` |
+
+### GM_Unit
+
+| # | Detail |
+|---|---|
+| Target | Heltec WiFi LoRa 32 V3 with buzzer + relay-controlled horn |
+| Primary Triggers | `GAME_START` and `GAME_END` run 10-second buzzer countdown then 3-second horn pulse |
+| Alarm Trigger | `TRIGGER_ALARM`, `BOMB_EXPLODED`, `EXPLODED`, or `ALARM` runs immediate 3-second horn pulse |
+| Utility Commands | `STATUS_REQUEST`, `TEST`, `SIREN_TEST` |
+| WiFi Remote | Dedicated SSID/pass/token settings and HTTP endpoints for remote trigger/testing |
+
+## PC Simulation Tests
+
+Run both CP_Unit and GM_Unit logic simulations on desktop:
+
+```bash
+python firmware/props/run_pc_prop_tests.py
+```
+
+Individual harnesses:
+
+```bash
+python firmware/props/CP_Unit/test_harness.py
+python firmware/props/GM_Unit/test_harness.py
+```
 
 ---
 

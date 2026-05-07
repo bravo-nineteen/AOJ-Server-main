@@ -1,0 +1,89 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "AOJ-Heltec-V3",
+      "intelliSenseMode": "windows-gcc-x64",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/firmware/props/AOJ_Core",
+        "${env:USERPROFILE}/Documents/Arduino/libraries/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/esp32/hardware/esp32/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/esp32/tools/**"
+      ],
+      "defines": [
+        "ARDUINO=10819",
+        "ARDUINO_ARCH_ESP32",
+        "ESP32",
+        "BOARD_HELTEC_V3"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}",
+          "${env:USERPROFILE}/Documents/Arduino/libraries",
+          "${env:LOCALAPPDATA}/Arduino15/packages"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    },
+    {
+      "name": "AOJ-Heltec-V2",
+      "intelliSenseMode": "windows-gcc-x64",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/firmware/props/AOJ_Core",
+        "${env:USERPROFILE}/Documents/Arduino/libraries/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/esp32/hardware/esp32/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/esp32/tools/**"
+      ],
+      "defines": [
+        "ARDUINO=10819",
+        "ARDUINO_ARCH_ESP32",
+        "ESP32",
+        "BOARD_HELTEC_V2"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}",
+          "${env:USERPROFILE}/Documents/Arduino/libraries",
+          "${env:LOCALAPPDATA}/Arduino15/packages"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    },
+    {
+      "name": "AOJ-ESP32-Generic",
+      "intelliSenseMode": "windows-gcc-x64",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/firmware/props/AOJ_Core",
+        "${env:USERPROFILE}/Documents/Arduino/libraries/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/esp32/hardware/esp32/**",
+        "${env:LOCALAPPDATA}/Arduino15/packages/esp32/tools/**"
+      ],
+      "defines": [
+        "ARDUINO=10819",
+        "ARDUINO_ARCH_ESP32",
+        "ESP32",
+        "BOARD_ESP32_GENERIC"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}",
+          "${env:USERPROFILE}/Documents/Arduino/libraries",
+          "${env:LOCALAPPDATA}/Arduino15/packages"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ]
+}

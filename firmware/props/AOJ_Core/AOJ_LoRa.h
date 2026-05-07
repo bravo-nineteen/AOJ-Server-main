@@ -114,10 +114,20 @@ public:
   // Returns raw dBm — you can scale it yourself for status reports.
   int rssiRaw() { return (int)_aojRadio.getRSSI(); }
 
+  // Current SNR (dB) of last received packet.
+  float snrRaw() { return _aojRadio.getSNR(); }
+
   // Convenience: return RSSI as 0–100 percent (assuming -30 = 100%, -120 = 0%)
   int rssiPercent() {
     int dbm = (int)_aojRadio.getRSSI();
     int pct = (int)(((long)(dbm + 120) * 100) / 90);
+    return constrain(pct, 0, 100);
+  }
+
+  // Convenience: return SNR as a coarse 0-100 quality metric.
+  int snrPercent() {
+    float snr = _aojRadio.getSNR();
+    int pct = (int)(((snr + 20.0f) * 100.0f) / 30.0f);  // -20..+10 dB -> 0..100
     return constrain(pct, 0, 100);
   }
 };

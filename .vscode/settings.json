@@ -1,0 +1,22 @@
+{
+  "files.associations": {
+    "*.ino": "cpp"
+  },
+  "C_Cpp.default.defines": [
+    "ARDUINO=10819",
+    "ARDUINO_ARCH_ESP32",
+    "ESP32",
+    "BOARD_HELTEC_V3"
+  ],
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/**",
+    "${workspaceFolder}/firmware/props/AOJ_Core",
+    "${env:USERPROFILE}/Documents/Arduino/libraries/**",
+    "${env:LOCALAPPDATA}/Arduino15/packages/**",
+    "${env:LOCALAPPDATA}/Arduino15/packages/esp32/hardware/esp32/**",
+    "${env:LOCALAPPDATA}/Arduino15/packages/esp32/tools/**"
+  ],
+  "C_Cpp.default.intelliSenseMode": "windows-gcc-x64",
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.default.cppStandard": "c++17"
+}
