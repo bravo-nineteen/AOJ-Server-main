@@ -85,8 +85,8 @@
 #define BUZZER_PIN         47
 #define BATTERY_PIN        1
 
-#define OLED_SDA           17
-#define OLED_SCL           18
+#define OLED_SDA 20
+#define OLED_SCL 19
 
 // Internal / board LEDs — kept LOW only to avoid current draw
 #define LED_PIN_1          35
@@ -604,7 +604,7 @@ void handlePacket(const String &packet) {
 
   lastLoraSeenMs = millis();
   lastRssi = (float)lora.rssiRaw();
-  lastSnr  = lora.snrRaw();
+  lastSnr  = 0;
   lastMessage = command + " " + value;
 
   if      (command == "READY")    { markReady((Team)value.toInt(), false); }
@@ -652,7 +652,7 @@ void receiveLora() {
       handleServerCommand(frame);
       lastLoraSeenMs = millis();
       lastRssi = (float)lora.rssiRaw();
-      lastSnr  = lora.snrRaw();
+      lastSnr  = 0;
     }
     forceLedsOff();
     return;
@@ -1012,7 +1012,7 @@ void setup() {
   loadSettings();
 
   Wire.begin(OLED_SDA, OLED_SCL);
-
+  display.setI2CAddress(0x3C * 2);
   display.begin();
   display.clearBuffer();
   display.setFont(u8g2_font_6x12_tf);
