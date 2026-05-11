@@ -24,3 +24,15 @@ LORA_SERIAL_PORT = os.getenv("LORA_SERIAL_PORT", "/dev/ttyUSB0").strip()
 _LORA_TX_SERIAL_PORT = os.getenv("LORA_TX_SERIAL_PORT", "").strip()
 if _LORA_TX_SERIAL_PORT and not os.getenv("LORA_SERIAL_PORT"):
     LORA_SERIAL_PORT = _LORA_TX_SERIAL_PORT
+
+
+# API auth settings.
+# Enable AOJ_AUTH_ENABLED=true and set AOJ_API_KEYS as comma-separated key:role pairs.
+# Example: AOJ_API_KEYS="viewer-key:viewer,operator-key:operator,admin-key:admin"
+AOJ_AUTH_ENABLED = os.getenv("AOJ_AUTH_ENABLED", "false").strip().lower()
+AOJ_API_KEYS = os.getenv("AOJ_API_KEYS", "").strip()
+
+
+# Update Center hardening settings.
+# Optional HMAC shared secret used for placeholder package metadata verification.
+UPDATE_CENTER_SHARED_SECRET = os.getenv("UPDATE_CENTER_SHARED_SECRET", "").strip()

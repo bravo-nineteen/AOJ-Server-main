@@ -171,6 +171,7 @@ class LoRaService:
         # Receives (device_id: str, ack_value: str, message_id: str) -> None
         self._on_ack_callback: Optional[Callable[[str, str, str], None]] = None
         self._on_incoming_callback: Optional[Callable[[LoRaIncomingFrame], None]] = None
+        self._on_timeout_callback: Optional[Callable[[str, str, int], None]] = None
 
     def _build_transport(self) -> LoRaTransport:
         mode = config.LORA_MODE.lower().strip()
@@ -208,6 +209,14 @@ class LoRaService:
         """Register callback for valid non-ACK incoming frames."""
         with self._lock:
             self._on_incoming_callback = callback
+
+    def set_on_timeout_callback(self, callback: Optional[Callable[[str, str, int], None]]) -> None:
+        """Register callback for ACK timeout after retries are exhausted.
+
+        Signature: (device_id: str, message_id: str, retries: int) -> None
+        """
+        with self._lock:
+            self._on_timeout_callback = callback
 
     def diagnostics(self) -> dict[str, Any]:
         with self._lock:
@@ -518,8 +527,10 @@ class LoRaService:
         now = time.time()
         resend: list[QueuedCommand] = []
         failed: list[QueuedCommand] = []
+        timeout_callback: Optional[Callable[[str, str, int], None]] = None
 
         with self._lock:
+            timeout_callback = self._on_timeout_callback
             for queued in list(self._pending_acks.values()):
                 elapsed = now - queued.last_sent_at
                 if elapsed < self.ack_timeout_seconds:
@@ -545,8 +556,13 @@ class LoRaService:
             self._command_queue.put(queued)
 
         for queued in failed:
-            # TODO: Emit failure event through WebSocket/logging integration.
-            _ = queued
+            if timeout_callback is not None:
+                try:
+                    timeout_callback(queued.device_id, queued.message_id, queued.retries)
+                except Exception:
+                    self._logger.exception(
+                        "Timeout callback failed for device_id=%s", queued.device_id
+                    )
 
 
 # Singleton instance – started by main.py on_startup, not at import time.

@@ -1,15 +1,21 @@
 import asyncio
+import json
 import logging
 import os
+import time
+import uuid
 from contextlib import suppress
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import models
 from app.config import APP_TITLE, APP_VERSION, CORS_ORIGIN_REGEX
+from app.core.auth import authorize_request
 from app.core.ai_safety import AISafetyMiddleware
 from app.core.websocket import websocket_manager
 from app.database import SessionLocal, init_db
@@ -27,6 +33,7 @@ from app.routes import (
     members,
     missions,
     mission_control,
+    players,
     prop_network,
     resources,
     results,
@@ -46,6 +53,36 @@ from app.services.update_center_service import handle_firmware_ack_event
 
 logger = logging.getLogger(__name__)
 
+
+class JsonLogFormatter(logging.Formatter):
+    """Emit newline-delimited JSON logs for easier parsing in production."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        request_id = getattr(record, "request_id", None)
+        if request_id:
+            payload["request_id"] = request_id
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=True)
+
+
+def _configure_logging() -> None:
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(JsonLogFormatter())
+        root.addHandler(handler)
+        root.setLevel(logging.INFO)
+
+
+_configure_logging()
+
 app = FastAPI(title=APP_TITLE, version=APP_VERSION)
 
 app.add_middleware(
@@ -56,6 +93,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(AISafetyMiddleware)
+
+
+@app.middleware("http")
+async def request_access_and_logging(request: Request, call_next):
+    request_id = uuid.uuid4().hex[:12]
+    request.state.request_id = request_id
+    start = time.perf_counter()
+
+    decision = authorize_request(request.method, request.url.path, request.headers)
+    if not decision.allowed:
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+        logger.warning(
+            "request_denied method=%s path=%s status=%s role=%s latency_ms=%.2f",
+            request.method,
+            request.url.path,
+            decision.status_code,
+            decision.role,
+            elapsed_ms,
+            extra={"request_id": request_id},
+        )
+        response = JSONResponse(
+            status_code=decision.status_code,
+            content={"detail": decision.detail, "request_id": request_id},
+        )
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Process-Time-ms"] = str(elapsed_ms)
+        return response
+
+    response = await call_next(request)
+    elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Process-Time-ms"] = str(elapsed_ms)
+
+    logger.info(
+        "request_complete method=%s path=%s status=%s latency_ms=%.2f",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+        extra={"request_id": request_id},
+    )
+    return response
 
 app.include_router(health.router)
 app.include_router(system.router)
@@ -70,6 +149,7 @@ app.include_router(update_center.router)
 app.include_router(custom_admin.router)
 app.include_router(tts.router)
 app.include_router(members.router)
+app.include_router(players.router)
 app.include_router(announcement_rules.router)
 app.include_router(announcements.router)
 app.include_router(game_events.router)
@@ -117,8 +197,45 @@ async def on_startup() -> None:
         finally:
             db.close()
 
+    loop = asyncio.get_running_loop()
+
+    def _timeout_callback(device_id: str, message_id: str, retries: int) -> None:
+        db = SessionLocal()
+        try:
+            log_action(
+                db,
+                level=models.LogLevel.error,
+                category=models.LogCategory.lora,
+                source="lora_timeout",
+                message=(
+                    f"ACK timeout device_id={device_id} message_id={message_id} retries={retries}"
+                ),
+            )
+        except Exception:
+            logger.exception("LoRa timeout logging failed for device_id=%s", device_id)
+        finally:
+            db.close()
+
+        try:
+            asyncio.run_coroutine_threadsafe(
+                websocket_manager.broadcast(
+                    {
+                        "event": "lora.ack_timeout",
+                        "payload": {
+                            "device_id": device_id,
+                            "message_id": message_id,
+                            "retries": retries,
+                        },
+                    }
+                ),
+                loop,
+            )
+        except Exception:
+            logger.exception("LoRa timeout websocket broadcast failed for device_id=%s", device_id)
+
     lora_service.set_on_ack_callback(_ack_callback)
     lora_service.set_on_incoming_callback(_incoming_callback)
+    lora_service.set_on_timeout_callback(_timeout_callback)
 
     try:
         lora_service.start()

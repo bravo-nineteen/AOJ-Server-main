@@ -44,17 +44,26 @@ def create_database_backup(db: Session = Depends(get_db)) -> UpdateCenterActionR
 def upload_package_placeholder(
     payload: UpdatePackagePlaceholderRequest, db: Session = Depends(get_db)
 ) -> UpdateCenterActionResponse:
-    return upload_update_package_placeholder(db, payload)
+    try:
+        return upload_update_package_placeholder(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/restore-placeholder", response_model=UpdateCenterActionResponse)
 def restore_placeholder(db: Session = Depends(get_db)) -> UpdateCenterActionResponse:
-    return restore_database_placeholder(db)
+    try:
+        return restore_database_placeholder(db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/rollback-placeholder", response_model=UpdateCenterActionResponse)
 def rollback_update_placeholder(db: Session = Depends(get_db)) -> UpdateCenterActionResponse:
-    return rollback_placeholder(db)
+    try:
+        return rollback_placeholder(db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/firmware-packages", response_model=list[FirmwarePackageRead])
