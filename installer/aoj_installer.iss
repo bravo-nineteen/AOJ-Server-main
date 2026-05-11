@@ -37,7 +37,6 @@ AppCopyright=(C) 2024-2026 {#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}/issues
 AppUpdatesURL={#AppURL}/releases
-AppComment=AOJ Command OS - Airsoft Online Japan Tactical Server and Frontend
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=no
