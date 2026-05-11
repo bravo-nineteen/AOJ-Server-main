@@ -370,7 +370,7 @@ def _ensure_game_event_columns() -> None:
         if "game_events" in tables:
             # Verify indexes exist
             existing_indexes = {
-                row[1]
+                row[0]
                 for row in connection.execute(
                     text("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'game_events'")
                 )
@@ -418,7 +418,7 @@ def _ensure_player_stats_columns() -> None:
         # Create indexes for faster lookups
         if "player_statistics" in tables:
             existing_indexes = {
-                row[1]
+                row[0]
                 for row in connection.execute(
                     text(
                         "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'player_statistics'"
