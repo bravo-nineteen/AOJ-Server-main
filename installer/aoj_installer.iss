@@ -89,7 +89,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon";   Description: "Create a &desktop shortcut";   GroupDescription: "Shortcuts:"; Flags: checked
-Name: "startupentry";  Description: "Launch AOJ on &Windows startup"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "startupentry";  Description: "Launch AOJ on &Windows startup"; GroupDescription: "Shortcuts:"
 
 [Dirs]
 Name: "{app}"
