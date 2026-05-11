@@ -7,7 +7,14 @@ from pydantic import BaseModel, ConfigDict, Field
 class GameEventBase(BaseModel):
     event_type: str
     description: str = Field(default="", max_length=1000)
-    metadata: str = Field(default="{}", max_length=5000)
+    event_metadata: str = Field(
+        default="{}",
+        alias="metadata",
+        serialization_alias="metadata",
+        max_length=5000,
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GameEventCreate(GameEventBase):
@@ -30,7 +37,7 @@ class GameEventRead(GameEventBase):
     happened_at: datetime
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class GameEventFilter(BaseModel):

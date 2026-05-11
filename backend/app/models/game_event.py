@@ -49,8 +49,8 @@ class GameEvent(Base):
         Integer, ForeignKey("props.id"), nullable=True
     )
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    metadata: Mapped[str] = mapped_column(
-        Text, default="{}", nullable=False
+    event_metadata: Mapped[str] = mapped_column(
+        "metadata", Text, default="{}", nullable=False
     )  # JSON for extensibility
     happened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
