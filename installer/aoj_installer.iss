@@ -51,11 +51,16 @@ SolidCompression=yes
 ; UI
 WizardStyle=modern
 WizardSizePercent=120
-; Setup icon (on title bar and wizard)
+; Setup icon and branding — only set if asset files are present in the repo.
+; Place aoj_icon.ico and aoj_logo.bmp in installer/assets/ to enable full branding.
+#if FileExists(SourcePath + "assets\aoj_icon.ico")
 SetupIconFile=assets\aoj_icon.ico
-; Wizard branding (logo)
-WizardImageFile=assets\aoj_logo.bmp
 WizardSmallImageFile=assets\aoj_icon.ico
+UninstallDisplayIcon={app}\assets\aoj_icon.ico
+#endif
+#if FileExists(SourcePath + "assets\aoj_logo.bmp")
+WizardImageFile=assets\aoj_logo.bmp
+#endif
 ; Privileges — needs admin to write to Program Files and run pip
 PrivilegesRequired=admin
 ; Windows 10 minimum
@@ -65,7 +70,6 @@ ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 ; Uninstaller
 UninstallDisplayName={#AppName} v{#AppVersion}
-UninstallDisplayIcon={app}\assets\aoj_icon.ico
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Installer v{#AppVersion}
 VersionInfoProductName={#AppName}
