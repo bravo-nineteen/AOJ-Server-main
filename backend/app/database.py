@@ -39,6 +39,7 @@ def init_db() -> None:
     _ensure_safety_columns()
     _ensure_player_stats_columns()
     _seed_preset_themes()
+    _seed_lora_settings()
 
 
 def _ensure_schedule_columns() -> None:
@@ -431,3 +432,15 @@ def _ensure_player_stats_columns() -> None:
                         "CREATE INDEX ix_player_stat_type ON player_statistics(player_id, stat_type)"
                     )
                 )
+
+
+def _seed_lora_settings() -> None:
+    """Seed LoRa configuration and test settings into the database."""
+    from app.models.lora_settings_init import add_lora_settings
+
+    session = SessionLocal()
+    try:
+        add_lora_settings(session)
+    finally:
+        session.close()
+

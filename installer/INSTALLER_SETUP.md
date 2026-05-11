@@ -1,5 +1,7 @@
 # AOJ Command OS Windows Installer - Setup & Configuration
 
+💾 **Also available:** [Linux Installer Guide](LINUX_INSTALLER_SETUP.md) (Ubuntu, Debian, CentOS, Fedora) | [Cross-Platform Overview](README.md)
+
 ## Recent Improvements (v1.0.1)
 
 ### ✅ Complete Features Added

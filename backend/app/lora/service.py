@@ -1,15 +1,29 @@
-"""LoRa messaging service for a single Waveshare SX1262 radio on Raspberry Pi 5.
+"""LoRa messaging service with hardware abstraction.
 
 Message format: AOJ|DEVICE_ID|COMMAND|VALUE|MESSAGE_ID|CRC
 
-Modes:
-- mock: in-memory loopback (default for development / CI)
-- serial-single: one serial port, send + receive on the same modem (Raspberry Pi 5 default)
+Supported modes:
+- mock: in-memory loopback (default, no hardware required)
+- rpi_spi: Raspberry Pi 5 + Waveshare Core1262 HF SX1262 (SPI interface)
+- usb_serial: USB LoRa modules (Windows/Linux/macOS, COM or /dev/ttyUSB*)
+- test: Simulated responses for automated testing
 
 Set env vars for production:
-    LORA_MODE=serial-single
-    LORA_SERIAL_PORT=/dev/ttyUSB0   # or /dev/ttyS0 for UART
-    LORA_SERIAL_BAUDRATE=115200
+    # Raspberry Pi with Waveshare Core1262 SPI
+    LORA_MODE=rpi_spi
+    LORA_RPI_SPI_BUS=1
+    LORA_RPI_SPI_DEVICE=1
+    LORA_RPI_RST_PIN=17
+    LORA_RPI_DIO1_PIN=22
+
+    # Windows/Linux/macOS USB LoRa module
+    LORA_MODE=usb_serial
+    LORA_USB_PORT=COM3          # or /dev/ttyUSB0 on Linux
+    LORA_USB_BAUDRATE=9600
+    LORA_USB_TIMEOUT=1.0
+
+    # Testing
+    LORA_MODE=test
 """
 
 from __future__ import annotations
@@ -20,96 +34,11 @@ import time
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Protocol
+from typing import Any, Callable, Optional
 import logging
 
 from app import config
-
-try:
-    import serial  # type: ignore[import-not-found]
-except Exception:  # pragma: no cover - optional dependency in mock mode
-    serial = None
-
-
-class LoRaTransport(Protocol):
-    """Transport contract for LoRa modem backends."""
-
-    def start(self) -> None:
-        ...
-
-    def stop(self) -> None:
-        ...
-
-    def send(self, payload: str) -> None:
-        ...
-
-    def poll(self) -> list[str]:
-        ...
-
-
-class MockTransport:
-    """Development transport that loopbacks TX and auto-generates ACKs."""
-
-    def __init__(self, crc_func: Callable[[str], str]) -> None:
-        self._incoming: queue.Queue[str] = queue.Queue()
-        self._crc = crc_func
-
-    def start(self) -> None:
-        return
-
-    def stop(self) -> None:
-        return
-
-    def send(self, payload: str) -> None:
-        self._incoming.put(payload)
-
-        parts = payload.split("|")
-        if len(parts) == 6:
-            _, device_id, _, _, message_id, _ = parts
-            ack_payload = f"AOJ|{device_id}|ACK|OK|{message_id}"
-            self._incoming.put(f"{ack_payload}|{self._crc(ack_payload)}")
-
-    def poll(self) -> list[str]:
-        frames: list[str] = []
-        while True:
-            try:
-                frames.append(self._incoming.get_nowait())
-            except queue.Empty:
-                return frames
-
-
-class SerialSingleTransport:
-    """Single-modem serial transport for installations with one radio path."""
-
-    def __init__(self, port: str, baudrate: int) -> None:
-        if serial is None:
-            raise RuntimeError("pyserial is required for serial LoRa modes")
-        self.port = port
-        self.baudrate = baudrate
-        self._serial = None
-
-    def start(self) -> None:
-        self._serial = serial.Serial(self.port, self.baudrate, timeout=0)
-
-    def stop(self) -> None:
-        if self._serial is not None and self._serial.is_open:
-            self._serial.close()
-
-    def send(self, payload: str) -> None:
-        if self._serial is None:
-            return
-        self._serial.write((payload.strip() + "\n").encode("utf-8"))
-        self._serial.flush()
-
-    def poll(self) -> list[str]:
-        """Drain all available bytes in one read and split on newlines."""
-        if self._serial is None:
-            return []
-        available = self._serial.in_waiting
-        if not available:
-            return []
-        raw = self._serial.read(available).decode("utf-8", errors="ignore")
-        return [line.strip() for line in raw.split("\n") if line.strip()]
+from app.lora.device_drivers import create_lora_device, LoRaDevice
 
 
 @dataclass
@@ -173,17 +102,39 @@ class LoRaService:
         self._on_incoming_callback: Optional[Callable[[LoRaIncomingFrame], None]] = None
         self._on_timeout_callback: Optional[Callable[[str, str, int], None]] = None
 
-    def _build_transport(self) -> LoRaTransport:
+    def _build_transport(self) -> LoRaDevice:
+        """Factory method to build appropriate LoRa device based on config."""
         mode = config.LORA_MODE.lower().strip()
-        if mode == "mock":
-            return MockTransport(self.calculate_crc)
-        if mode == "serial-single":
+
+        # Build config dict from environment variables
+        device_config: dict[str, Any] = {}
+
+        if mode == "rpi_spi":
             self.mock_mode = False
-            return SerialSingleTransport(
-                port=config.LORA_SERIAL_PORT,
-                baudrate=config.LORA_SERIAL_BAUDRATE,
-            )
-        raise ValueError(f"Unsupported LORA_MODE: {config.LORA_MODE!r}. Expected: mock | serial-single")
+            device_config = {
+                "spi_bus": int(config.LORA_RPI_SPI_BUS),
+                "spi_device": int(config.LORA_RPI_SPI_DEVICE),
+                "rst_pin": int(config.LORA_RPI_RST_PIN),
+                "dio1_pin": int(config.LORA_RPI_DIO1_PIN),
+                "spi_speed_hz": int(config.LORA_RPI_SPI_SPEED_HZ),
+            }
+
+        elif mode == "usb_serial":
+            self.mock_mode = False
+            device_config = {
+                "port": config.LORA_USB_PORT,
+                "baudrate": int(config.LORA_USB_BAUDRATE),
+                "timeout": float(config.LORA_USB_TIMEOUT),
+            }
+
+        elif mode == "test":
+            # Test mode for automated testing
+            self.mock_mode = False
+
+        # Create device using factory
+        device = create_lora_device(mode, self.calculate_crc, device_config)
+        self._logger.info(f"Built LoRa device: {mode} -> {type(device).__name__}")
+        return device
 
     @property
     def device_status(self) -> dict[str, dict[str, Any]]:
