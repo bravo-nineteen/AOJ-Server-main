@@ -37,6 +37,51 @@ _CONFIRM_ONLY_PATTERN = re.compile(
     r"^\s*(yes|yeah|yep|ok|okay|confirm|confirmed|proceed|go ahead|do it|approved|affirmative)\s*[!.?]*\s*$",
     re.IGNORECASE,
 )
+_CORRECTION_PREFIX_PATTERN = re.compile(
+    r"\b(actually|correction|to clarify|i meant|sorry|update|rather|instead|not quite|no,|no\.)\b",
+    re.IGNORECASE,
+)
+_LANGUAGE_VARIANTS: dict[str, str] = {
+    "start": r"\b(start|begin|commence|kick\s*-?off|launch|go\s+live|open\s+up|開始)\b",
+    "stop": r"\b(stop|end|finish|wrap\s+up|conclude|shut\s+down|halt|終了|停止)\b",
+    "pause": r"\b(pause|hold|freeze|suspend|一時停止)\b",
+    "resume": r"\b(resume|continue|carry\s+on|unpause|restart|再開)\b",
+    "reset": r"\b(reset|clear|wipe|reinitialize|初期化|リセット)\b",
+    "score": r"\b(score|points|tally|scoreboard|standing|得点|スコア)\b",
+    "schedule": r"\b(schedule|agenda|rundown|itinerary|timetable|timeline|予定|スケジュール)\b",
+    "announcement": r"\b(announcement|broadcast|notify|notification|message\s+everyone|tell\s+everyone|告知|アナウンス)\b",
+    "team": r"\b(team|squad|fireteam|group|side|班|分隊)\b",
+    "game_mode": r"\b(game\s*mode|mode|ruleset|variant|format|scenario|ルール|モード)\b",
+    "device_issue": r"\b(device|prop|node|sensor|relay|radio|lora|terminal|unit|beacon|problem|issue|fault|malfunction|acting\s+up|故障|不具合)\b",
+}
+_TEAM_ALIASES: dict[str, str] = {
+    "task force onyx": "Task Force Onyx",
+    "onyx": "Task Force Onyx",
+    "tfo": "Task Force Onyx",
+    "black talon": "Black Talon",
+    "talon": "Black Talon",
+    "red team": "Red Team",
+    "red": "Red Team",
+    "blue team": "Blue Team",
+    "blue": "Blue Team",
+    "alpha team": "Alpha Team",
+    "alpha": "Alpha Team",
+    "bravo team": "Bravo Team",
+    "bravo": "Bravo Team",
+}
+_SKILL_ALIASES: dict[str, str] = {
+    "beginner": "beginner",
+    "novice": "beginner",
+    "new": "beginner",
+    "newbie": "beginner",
+    "rookie": "beginner",
+    "intermediate": "intermediate",
+    "experienced": "experienced",
+    "advanced": "advanced",
+    "expert": "expert",
+    "veteran": "veteran",
+    "pro": "pro",
+}
 
 
 def _to_json_list(items: list[str]) -> str:
@@ -66,18 +111,66 @@ def _parse_json_list(raw: str | None) -> list[str]:
     return _from_json_list(raw)
 
 
-def _last_assistant_text(db: Session, conversation_id: int) -> str:
-    row = (
-        db.query(models.AIMessage)
-        .filter(
-            models.AIMessage.conversation_id == conversation_id,
-            models.AIMessage.role == models.MessageRole.assistant,
-        )
-        .order_by(models.AIMessage.created_at.desc(), models.AIMessage.id.desc())
-        .first()
-    )
-    return row.content if row and row.content else ""
+def _normalize_user_language(text_value: str) -> str:
+    text_value = (text_value or "").strip()
+    if not text_value:
+        return text_value
 
+    lower = text_value.lower()
+    canonical_terms: list[str] = []
+    for canonical, pattern in _LANGUAGE_VARIANTS.items():
+        if re.search(pattern, lower):
+            canonical_terms.append(canonical)
+
+    canonical_terms = list(dict.fromkeys(canonical_terms))
+    if not canonical_terms:
+        return text_value
+
+    return (
+        f"{text_value}\n\n"
+        f"[INTERPRETED INTENT]\ncanonical_terms={', '.join(canonical_terms)}"
+    )
+
+
+def _extract_team_label(lower_text: str) -> str | None:
+    for alias, canonical in sorted(_TEAM_ALIASES.items(), key=lambda item: -len(item[0])):
+        if re.search(rf"\b{re.escape(alias)}\b", lower_text):
+            return canonical
+    return None
+
+
+def _extract_correction_facts(user_text: str) -> list[str]:
+    lower = user_text.lower()
+    facts: list[str] = []
+
+    name_match = re.search(r"\b([A-Z][a-z]{1,20})\b", user_text)
+    subject_name = name_match.group(1) if name_match else None
+
+    team_label = _extract_team_label(lower)
+    if subject_name and team_label and (
+        _CORRECTION_PREFIX_PATTERN.search(user_text)
+        or re.search(r"\b(now|currently|moved|switched|assigned|plays\s+for|is\s+on)\b", lower)
+    ):
+        facts.append(f"{subject_name} team={team_label}")
+
+    skill_match = re.search(
+        r"\b(beginner|novice|new|newbie|rookie|intermediate|experienced|advanced|expert|veteran|pro)\b",
+        lower,
+    )
+    if subject_name and skill_match and (
+        _CORRECTION_PREFIX_PATTERN.search(user_text) or re.search(r"\b(now|actually|update)\b", lower)
+    ):
+        facts.append(f"{subject_name} skill={_SKILL_ALIASES[skill_match.group(1)]}")
+
+    callsign_match = re.search(
+        r"\b([A-Z][a-z]{1,20})\b.{0,30}\bcallsign\s+(?:is|=|now)?\s*([A-Za-z0-9_-]{2,24})",
+        user_text,
+        re.IGNORECASE,
+    )
+    if callsign_match:
+        facts.append(f"{callsign_match.group(1)} callsign={callsign_match.group(2)}")
+
+    return list(dict.fromkeys(facts))
 
 
 def _trim_conversation_history(db: Session, conversation: models.AIConversation) -> dict[str, int]:
@@ -167,6 +260,7 @@ def _update_conversation_learning(
 ) -> None:
     token_counts: dict[str, int] = {}
     action_counts: dict[str, int] = {}
+    correction_counts: dict[str, int] = {}
 
     for row in retained_messages:
         if row.role == models.MessageRole.user:
@@ -175,12 +269,16 @@ def _update_conversation_learning(
                     continue
                 token_counts[token] = token_counts.get(token, 0) + 1
 
+            for fact in _extract_correction_facts(row.content):
+                correction_counts[fact] = correction_counts.get(fact, 0) + 1
+
         for action in _parse_json_list(row.suggested_actions):
             if action.isupper() and " " not in action:
                 action_counts[action] = action_counts.get(action, 0) + 1
 
     top_tokens = sorted(token_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
     top_actions = sorted(action_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
+    top_corrections = sorted(correction_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
 
     trends = [token for token, _ in top_tokens] + [action for action, _ in top_actions]
     trends = list(dict.fromkeys(trends))[:12]
@@ -194,6 +292,10 @@ def _update_conversation_learning(
     if top_tokens:
         summary_parts.append(
             "top_topics=" + ",".join([f"{name}:{count}" for name, count in top_tokens[:5]])
+        )
+    if top_corrections:
+        summary_parts.append(
+            "corrections=" + " | ".join([fact for fact, _ in top_corrections[:4]])
         )
 
     conversation.learned_trends = _to_json_list(trends)
@@ -214,7 +316,6 @@ _GENDER_WORDS = {
     "he": "male", "him": "male", "his": "male", "guy": "male", "man": "male",
     "she": "female", "her": "female", "hers": "female", "girl": "female", "woman": "female",
 }
-_SKILL_WORDS = {"beginner", "novice", "new", "intermediate", "experienced", "advanced", "expert", "veteran", "pro"}
 _STRENGTHS_KEYWORDS = {"good at", "great at", "strength", "strong", "skilled at", "excels", "best at"}
 _WEAKNESS_KEYWORDS = {"struggles", "weakness", "weak at", "bad at", "poor at", "needs work"}
 
@@ -272,14 +373,14 @@ def _update_member_from_message(db: Session, user_text: str) -> None:
             break
 
     # Team
-    team_match = re.search(r"(?:on|for|team)\s+(red|blue|alpha|bravo|[\w]+\s*team)", lower)
-    if team_match:
-        existing.team = team_match.group(1).strip().title()
+    team_label = _extract_team_label(lower)
+    if team_label:
+        existing.team = team_label
 
     # Skill level
-    for skill in _SKILL_WORDS:
-        if skill in lower:
-            existing.skill_level = skill
+    for skill, canonical_skill in _SKILL_ALIASES.items():
+        if re.search(rf"\b{re.escape(skill)}\b", lower):
+            existing.skill_level = canonical_skill
             break
 
     # Strengths
@@ -301,7 +402,8 @@ def _update_member_from_message(db: Session, user_text: str) -> None:
             break
 
     # Append a Christy memory note
-    note = f"Mentioned in conversation: {user_text[:120].strip()}"
+    prefix = "Correction noted" if _CORRECTION_PREFIX_PATTERN.search(user_text) else "Mentioned in conversation"
+    note = f"{prefix}: {user_text[:120].strip()}"
     current_memory = existing.christy_memory or ""
     if note not in current_memory:
         existing.christy_memory = (current_memory + "\n" + note).strip()
@@ -919,18 +1021,24 @@ def send_message(
     db.add(user_message)
     db.flush()
 
-    last_assistant = _last_assistant_text(db, conversation_id)
-    normalized_prompt = (payload.content or "").strip()
+    raw_prompt = (payload.content or "").strip()
+    normalized_prompt = _normalize_user_language(raw_prompt)
 
-    policy = evaluate_ai_prompt(normalized_prompt)
+    # Learn and apply explicit user corrections before building context so the
+    # next AI reply can immediately use updated member/team facts.
+    _update_member_from_message(db, raw_prompt)
+
+    policy = evaluate_ai_prompt(raw_prompt)
     context_summary = _build_operational_context(db, conversation)
     custom_knowledge_block = _build_custom_knowledge_block(db, normalized_prompt)
 
     injected_prompt_parts = [
         context_summary['context_block'],
         custom_knowledge_block['block_text'],
-        f"[USER REQUEST]\n{normalized_prompt}",
+        f"[USER REQUEST]\n{raw_prompt}",
     ]
+    if normalized_prompt != raw_prompt:
+        injected_prompt_parts.append(f"[INTERPRETED USER REQUEST]\n{normalized_prompt}")
     injected_prompt = "\n\n".join([part for part in injected_prompt_parts if part])
 
     # Collect conversation history for the advisor (last 20 turns).
@@ -1009,7 +1117,7 @@ def send_message(
             user_message_id=user_message.id,
             user_id=payload.user_id,
             blocked_actions=blocked_actions,
-            prompt=normalized_prompt,
+            prompt=raw_prompt,
         )
 
     assistant_message = models.AIMessage(
@@ -1041,9 +1149,6 @@ def send_message(
     )
     _update_conversation_learning(conversation, retained_messages)
 
-    # Scan the user's message for member introductions and update profiles
-    _update_member_from_message(db, payload.content)
-
     conversation.updated_at = datetime.utcnow()
 
     audit_decision = (
@@ -1059,7 +1164,7 @@ def send_message(
         action_request_id=action_request.id if action_request else None,
         decision=audit_decision,
         risk_level=risk_level,
-        prompt_excerpt=normalized_prompt[:300],
+        prompt_excerpt=raw_prompt[:300],
         response_excerpt=answer[:300],
         used_context=used_context,
         blocked_actions=blocked_actions,
