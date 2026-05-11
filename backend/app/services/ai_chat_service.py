@@ -82,6 +82,64 @@ _SKILL_ALIASES: dict[str, str] = {
     "veteran": "veteran",
     "pro": "pro",
 }
+_INTENT_ROUTE_PATTERNS: list[tuple[str, str]] = [
+    (
+        "operations_control",
+        r"\b(start|stop|pause|resume|reset|arm|disarm|trigger|launch|end|terminate)\b.*\b(game|mission|session|round|device|prop)\b",
+    ),
+    (
+        "diagnostics",
+        r"\b(diagnose|debug|troubleshoot|investigate|fault|malfunction|offline|error|issue|fix)\b",
+    ),
+    (
+        "compliance_safety",
+        r"\b(legal|law|compliance|allowed|forbidden|joule|chrono|under\s*-?18|minor|waiver|ppe|wbgt|heat|emergency|119)\b",
+    ),
+    (
+        "roster_identity",
+        r"\b(team|callsign|player|member|assign|reassign|moved|switched|actually|correction|update)\b",
+    ),
+    (
+        "planning_rules",
+        r"\b(game\s*mode|ruleset|briefing|announcement|schedule|objective|plan|scenario|format)\b",
+    ),
+    (
+        "casual_chat",
+        r"^\s*(hi|hello|hey|thanks|thank\s+you|ok|okay|cool|great)\s*[!.?]*\s*$",
+    ),
+]
+_INTENT_ROUTE_GUIDANCE: dict[str, str] = {
+    "operations_control": (
+        "Focus on operational safety. For state-changing actions, require explicit confirmation before procedural steps."
+    ),
+    "diagnostics": (
+        "Prioritize root-cause troubleshooting with fast checks first, then deeper checks, and clear next actions."
+    ),
+    "compliance_safety": (
+        "Apply conservative Japan safety/compliance guidance and ask one clarification if legal scope is ambiguous."
+    ),
+    "roster_identity": (
+        "Prioritize identity/team consistency and apply latest user corrections over older assumptions."
+    ),
+    "planning_rules": (
+        "Provide actionable event/game planning guidance with concise structure and operator-ready wording."
+    ),
+    "casual_chat": (
+        "Respond naturally and briefly without forcing operational dashboards unless requested."
+    ),
+    "general": (
+        "Answer directly, use available context where relevant, and avoid unnecessary verbosity."
+    ),
+}
+_INTENT_ROUTE_TOPICS: dict[str, set[str]] = {
+    "operations_control": {"rules", "prop_issues", "event_management"},
+    "diagnostics": {"prop_issues", "event_management"},
+    "compliance_safety": {"rules", "briefings"},
+    "roster_identity": {"teams"},
+    "planning_rules": {"rules", "game_modes", "schedule", "briefings", "announcements"},
+    "casual_chat": set(),
+    "general": set(),
+}
 
 
 def _to_json_list(items: list[str]) -> str:
@@ -147,6 +205,28 @@ def _normalize_user_language(text_value: str) -> str:
     return (
         f"{text_value}\n\n"
         f"[INTERPRETED INTENT]\ncanonical_terms={', '.join(canonical_terms)}"
+    )
+
+
+def _detect_intent_route(raw_prompt: str) -> str:
+    text = (raw_prompt or "").strip().lower()
+    if not text:
+        return "general"
+
+    for route, pattern in _INTENT_ROUTE_PATTERNS:
+        if re.search(pattern, text):
+            return route
+    return "general"
+
+
+def _build_intent_router_block(intent_route: str) -> str:
+    guidance = _INTENT_ROUTE_GUIDANCE.get(intent_route, _INTENT_ROUTE_GUIDANCE["general"])
+    return "\n".join(
+        [
+            "[INTENT ROUTER]",
+            f"route={intent_route}",
+            f"guidance={guidance}",
+        ]
     )
 
 
@@ -996,7 +1076,11 @@ def _enforce_final_action_safety(
     return filtered_suggestions, final_blocked_actions, final_requires_admin, enforcement_warnings
 
 
-def _build_custom_knowledge_block(db: Session, prompt: str) -> dict[str, str | list[str]]:
+def _build_custom_knowledge_block(
+    db: Session,
+    prompt: str,
+    intent_route: str = "general",
+) -> dict[str, str | list[str]]:
     """Build custom knowledge block from CustomKnowledgeEntry, CustomTeam, CustomGameMode if relevant."""
     result = {
         "block_text": "",
@@ -1020,6 +1104,8 @@ def _build_custom_knowledge_block(db: Session, prompt: str) -> dict[str, str | l
     for topic, pattern in custom_keywords.items():
         if re.search(pattern, prompt_lower):
             detected_topics.add(topic)
+
+    detected_topics |= _INTENT_ROUTE_TOPICS.get(intent_route, set())
 
     context_snapshot = collect_context(db, prompt=prompt)
 
@@ -1099,6 +1185,7 @@ def send_message(
 
     raw_prompt = (payload.content or "").strip()
     normalized_prompt = _normalize_user_language(raw_prompt)
+    intent_route = _detect_intent_route(raw_prompt)
 
     # Learn and apply explicit user corrections before building context so the
     # next AI reply can immediately use updated member/team facts.
@@ -1107,9 +1194,15 @@ def send_message(
 
     policy = evaluate_ai_prompt(raw_prompt)
     context_summary = _build_operational_context(db, conversation)
-    custom_knowledge_block = _build_custom_knowledge_block(db, normalized_prompt)
+    custom_knowledge_block = _build_custom_knowledge_block(
+        db,
+        normalized_prompt,
+        intent_route=intent_route,
+    )
+    intent_block = _build_intent_router_block(intent_route)
 
     injected_prompt_parts = [
+        intent_block,
         context_summary['context_block'],
         custom_knowledge_block['block_text'],
         f"[USER REQUEST]\n{raw_prompt}",
@@ -1141,6 +1234,7 @@ def send_message(
     used_context = list(
         dict.fromkeys(
             [
+                f"intent:{intent_route}",
                 *advisor_response.used_context,
                 *policy.used_context,
                 *context_summary["used_context"],
