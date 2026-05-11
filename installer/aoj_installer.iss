@@ -88,8 +88,8 @@ InfoAfterFile=..\installer\after_install.txt
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon";   Description: "Create a &desktop shortcut";   GroupDescription: "Shortcuts:"; Flags: checked
-Name: "startupentry";  Description: "Launch AOJ on &Windows startup"; GroupDescription: "Shortcuts:"
+Name: "desktopicon";   Description: "Create a &desktop shortcut"; Flags: checked
+Name: "startupentry";  Description: "Launch AOJ on &Windows startup"
 
 [Dirs]
 Name: "{app}"
