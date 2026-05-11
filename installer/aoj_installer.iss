@@ -69,7 +69,8 @@ UninstallDisplayIcon={app}\assets\aoj_icon.ico
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription={#AppName} Installer v{#AppVersion}
 VersionInfoProductName={#AppName}
-VersionInfoProductVersion={#AppVersion}
+; Must be strictly numeric (major.minor.revision.build) for Windows version resources.
+VersionInfoProductVersion={#AppVersionMajor}.{#AppVersionMinor}.{#AppVersionRevision}.{#AppVersionBuild}
 VersionInfoVersion={#AppVersionMajor}.{#AppVersionMinor}.{#AppVersionRevision}.{#AppVersionBuild}
 VersionInfoCopyright=(C) 2024-2026 {#AppPublisher}
 ; Installation upgrade behavior
