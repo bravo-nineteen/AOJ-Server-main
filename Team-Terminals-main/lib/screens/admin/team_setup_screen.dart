@@ -16,6 +16,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   TeamType _selectedTeam = TeamType.taskForceOnyx;
   final _pinCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+  final _serverCtrl = TextEditingController(text: '127.0.0.1');
   String? _error;
   bool _loading = false;
 
@@ -40,6 +41,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
     await context.read<AppState>().completeFirstRunSetup(
           team: _selectedTeam,
           pin: pin,
+          serverHost: _serverCtrl.text.trim(),
         );
     // AppState notifies and MaterialApp rebuilds to DesktopScreen
   }
@@ -48,6 +50,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   void dispose() {
     _pinCtrl.dispose();
     _confirmCtrl.dispose();
+    _serverCtrl.dispose();
     super.dispose();
   }
 
@@ -58,6 +61,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
         selectedTeam: _selectedTeam,
         pinCtrl: _pinCtrl,
         confirmCtrl: _confirmCtrl,
+        serverCtrl: _serverCtrl,
         error: _error,
         loading: _loading,
         onTeamChanged: (t) => setState(() => _selectedTeam = t),
@@ -72,6 +76,7 @@ class _Body extends StatelessWidget {
     required this.selectedTeam,
     required this.pinCtrl,
     required this.confirmCtrl,
+    required this.serverCtrl,
     required this.error,
     required this.loading,
     required this.onTeamChanged,
@@ -81,6 +86,7 @@ class _Body extends StatelessWidget {
   final TeamType selectedTeam;
   final TextEditingController pinCtrl;
   final TextEditingController confirmCtrl;
+  final TextEditingController serverCtrl;
   final String? error;
   final bool loading;
   final ValueChanged<TeamType> onTeamChanged;
@@ -198,6 +204,18 @@ class _Body extends StatelessWidget {
                     labelText: 'Confirm PIN',
                     prefixIcon: Icon(Icons.lock_outline),
                     counterText: '',
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+                TextField(
+                  controller: serverCtrl,
+                  keyboardType: TextInputType.url,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'AOJ Server Host (IP or DNS)',
+                    prefixIcon: Icon(Icons.dns_outlined),
+                    helperText: 'Example: 192.168.1.50',
                   ),
                 ),
 

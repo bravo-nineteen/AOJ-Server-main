@@ -1,5 +1,6 @@
 """Routes for score tracking and leaderboards."""
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -25,7 +26,7 @@ def record_score_event(
         level=models.LogLevel.debug,
         category=models.LogCategory.mission,
         source="score_events",
-        message=f"Score: {payload.points} pts for {payload.reason}",
+        message=f"Score: {payload.points} pts for {payload.event_type}",
     )
 
     return score_event
@@ -37,37 +38,32 @@ def get_session_leaderboard(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     """Get player leaderboard for a session."""
-    scores = (
+    rows = (
         db.query(
-            models.Player.id,
-            models.Player.username,
-            models.Player.member_profile_id,
+            models.ScoreEvent.player_id.label("player_id"),
+            func.sum(models.ScoreEvent.points).label("total_score"),
+            models.Player.callsign.label("callsign"),
         )
-        .join(models.ScoreEvent)
+        .outerjoin(models.Player, models.Player.id == models.ScoreEvent.player_id)
         .filter(models.ScoreEvent.game_session_id == session_id)
-        .group_by(models.Player.id)
+        .group_by(models.ScoreEvent.player_id, models.Player.callsign)
+        .order_by(func.sum(models.ScoreEvent.points).desc())
         .all()
     )
 
-    leaderboard = []
-    for player in scores:
-        total_score = (
-            db.query(models.ScoreEvent.points)
-            .filter(
-                models.ScoreEvent.game_session_id == session_id,
-                models.ScoreEvent.player_id == player.id,
-            )
-            .scalar() or 0
-        )
+    leaderboard: list[dict] = []
+    for row in rows:
+        if row.player_id is None:
+            continue
         leaderboard.append(
             {
-                "player_id": player.id,
-                "username": player.username,
-                "total_score": total_score,
+                "player_id": row.player_id,
+                "username": row.callsign or f"player-{row.player_id}",
+                "total_score": int(row.total_score or 0),
             }
         )
 
-    return sorted(leaderboard, key=lambda x: x["total_score"], reverse=True)
+    return leaderboard
 
 
 @router.get("/team/{team_id}/session/{session_id}", response_model=list[schemas.ScoreEventRead])
@@ -83,7 +79,7 @@ def list_team_scores(
             models.ScoreEvent.game_session_id == session_id,
             models.ScoreEvent.team_id == team_id,
         )
-        .order_by(models.ScoreEvent.created_at.desc())
+        .order_by(models.ScoreEvent.happened_at.desc())
         .all()
     )
     return scores
@@ -102,7 +98,7 @@ def list_player_scores(
             models.ScoreEvent.game_session_id == session_id,
             models.ScoreEvent.player_id == player_id,
         )
-        .order_by(models.ScoreEvent.created_at.desc())
+        .order_by(models.ScoreEvent.happened_at.desc())
         .all()
     )
     return scores

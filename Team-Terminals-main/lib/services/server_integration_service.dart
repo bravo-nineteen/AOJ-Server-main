@@ -2,24 +2,24 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/models.dart';
 
-/// HTTP REST client for communicating with AOJ Command OS server
-/// Supports team roster, game sessions, schedule, and comms log sync
+/// HTTP REST client for AOJ Command OS backend.
+///
+/// This client is intentionally conservative: only endpoints that exist on the
+/// current backend are used, and all calls fail-soft to keep the tablet app
+/// usable offline.
 class ServerIntegrationService {
-  late String baseUrl;
-  late String teamName;
-  String? sessionToken; // For future authentication
+  ServerIntegrationService(String serverHost, {int port = 8000})
+      : baseUrl = 'http://$serverHost:$port/api';
 
-  ServerIntegrationService(String serverHost, {int port = 8000}) {
-    baseUrl = 'http://$serverHost:$port/api';
-  }
+  final String baseUrl;
 
   // ── Connection ────────────────────────────────────────────────────────────
 
-  /// Test connection to server
+  /// Test connection to server.
   Future<bool> testConnection() async {
     try {
       final response = await http
-          .get(Uri.parse('$baseUrl/../health'))
+          .get(Uri.parse('$baseUrl/health'))
           .timeout(const Duration(seconds: 5));
       return response.statusCode == 200;
     } catch (_) {
@@ -27,13 +27,11 @@ class ServerIntegrationService {
     }
   }
 
-  // ── Roster / Players ──────────────────────────────────────────────────────
-
-  /// Get all players for a team
-  Future<List<Player>> getPlayers(String teamId) async {
+  /// Load member profiles and map them into tablet-side Player models.
+  Future<List<Player>> getPlayers() async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/players?team_id=$teamId'),
+        Uri.parse('$baseUrl/members'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -46,22 +44,38 @@ class ServerIntegrationService {
     return [];
   }
 
-  /// Add/update a player on the roster
+  /// Create or update member profile from a Player.
+  ///
+  /// On duplicate name (409), the existing member is looked up and patched.
   Future<bool> syncPlayer(Player player) async {
     try {
       final body = jsonEncode({
-        'id': player.id,
-        'username': player.name,
+        'name': player.name,
         'callsign': player.callsign,
         'team': player.team.name,
-        'role': player.role,
+        'notes': player.role,
       });
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/players'),
+      var response = await http.post(
+        Uri.parse('$baseUrl/members'),
         headers: {'Content-Type': 'application/json'},
         body: body,
       ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 409) {
+        final members = await _fetchMembersRaw();
+        final existing = members.cast<Map<String, dynamic>?>().firstWhere(
+            (m) => m?['name'] == player.name,
+            orElse: () => null);
+        if (existing == null) return false;
+
+        final id = existing['id'];
+        response = await http.patch(
+          Uri.parse('$baseUrl/members/$id'),
+          headers: {'Content-Type': 'application/json'},
+          body: body,
+        ).timeout(const Duration(seconds: 10));
+      }
 
       return response.statusCode == 201 || response.statusCode == 200;
     } catch (_) {
@@ -69,94 +83,13 @@ class ServerIntegrationService {
     }
   }
 
-  // ── Game Sessions ─────────────────────────────────────────────────────────
-
-  /// Get active game sessions
-  Future<List<GameSession>> getGameSessions() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/game-sessions'),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final list = jsonDecode(response.body) as List<dynamic>;
-        return list
-            .map((s) => _sessionFromServer(s as Map<String, dynamic>))
-            .toList();
-      }
-    } catch (_) {}
-    return [];
-  }
-
-  /// Start a new game session
-  Future<GameSession?> startGameSession({
-    required String gameModeName,
-    required Map<TeamType, int> respawnLimits,
-  }) async {
-    try {
-      final body = jsonEncode({
-        'game_mode': gameModeName,
-        'respawn_limits': respawnLimits.map((k, v) => MapEntry(k.name, v)),
-      });
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/game-sessions'),
-        headers: {'Content-Type': 'application/json'},
-        body: body,
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 201) {
-        return _sessionFromServer(
-            jsonDecode(response.body) as Map<String, dynamic>);
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  /// Record a respawn event
-  Future<bool> recordRespawn({
-    required String sessionId,
-    required TeamType team,
-  }) async {
-    try {
-      final body = jsonEncode({
-        'session_id': sessionId,
-        'team': team.name,
-      });
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/game-sessions/$sessionId/respawn'),
-        headers: {'Content-Type': 'application/json'},
-        body: body,
-      ).timeout(const Duration(seconds: 10));
-
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// End a game session
-  Future<bool> endGameSession(String sessionId) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/game-sessions/$sessionId/end'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
-
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
-  }
-
   // ── Schedule ──────────────────────────────────────────────────────────────
 
-  /// Get schedule for a mission
-  Future<List<ScheduleEntry>> getSchedule(String missionId) async {
+  /// Get today's schedule items.
+  Future<List<ScheduleEntry>> getTodaySchedule() async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/missions/$missionId/schedule'),
+        Uri.parse('$baseUrl/schedule/items'),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -171,17 +104,22 @@ class ServerIntegrationService {
 
   // ── Game Events ───────────────────────────────────────────────────────────
 
-  /// Record a game event (objective capture, etc)
+  /// Record game event (objective capture, session state change, respawn, etc).
   Future<bool> recordGameEvent({
     required String sessionId,
     required String eventType,
     required String description,
-    String? teamId,
-    String? playerId,
+    int? teamId,
+    int? playerId,
   }) async {
     try {
+      final parsedSessionId = int.tryParse(sessionId);
+      if (parsedSessionId == null) {
+        return false;
+      }
+
       final body = jsonEncode({
-        'game_session_id': sessionId,
+        'game_session_id': parsedSessionId,
         'event_type': eventType,
         'description': description,
         'team_id': teamId,
@@ -201,20 +139,27 @@ class ServerIntegrationService {
     }
   }
 
-  /// Record score for a player
+  /// Record score event.
   Future<bool> recordScore({
     required String sessionId,
-    required String teamId,
-    required String playerId,
+    required int teamId,
+    int? playerId,
     required int points,
-    required String reason,
+    required String eventType,
+    String reason = '',
   }) async {
     try {
+      final parsedSessionId = int.tryParse(sessionId);
+      if (parsedSessionId == null) {
+        return false;
+      }
+
       final body = jsonEncode({
-        'game_session_id': sessionId,
+        'game_session_id': parsedSessionId,
         'team_id': teamId,
         'player_id': playerId,
         'points': points,
+        'event_type': eventType,
         'reason': reason,
       });
 
@@ -249,23 +194,25 @@ class ServerIntegrationService {
     return [];
   }
 
-  /// Post a team comms message
+  /// Post an announcement into server announcement timeline.
   Future<bool> postCommsMessage({
-    required String sessionId,
     required String sender,
     required String text,
-    String messageType = 'info',
+    String messageType = 'general',
   }) async {
     try {
       final body = jsonEncode({
-        'sender': sender,
-        'text': text,
         'type': messageType,
+        'content': '[$sender] $text',
       });
 
-      // Note: Requires a comms endpoint on the server
-      // This is a placeholder for demonstration
-      return true;
+      final response = await http.post(
+        Uri.parse('$baseUrl/announcements/create-christy'),
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      ).timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 200 || response.statusCode == 201;
     } catch (_) {
       return false;
     }
@@ -277,7 +224,7 @@ class ServerIntegrationService {
   Future<Map<String, dynamic>?> getSystemStatus() async {
     try {
       final response = await http
-          .get(Uri.parse('$baseUrl/../health'))
+          .get(Uri.parse('$baseUrl/health'))
           .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -289,77 +236,59 @@ class ServerIntegrationService {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  /// Convert server player response to Team Terminals Player model
+  /// Convert MemberProfile to tablet Player model.
   Player _playerFromServer(Map<String, dynamic> data) {
+    final teamName = data['team'] as String?;
+    final team = teamName == TeamType.blackTalon.name
+        ? TeamType.blackTalon
+        : TeamType.taskForceOnyx;
+
     return Player(
-      id: data['id'] as String? ?? '',
-      name: data['username'] as String? ?? data['name'] as String? ?? '',
+      id: (data['id'] ?? '').toString(),
+      name: data['name'] as String? ?? '',
       callsign: data['callsign'] as String? ?? '',
-      team: (data['team'] as String?).let((t) => TeamType.values.byName(t)) ??
-          TeamType.taskForceOnyx,
-      role: data['role'] as String? ?? '',
-    );
-  }
-
-  /// Convert server session response to Team Terminals GameSession model
-  GameSession _sessionFromServer(Map<String, dynamic> data) {
-    final respawnCounts = <TeamType, int>{};
-    final respawnLimits = <TeamType, int>{};
-    final objectivesCaptured = <TeamType, int>{};
-
-    if (data['respawn_counts'] is Map) {
-      (data['respawn_counts'] as Map<String, dynamic>).forEach((k, v) {
-        respawnCounts[TeamType.values.byName(k)] = v as int;
-      });
-    }
-
-    if (data['respawn_limits'] is Map) {
-      (data['respawn_limits'] as Map<String, dynamic>).forEach((k, v) {
-        respawnLimits[TeamType.values.byName(k)] = v as int;
-      });
-    }
-
-    return GameSession(
-      id: data['id'] as String? ?? '',
-      gameModeName: data['game_mode'] as String? ?? data['game_mode_name'] as String? ?? '',
-      respawnCounts: respawnCounts,
-      respawnLimits: respawnLimits,
-      isActive: data['is_active'] as bool? ?? false,
-      startTime: data['started_at'] != null
-          ? DateTime.parse(data['started_at'] as String)
-          : null,
-      endTime: data['ended_at'] != null
-          ? DateTime.parse(data['ended_at'] as String)
-          : null,
-      notes: data['notes'] as String? ?? '',
-      objectivesCaptured: objectivesCaptured,
+      team: team,
+      role: data['notes'] as String? ?? '',
     );
   }
 
   ScheduleEntry _scheduleFromServer(Map<String, dynamic> data) {
+    final start = data['start_time'] as String?;
+    String timeLabel = '';
+    if (start != null) {
+      final dt = DateTime.tryParse(start);
+      if (dt != null) {
+        timeLabel =
+            '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+      }
+    }
+
     return ScheduleEntry(
-      id: data['id'] as String? ?? '',
+      id: (data['id'] ?? '').toString(),
       titleEn: data['title'] as String? ?? '',
-      titleJa: data['title_ja'] as String? ?? '',
-      timeLabel: data['time_label'] as String? ?? '',
-      notes: data['notes'] as String? ?? '',
+      titleJa: data['title'] as String? ?? '',
+      timeLabel: timeLabel,
+      notes: data['details'] as String? ?? '',
     );
   }
 
   CommsMessage _announcementToComms(Map<String, dynamic> data) {
     return CommsMessage(
-      id: data['id'] as String? ?? '',
+      id: (data['id'] ?? '').toString(),
       timestamp: data['created_at'] != null
           ? DateTime.parse(data['created_at'] as String)
           : DateTime.now(),
       sender: 'System',
-      text: data['content'] as String? ?? data['message'] as String? ?? '',
+      text: data['content'] as String? ?? '',
       type: MessageType.info,
     );
   }
-}
 
-/// Null-coalescing extension helper
-extension<T> on T? {
-  R? let<R>(R Function(T) f) => this != null ? f(this as T) : null;
+  Future<List<dynamic>> _fetchMembersRaw() async {
+    final response = await http.get(Uri.parse('$baseUrl/members'));
+    if (response.statusCode != 200) {
+      return [];
+    }
+    return jsonDecode(response.body) as List<dynamic>;
+  }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
+import '../services/server_integration_service.dart';
 
 class AppState extends ChangeNotifier {
   // ── Identity ──────────────────────────────────────────────────────────────
@@ -15,11 +16,18 @@ class AppState extends ChangeNotifier {
   List<DeviceInfo> _devices = [];
   List<GameFile> _gameFiles = [];
   String? _activeGameFileId;
+  String _serverHost = '127.0.0.1';
+  bool _serverConnected = false;
+  bool _serverSyncEnabled = true;
+  ServerIntegrationService? _server;
 
   // ── Getters ───────────────────────────────────────────────────────────────
   TeamType get team => _team;
   bool get isFirstRun => _isFirstRun;
   bool get isAdmin => _isAdmin;
+  bool get serverConnected => _serverConnected;
+  bool get serverSyncEnabled => _serverSyncEnabled;
+  String get serverHost => _serverHost;
   List<Player> get players => List.unmodifiable(_players);
   List<DeviceInfo> get devices => List.unmodifiable(_devices);
   List<GameFile> get gameFiles => List.unmodifiable(_gameFiles);
@@ -68,6 +76,13 @@ class AppState extends ChangeNotifier {
     }
 
     _activeGameFileId = prefs.getString('activeGameFileId');
+    _serverHost = prefs.getString('serverHost') ?? '127.0.0.1';
+    _serverSyncEnabled = prefs.getBool('serverSyncEnabled') ?? true;
+
+    if (_serverSyncEnabled) {
+      await connectToServer(_serverHost);
+      await refreshPlayersFromServer();
+    }
   }
 
   Future<void> _persist() async {
@@ -84,18 +99,57 @@ class AppState extends ChangeNotifier {
     if (_activeGameFileId != null) {
       await prefs.setString('activeGameFileId', _activeGameFileId!);
     }
+    await prefs.setString('serverHost', _serverHost);
+    await prefs.setBool('serverSyncEnabled', _serverSyncEnabled);
+  }
+
+  // ── Server Integration ───────────────────────────────────────────────────
+  Future<bool> connectToServer(String host, {int port = 8000}) async {
+    _serverHost = host;
+    _server = ServerIntegrationService(host, port: port);
+    _serverSyncEnabled = true;
+    _serverConnected = await _server!.testConnection();
+    await _persist();
+    notifyListeners();
+    return _serverConnected;
+  }
+
+  Future<void> disableServerSync() async {
+    _serverConnected = false;
+    _serverSyncEnabled = false;
+    _server = null;
+    await _persist();
+    notifyListeners();
+  }
+
+  Future<void> refreshPlayersFromServer() async {
+    if (!_serverSyncEnabled || _server == null) return;
+    final remotePlayers = await _server!.getPlayers();
+    if (remotePlayers.isNotEmpty) {
+      _players = remotePlayers;
+      await _persist();
+      notifyListeners();
+    }
   }
 
   // ── Team / First Run ──────────────────────────────────────────────────────
   Future<void> completeFirstRunSetup({
     required TeamType team,
     required String pin,
+    String? serverHost,
   }) async {
     _team = team;
     _adminPin = pin;
     _isFirstRun = false;
     _isAdmin = true;
+    if (serverHost != null && serverHost.trim().isNotEmpty) {
+      _serverHost = serverHost.trim();
+    }
     await _persist();
+    if (_serverSyncEnabled) {
+      await connectToServer(_serverHost);
+      await refreshPlayersFromServer();
+    }
     notifyListeners();
   }
 
@@ -130,6 +184,9 @@ class AppState extends ChangeNotifier {
   Future<void> addPlayer(Player p) async {
     _players.add(p);
     await _persist();
+    if (_serverSyncEnabled && _server != null) {
+      await _server!.syncPlayer(p);
+    }
     notifyListeners();
   }
 
@@ -137,6 +194,9 @@ class AppState extends ChangeNotifier {
     final i = _players.indexWhere((x) => x.id == p.id);
     if (i >= 0) _players[i] = p;
     await _persist();
+    if (_serverSyncEnabled && _server != null) {
+      await _server!.syncPlayer(p);
+    }
     notifyListeners();
   }
 
@@ -215,6 +275,13 @@ class AppState extends ChangeNotifier {
       file.sessions.add(session);
       _activeGameFileId = gameFileId;
       await _persist();
+      if (_serverSyncEnabled && _server != null) {
+        await _server!.recordGameEvent(
+          sessionId: session.id,
+          eventType: 'session_start',
+          description: 'Session started: ${session.gameModeName}',
+        );
+      }
       notifyListeners();
     }
   }
@@ -231,6 +298,13 @@ class AppState extends ChangeNotifier {
         session.isActive = false;
         session.endTime = DateTime.now();
         await _persist();
+        if (_serverSyncEnabled && _server != null) {
+          await _server!.recordGameEvent(
+            sessionId: session.id,
+            eventType: 'session_end',
+            description: 'Session ended: ${session.gameModeName}',
+          );
+        }
         notifyListeners();
       }
     }
@@ -249,6 +323,13 @@ class AppState extends ChangeNotifier {
         session.respawnCounts[team] =
             (session.respawnCounts[team] ?? 0) + 1;
         await _persist();
+        if (_serverSyncEnabled && _server != null) {
+          await _server!.recordGameEvent(
+            sessionId: session.id,
+            eventType: 'respawn_activated',
+            description: 'Respawn: ${team.displayName}',
+          );
+        }
         notifyListeners();
       }
     }
@@ -275,6 +356,13 @@ class AppState extends ChangeNotifier {
     if (file != null) {
       file.commsLog.add(msg);
       await _persist();
+      if (_serverSyncEnabled && _server != null) {
+        await _server!.postCommsMessage(
+          sender: msg.sender,
+          text: msg.text,
+          messageType: msg.type.name,
+        );
+      }
       notifyListeners();
     }
   }
