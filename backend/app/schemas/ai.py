@@ -39,6 +39,7 @@ class AIConversationRead(BaseModel):
     status: str
     memory_summary: str = ""
     learned_trends: list[str] = Field(default_factory=list)
+    correction_memory: dict[str, dict[str, str]] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 

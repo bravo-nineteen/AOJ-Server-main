@@ -25,6 +25,7 @@ class AIConversation(Base):
     status: Mapped[str] = mapped_column(String(30), default="active", nullable=False)
     memory_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
     learned_trends: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    correction_memory: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

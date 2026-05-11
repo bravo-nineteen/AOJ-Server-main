@@ -98,6 +98,24 @@ def _from_json_list(raw: str | None) -> list[str]:
     return [str(item) for item in value] if isinstance(value, list) else []
 
 
+def _from_json_dict(raw: str | None) -> dict[str, dict[str, str]]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+
+    normalized: dict[str, dict[str, str]] = {}
+    for key, item in value.items():
+        if not isinstance(item, dict):
+            continue
+        normalized[str(key)] = {str(k): str(v) for k, v in item.items() if v is not None}
+    return normalized
+
+
 def _truncate_text(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
@@ -139,28 +157,36 @@ def _extract_team_label(lower_text: str) -> str | None:
     return None
 
 
-def _extract_correction_facts(user_text: str) -> list[str]:
+def _extract_correction_records(user_text: str) -> list[dict[str, str]]:
     lower = user_text.lower()
-    facts: list[str] = []
+    records: list[dict[str, str]] = []
 
     name_match = re.search(r"\b([A-Z][a-z]{1,20})\b", user_text)
     subject_name = name_match.group(1) if name_match else None
+    if not subject_name:
+        return records
 
     team_label = _extract_team_label(lower)
-    if subject_name and team_label and (
+    if team_label and (
         _CORRECTION_PREFIX_PATTERN.search(user_text)
         or re.search(r"\b(now|currently|moved|switched|assigned|plays\s+for|is\s+on)\b", lower)
     ):
-        facts.append(f"{subject_name} team={team_label}")
+        records.append({"entity": subject_name, "field": "team", "value": team_label})
 
     skill_match = re.search(
         r"\b(beginner|novice|new|newbie|rookie|intermediate|experienced|advanced|expert|veteran|pro)\b",
         lower,
     )
-    if subject_name and skill_match and (
+    if skill_match and (
         _CORRECTION_PREFIX_PATTERN.search(user_text) or re.search(r"\b(now|actually|update)\b", lower)
     ):
-        facts.append(f"{subject_name} skill={_SKILL_ALIASES[skill_match.group(1)]}")
+        records.append(
+            {
+                "entity": subject_name,
+                "field": "skill",
+                "value": _SKILL_ALIASES[skill_match.group(1)],
+            }
+        )
 
     callsign_match = re.search(
         r"\b([A-Z][a-z]{1,20})\b.{0,30}\bcallsign\s+(?:is|=|now)?\s*([A-Za-z0-9_-]{2,24})",
@@ -168,9 +194,45 @@ def _extract_correction_facts(user_text: str) -> list[str]:
         re.IGNORECASE,
     )
     if callsign_match:
-        facts.append(f"{callsign_match.group(1)} callsign={callsign_match.group(2)}")
+        records.append(
+            {
+                "entity": callsign_match.group(1),
+                "field": "callsign",
+                "value": callsign_match.group(2),
+            }
+        )
 
-    return list(dict.fromkeys(facts))
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for record in records:
+        marker = (record["entity"].lower(), record["field"], record["value"])
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(record)
+    return deduped
+
+
+def _extract_correction_facts(user_text: str) -> list[str]:
+    return [
+        f"{record['entity']} {record['field']}={record['value']}"
+        for record in _extract_correction_records(user_text)
+    ]
+
+
+def _update_correction_memory(conversation: models.AIConversation, user_text: str) -> None:
+    correction_memory = _from_json_dict(conversation.correction_memory)
+    now = datetime.utcnow().isoformat() + "Z"
+
+    for record in _extract_correction_records(user_text):
+        entity_key = record["entity"].lower()
+        entity_entry = correction_memory.get(entity_key, {})
+        entity_entry["entity"] = record["entity"]
+        entity_entry[record["field"]] = record["value"]
+        entity_entry["updated_at"] = now
+        correction_memory[entity_key] = entity_entry
+
+    conversation.correction_memory = json.dumps(correction_memory, ensure_ascii=True)
 
 
 def _trim_conversation_history(db: Session, conversation: models.AIConversation) -> dict[str, int]:
@@ -241,11 +303,24 @@ def _build_memory_context(db: Session, conversation: models.AIConversation) -> d
         total_chars += len(line) + 1
 
     learned_trends = _parse_json_list(conversation.learned_trends)
+    correction_memory = _from_json_dict(conversation.correction_memory)
     summary = conversation.memory_summary.strip()
     if summary:
         lines.append(f"LEARNED: {_truncate_text(summary, 260)}")
     if learned_trends:
         lines.append(f"TRENDS: {', '.join(learned_trends[:8])}")
+    if correction_memory:
+        correction_lines: list[str] = []
+        for item in list(correction_memory.values())[:6]:
+            entity = item.get("entity", "unknown")
+            fact_parts = []
+            for field_name in ("team", "skill", "callsign"):
+                if item.get(field_name):
+                    fact_parts.append(f"{field_name}={item[field_name]}")
+            if fact_parts:
+                correction_lines.append(f"{entity}: {', '.join(fact_parts)}")
+        if correction_lines:
+            lines.append("CORRECTIONS: " + " | ".join(correction_lines))
 
     return {
         "lines": lines,
@@ -797,6 +872,7 @@ def to_conversation_read(item: models.AIConversation) -> schemas.AIConversationR
         status=item.status,
         memory_summary=item.memory_summary or "",
         learned_trends=_parse_json_list(item.learned_trends),
+        correction_memory=_from_json_dict(item.correction_memory),
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -1027,6 +1103,7 @@ def send_message(
     # Learn and apply explicit user corrections before building context so the
     # next AI reply can immediately use updated member/team facts.
     _update_member_from_message(db, raw_prompt)
+    _update_correction_memory(conversation, raw_prompt)
 
     policy = evaluate_ai_prompt(raw_prompt)
     context_summary = _build_operational_context(db, conversation)
@@ -1227,6 +1304,7 @@ def clear_conversation(
 
     conversation.memory_summary = ""
     conversation.learned_trends = "[]"
+    conversation.correction_memory = "{}"
     conversation.updated_at = datetime.utcnow()
     db.commit()
 

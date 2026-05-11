@@ -145,6 +145,7 @@ def _ensure_ai_columns() -> None:
         "status": "TEXT NOT NULL DEFAULT 'active'",
         "memory_summary": "TEXT NOT NULL DEFAULT ''",
         "learned_trends": "TEXT NOT NULL DEFAULT '[]'",
+        "correction_memory": "TEXT NOT NULL DEFAULT '{}'",
     }
 
     with engine.begin() as connection:
