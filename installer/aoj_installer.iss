@@ -149,7 +149,7 @@ Name: "{userstartup}\{#AppName}";               Filename: "{app}\launch.vbs";   
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Normal -File ""{app}\scripts\install_windows.ps1"""; WorkingDir: "{app}"; StatusMsg: "Installing dependencies and building frontend (may take 2-5 minutes)..."; Flags: waituntilterminated
 
 ; Step 2 — offer to launch immediately after install
-Filename: "wscript.exe"; Parameters: """{app}\launch.vbs"""; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent checked
+Filename: "wscript.exe"; Parameters: """{app}\launch.vbs"""; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Stop any running instance before uninstall
