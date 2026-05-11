@@ -1,11 +1,22 @@
-AOJ Command OS has been installed successfully.
+AOJ Command OS v1.0.1 has been installed successfully.
 
 After clicking Finish, you can:
 
+  - Use the desktop shortcut (newly created) to quickly launch AOJ Command OS.
   - Use the Start Menu shortcut "AOJ Command OS" to launch the native desktop app window.
   - Open http://localhost:8000 in any browser if you prefer browser mode.
   - Share http://YOUR_IP:8000 with tablets and phones on the same Wi-Fi network.
 
+New in this version:
+
+  ✓ Desktop icon created for quick access
+  ✓ Automatic upgrade support (new versions overwrite previous installations)
+  ✓ Version numbering and branding with Airsoft Online Japan logo
+  ✓ Improved installer UI with custom icon and splash image
+
 Desktop mode and browser mode can run at the same time (one local app window + multiple Wi-Fi browser clients).
 
 To stop AOJ, close the desktop window or end the python.exe process in Task Manager.
+
+For more information and setup guides, visit:
+  GitHub: https://github.com/bravo-nineteen/AOJ-Server
