@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
@@ -125,11 +126,14 @@ class AppState extends ChangeNotifier {
   Future<void> refreshPlayersFromServer() async {
     if (!_serverSyncEnabled || _server == null) return;
     final remotePlayers = await _server!.getPlayers();
-    if (remotePlayers.isNotEmpty) {
-      _players = remotePlayers;
-      await _persist();
-      notifyListeners();
-    }
+    _players = remotePlayers;
+    await _persist();
+    notifyListeners();
+  }
+
+  void _syncInBackground(Future<void> Function() action) {
+    if (!_serverSyncEnabled || _server == null) return;
+    unawaited(action());
   }
 
   // ── Team / First Run ──────────────────────────────────────────────────────
@@ -184,9 +188,7 @@ class AppState extends ChangeNotifier {
   Future<void> addPlayer(Player p) async {
     _players.add(p);
     await _persist();
-    if (_serverSyncEnabled && _server != null) {
-      await _server!.syncPlayer(p);
-    }
+    _syncInBackground(() async => await _server!.syncPlayer(p));
     notifyListeners();
   }
 
@@ -194,9 +196,7 @@ class AppState extends ChangeNotifier {
     final i = _players.indexWhere((x) => x.id == p.id);
     if (i >= 0) _players[i] = p;
     await _persist();
-    if (_serverSyncEnabled && _server != null) {
-      await _server!.syncPlayer(p);
-    }
+    _syncInBackground(() async => await _server!.syncPlayer(p));
     notifyListeners();
   }
 
@@ -275,13 +275,11 @@ class AppState extends ChangeNotifier {
       file.sessions.add(session);
       _activeGameFileId = gameFileId;
       await _persist();
-      if (_serverSyncEnabled && _server != null) {
-        await _server!.recordGameEvent(
+      _syncInBackground(() async => await _server!.recordGameEvent(
           sessionId: session.id,
           eventType: 'session_start',
           description: 'Session started: ${session.gameModeName}',
-        );
-      }
+        ));
       notifyListeners();
     }
   }
@@ -298,13 +296,11 @@ class AppState extends ChangeNotifier {
         session.isActive = false;
         session.endTime = DateTime.now();
         await _persist();
-        if (_serverSyncEnabled && _server != null) {
-          await _server!.recordGameEvent(
+        _syncInBackground(() async => await _server!.recordGameEvent(
             sessionId: session.id,
             eventType: 'session_end',
             description: 'Session ended: ${session.gameModeName}',
-          );
-        }
+          ));
         notifyListeners();
       }
     }
@@ -323,13 +319,11 @@ class AppState extends ChangeNotifier {
         session.respawnCounts[team] =
             (session.respawnCounts[team] ?? 0) + 1;
         await _persist();
-        if (_serverSyncEnabled && _server != null) {
-          await _server!.recordGameEvent(
+        _syncInBackground(() async => await _server!.recordGameEvent(
             sessionId: session.id,
             eventType: 'respawn_activated',
             description: 'Respawn: ${team.displayName}',
-          );
-        }
+          ));
         notifyListeners();
       }
     }
@@ -356,13 +350,11 @@ class AppState extends ChangeNotifier {
     if (file != null) {
       file.commsLog.add(msg);
       await _persist();
-      if (_serverSyncEnabled && _server != null) {
-        await _server!.postCommsMessage(
+      _syncInBackground(() async => await _server!.postCommsMessage(
           sender: msg.sender,
           text: msg.text,
           messageType: msg.type.name,
-        );
-      }
+        ));
       notifyListeners();
     }
   }

@@ -23,6 +23,7 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
   Future<void> _confirm() async {
     final pin = _pinCtrl.text.trim();
     final confirm = _confirmCtrl.text.trim();
+    final serverHost = _serverCtrl.text.trim();
 
     if (pin.length < 4) {
       setState(() => _error = 'PIN must be at least 4 digits.');
@@ -32,17 +33,30 @@ class _TeamSetupScreenState extends State<TeamSetupScreen> {
       setState(() => _error = 'PINs do not match.');
       return;
     }
+    if (serverHost.isEmpty) {
+      setState(() => _error = 'Server host is required.');
+      return;
+    }
 
     setState(() {
       _loading = true;
       _error = null;
     });
 
-    await context.read<AppState>().completeFirstRunSetup(
-          team: _selectedTeam,
-          pin: pin,
-          serverHost: _serverCtrl.text.trim(),
-        );
+    try {
+      await context.read<AppState>().completeFirstRunSetup(
+            team: _selectedTeam,
+            pin: pin,
+            serverHost: serverHost,
+          );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Setup failed. Check server host and try again.';
+      });
+      return;
+    }
     // AppState notifies and MaterialApp rebuilds to DesktopScreen
   }
 
