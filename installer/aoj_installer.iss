@@ -88,7 +88,7 @@ InfoAfterFile=..\installer\after_install.txt
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon";   Description: "Create a &desktop shortcut"; Flags: checked
+Name: "desktopicon";   Description: "Create a &desktop shortcut"
 Name: "startupentry";  Description: "Launch AOJ on &Windows startup"
 
 [Dirs]
