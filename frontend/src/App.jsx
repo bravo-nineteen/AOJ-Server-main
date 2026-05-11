@@ -2964,10 +2964,24 @@ function App() {
                             {/* Render simple markdown: **bold**, numbered lists, bullet lines */}
                             <div style={{ whiteSpace: 'pre-wrap' }}>
                               {item.text.split('\n').map((line, li) => {
-                                const bold = line.replace(/\*\*(.+?)\*\*/g, (_, m) => `<strong>${m}</strong>`);
+                                const parts = [];
+                                let lastIndex = 0;
+                                const regex = /\*\*(.+?)\*\*/g;
+                                let match;
+                                while ((match = regex.exec(line)) !== null) {
+                                  if (match.index > lastIndex) {
+                                    parts.push(line.substring(lastIndex, match.index));
+                                  }
+                                  parts.push(<strong key={`${li}-${match.index}`}>{match[1]}</strong>);
+                                  lastIndex = match.index + match[0].length;
+                                }
+                                if (lastIndex < line.length) {
+                                  parts.push(line.substring(lastIndex));
+                                }
                                 return (
-                                  <p key={li} style={{ margin: '0.15rem 0' }}
-                                    dangerouslySetInnerHTML={{ __html: bold }} />
+                                  <p key={li} style={{ margin: '0.15rem 0' }}>
+                                    {parts.length > 0 ? parts : line}
+                                  </p>
                                 );
                               })}
                             </div>

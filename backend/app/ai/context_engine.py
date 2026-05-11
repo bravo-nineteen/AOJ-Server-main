@@ -10,6 +10,7 @@ Goal:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import Any
@@ -19,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from app import models
 
+
+logger = logging.getLogger(__name__)
 
 MAX_GAME_MODES = 15
 MAX_KNOWLEDGE = 6
@@ -270,7 +273,8 @@ def _calculate_relevance(knowledge_entry: models.CustomKnowledgeEntry, prompt_ke
 def _safe_query_all(query, fallback: list[Any] | None = None) -> list[Any]:
     try:
         return query.all()
-    except Exception:
+    except Exception as e:
+        logger.debug("Safe query all failed: %s", e)
         return fallback or []
 
 

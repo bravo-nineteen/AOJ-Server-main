@@ -17,16 +17,24 @@ from app.lora.service import LoRaIncomingFrame, lora_service
 from app.routes import (
     ai,
     announcement_rules,
+    announcements,
     custom_admin,
+    firmware_rollouts,
+    game_events,
+    game_modes,
     health,
     logs,
     members,
+    missions,
     mission_control,
     prop_network,
     resources,
     results,
     schedule,
+    scores,
     system,
+    system_logs,
+    system_settings,
     tts,
     update_center,
 )
@@ -63,6 +71,14 @@ app.include_router(custom_admin.router)
 app.include_router(tts.router)
 app.include_router(members.router)
 app.include_router(announcement_rules.router)
+app.include_router(announcements.router)
+app.include_router(game_events.router)
+app.include_router(game_modes.router)
+app.include_router(missions.router)
+app.include_router(scores.router)
+app.include_router(system_logs.router)
+app.include_router(system_settings.router)
+app.include_router(firmware_rollouts.router)
 
 
 @app.on_event("startup")

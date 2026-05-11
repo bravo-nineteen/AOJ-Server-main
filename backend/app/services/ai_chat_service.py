@@ -62,13 +62,8 @@ def _truncate_text(text: str, max_len: int) -> str:
 
 
 def _parse_json_list(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
-    return [str(item) for item in data] if isinstance(data, list) else []
+    """DEPRECATED: Use _from_json_list instead. This is identical function for compatibility."""
+    return _from_json_list(raw)
 
 
 def _last_assistant_text(db: Session, conversation_id: int) -> str:

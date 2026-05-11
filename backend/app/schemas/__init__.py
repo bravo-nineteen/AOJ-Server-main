@@ -13,6 +13,17 @@ from app.schemas.ai import (
     AIMessageRead,
     AIResponsePayload,
 )
+from app.schemas.announcement_rule import (
+    AnnouncementRuleBase,
+    AnnouncementRuleCreate,
+    AnnouncementRuleRead,
+    AnnouncementRuleUpdate,
+)
+from app.schemas.christy_announcement import (
+    ChristyAnnouncementBase,
+    ChristyAnnouncementCreate,
+    ChristyAnnouncementRead,
+)
 from app.schemas.customization import (
     AIAssistantSettingsBase,
     AIAssistantSettingsRead,
@@ -35,6 +46,8 @@ from app.schemas.customization import (
     VisualThemeRead,
     VisualThemeUpdate,
 )
+from app.schemas.game_event import GameEventBase, GameEventCreate, GameEventRead
+from app.schemas.game_mode import GameModeBase, GameModeCreate, GameModeRead, GameModeUpdate
 from app.schemas.device import DeviceBase, DeviceCreate, DeviceRead
 from app.schemas.game_result import (
     GameResultBase,
@@ -45,6 +58,7 @@ from app.schemas.game_result import (
     ResultsSummaryResponse,
 )
 from app.schemas.game_session import GameSessionBase, GameSessionCreate, GameSessionRead
+from app.schemas.mission import MissionBase, MissionCreate, MissionRead, MissionUpdate
 from app.schemas.health import HealthResponse
 from app.schemas.mission import MissionBase, MissionCreate, MissionRead
 from app.schemas.mission_control import (
@@ -71,7 +85,7 @@ from app.schemas.schedule import (
     ScheduleOverviewResponse,
 )
 from app.schemas.score_event import ScoreEventBase, ScoreEventCreate, ScoreEventRead
-from app.schemas.system import SystemStatusResponse
+from app.schemas.system import SystemStatusResponse, SystemSettingCreate, SystemSettingRead, SystemSettingUpdate
 from app.schemas.system_log import SystemLogBase, SystemLogCreate, SystemLogRead
 from app.schemas.team import TeamBase, TeamCreate, TeamRead
 from app.schemas.update_center import (
@@ -102,6 +116,13 @@ __all__ = [
     "AIAssistantSettingsRead",
     "AIAssistantSettingsUpdate",
     "ActiveThemeSetRequest",
+    "AnnouncementRuleBase",
+    "AnnouncementRuleCreate",
+    "AnnouncementRuleRead",
+    "AnnouncementRuleUpdate",
+    "ChristyAnnouncementBase",
+    "ChristyAnnouncementCreate",
+    "ChristyAnnouncementRead",
     "CustomGameModeBase",
     "CustomGameModeCreate",
     "CustomGameModeRead",
@@ -121,6 +142,13 @@ __all__ = [
     "DeviceBase",
     "DeviceCreate",
     "DeviceRead",
+    "GameEventBase",
+    "GameEventCreate",
+    "GameEventRead",
+    "GameModeBase",
+    "GameModeCreate",
+    "GameModeRead",
+    "GameModeUpdate",
     "GameResultBase",
     "GameResultCreate",
     "GameResultRead",
@@ -134,11 +162,13 @@ __all__ = [
     "MissionBase",
     "MissionCreate",
     "MissionRead",
+    "MissionUpdate",
     "MissionControlCreateMissionRequest",
     "MissionControlObjective",
     "MissionControlObjectiveStatusRequest",
     "MissionControlScoreRequest",
     "MissionControlStateResponse",
+    "TeamReadyRequest",
     "PropBase",
     "PropCommandRequest",
     "PropCreate",
@@ -154,6 +184,9 @@ __all__ = [
     "ScoreEventCreate",
     "ScoreEventRead",
     "SystemStatusResponse",
+    "SystemSettingCreate",
+    "SystemSettingRead",
+    "SystemSettingUpdate",
     "SystemLogBase",
     "SystemLogCreate",
     "SystemLogRead",

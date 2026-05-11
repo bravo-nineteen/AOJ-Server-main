@@ -138,7 +138,8 @@ def _check_ollama() -> tuple[bool, str | None]:
             return True, installed[0]
         _ollama_available = False
         return False, None
-    except Exception:
+    except Exception as e:
+        logger.debug("Ollama availability check failed: %s", e)
         _ollama_available = False
         return False, None
 

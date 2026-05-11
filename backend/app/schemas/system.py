@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SystemStatusResponse(BaseModel):
@@ -20,3 +21,24 @@ class SystemStatusResponse(BaseModel):
     alert_count: int = 0
     prop_count: int = 0
     online_prop_count: int = 0
+
+
+class SystemSettingBase(BaseModel):
+    key: str
+    value: str
+    description: str = ""
+
+
+class SystemSettingCreate(SystemSettingBase):
+    pass
+
+
+class SystemSettingUpdate(SystemSettingBase):
+    pass
+
+
+class SystemSettingRead(SystemSettingBase):
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
