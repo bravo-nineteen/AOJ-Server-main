@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -57,5 +57,5 @@ class GameEvent(Base):
 
     __table_args__ = (
         # Index for common queries during game playback
-        ("ix_game_event_session_time", "game_session_id", "happened_at"),
+        Index("ix_game_event_session_time", "game_session_id", "happened_at"),
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -32,7 +32,9 @@ class ChronoCheck(Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     checked_by: Mapped[str] = mapped_column(String(100), default="", nullable=False)
 
-    __table_args__ = (("ix_chrono_player_session", "player_id", "game_session_id"),)
+    __table_args__ = (
+        Index("ix_chrono_player_session", "player_id", "game_session_id"),
+    )
 
 
 class MedicalIncident(Base):
