@@ -319,10 +319,21 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         }
 
     if active_session is not None:
+        # Older/newer schemas may not expose GameSession.state directly.
+        # Derive a stable state label so AI context collection never crashes.
+        session_state = getattr(active_session, "state", None)
+        if session_state is None:
+            if bool(getattr(active_session, "is_active", False)):
+                session_state = "running"
+            elif getattr(active_session, "end_time", None):
+                session_state = "ended"
+            else:
+                session_state = "idle"
+
         snapshot.active_game_session = {
             "id": active_session.id,
             "name": active_session.name,
-            "state": _safe_enum_value(active_session.state),
+            "state": _safe_enum_value(session_state),
             "red_score": active_session.red_score,
             "blue_score": active_session.blue_score,
             "main_timer_seconds": active_session.main_timer_seconds,

@@ -170,8 +170,20 @@ async def send_prop_command(
     if item is None:
         raise HTTPException(status_code=404, detail="Prop not found")
 
+    command_map = {
+        "arm": "ARM",
+        "disarm": "DISARM",
+        "reset": "RESET",
+        "status_request": "STATUS_REQUEST",
+        "trigger_alarm": "TRIGGER_ALARM",
+        "game_start": "GAME_START",
+        "game_end": "GAME_END",
+        "ready": "READY",
+        "test_buzz": "TEST",
+    }
+
     # Dispatch command to LoRa radio (mock in non-Pi mode).
-    lora_service.send_command(item.device_id, payload.command.upper())
+    lora_service.send_command(item.device_id, command_map[payload.command])
 
     if payload.command == "arm":
         item.status = "armed"

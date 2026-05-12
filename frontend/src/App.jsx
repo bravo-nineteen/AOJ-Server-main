@@ -179,6 +179,14 @@ function toTimeInputValue(isoDate) {
   return `${h}:${m}`;
 }
 
+function formatFeedTime(value = new Date()) {
+  return value.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 function App() {
   const host = window.location.hostname || 'localhost';
   const isSecure = window.location.protocol === 'https:';
@@ -1403,7 +1411,7 @@ function App() {
           playTtsText(announcementText).catch(() => {});
           return;
         }
-        const line = `${new Date().toLocaleTimeString()} :: ${JSON.stringify(data)}`;
+        const line = `${formatFeedTime()} :: ${JSON.stringify(data)}`;
         // Only show game/mission/warning/error events in the live feed
         const eventStr = (data.event || '').toLowerCase();
         const isImportant = eventStr.includes('mission') || eventStr.includes('game') || eventStr.includes('score')
@@ -1413,7 +1421,7 @@ function App() {
           setEvents((previous) => [line, ...previous].slice(0, 20));
         }
       } catch {
-        const line = `${new Date().toLocaleTimeString()} :: ${message.data}`;
+        const line = `${formatFeedTime()} :: ${message.data}`;
         const isImportant = /warn|error|alarm|mission|game|score|result/i.test(line);
         if (isImportant) {
           setEvents((previous) => [line, ...previous].slice(0, 20));
@@ -2636,6 +2644,30 @@ function App() {
                             >
                               Trigger Alarm
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'game_start')}
+                            >
+                              Game Start
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'game_end')}
+                            >
+                              Game End
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'ready')}
+                            >
+                              Ready
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'test_buzz')}
+                            >
+                              Test Buzzer
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -3112,12 +3144,11 @@ function App() {
             </div>
             <div className="window-content">
               {events.length === 0 ? <p className="muted">Awaiting field telemetry...</p> : null}
-              <ul>
+              <ul className="live-feed-list">
                 {events.map((line) => (
                   <li key={line}>{line}</li>
                 ))}
               </ul>
-              <p className="endpoint">Endpoint: {wsUrl}</p>
             </div>
           </article>
         </section>

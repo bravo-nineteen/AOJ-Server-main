@@ -16,7 +16,7 @@ services:
       LOG_LEVEL: INFO
       
       # Database
-      DATABASE_URL: sqlite:///./backend/aoj_command_os.db
+      DATABASE_URL: sqlite:///./backend/data/aoj_command_os.db
       
       # LoRa (use 'mock' in Docker, configure 'usb_serial' or 'rpi_spi' for hardware)
       LORA_MODE: mock
@@ -34,8 +34,8 @@ services:
       DEPLOYMENT_MODE: development
     
     volumes:
-      # Persist database between runs
-      - aoj-data:/app/backend:rw
+      # Persist database/runtime data without masking backend application code.
+      - aoj-data:/app/backend/data:rw
       
       # Optional: Mount local source for development
       # - ./backend/app:/app/backend/app:rw
