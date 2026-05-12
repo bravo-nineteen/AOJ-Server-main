@@ -195,11 +195,21 @@ function App() {
     if (window.location.port === '8000') {
       return '/api';
     }
+    // When on Vite dev server (port 5173), use the Vite proxy (same-origin).
+    // This avoids CORS and mixed-protocol issues in Codespaces/tunnels.
+    if (window.location.port === '5173' || window.location.port === '') {
+      return '/api';
+    }
     const scheme = isSecure ? 'https' : 'http';
     const port = isSecure ? '' : ':8000';
     return `${scheme}://${backendHost}${port}/api`;
   }, [backendHost, isSecure]);
   const wsUrl = useMemo(() => {
+    // Use same-origin WebSocket when proxied through Vite dev server.
+    if (window.location.port === '5173' || (isSecure && window.location.port === '')) {
+      const wsScheme = isSecure ? 'wss' : 'ws';
+      return `${wsScheme}://${window.location.host}/ws/live`;
+    }
     const scheme = isSecure ? 'wss' : 'ws';
     const port = isSecure ? '' : ':8000';
     return `${scheme}://${backendHost}${port}/ws/live`;
