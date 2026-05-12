@@ -181,16 +181,29 @@ function toTimeInputValue(isoDate) {
 
 function App() {
   const host = window.location.hostname || 'localhost';
+  const isSecure = window.location.protocol === 'https:';
+  // In GitHub Codespaces (and similar tunnels) each port gets its own hostname,
+  // e.g. crispy-engine-...-5173.app.github.dev → crispy-engine-...-8000.app.github.dev
+  const backendHost = useMemo(() => {
+    if (isSecure && host.includes('-5173.')) {
+      return host.replace('-5173.', '-8000.');
+    }
+    return host;
+  }, [host, isSecure]);
   const apiBase = useMemo(() => {
     // When frontend is served by backend on :8000, use same-origin API paths.
     if (window.location.port === '8000') {
       return '/api';
     }
-    return `http://${host}:8000/api`;
-  }, [host]);
+    const scheme = isSecure ? 'https' : 'http';
+    const port = isSecure ? '' : ':8000';
+    return `${scheme}://${backendHost}${port}/api`;
+  }, [backendHost, isSecure]);
   const wsUrl = useMemo(() => {
-    return `ws://${host}:8000/ws/live`;
-  }, [host]);
+    const scheme = isSecure ? 'wss' : 'ws';
+    const port = isSecure ? '' : ':8000';
+    return `${scheme}://${backendHost}${port}/ws/live`;
+  }, [backendHost, isSecure]);
   const apiOrigin = useMemo(() => {
     return apiBase.endsWith('/api') ? apiBase.slice(0, -4) : apiBase;
   }, [apiBase]);
