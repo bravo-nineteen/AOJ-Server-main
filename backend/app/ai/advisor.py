@@ -27,9 +27,11 @@ OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "75"))
 OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.35"))
 OLLAMA_TOP_P = float(os.getenv("OLLAMA_TOP_P", "0.9"))
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "160"))
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
 # Preferred models in order — first one found wins. Put smarter 7B-class models first.
 OLLAMA_MODEL_PREFERENCE = [
+    "qwen2.5:0.5b",
     "qwen2.5:7b-instruct",
     "qwen2.5:7b",
     "qwen2.5",
@@ -185,7 +187,7 @@ def _build_runtime_system_prompt(user_prompt: str) -> str:
     )
 
 
-def _sanitize_history(history: list[dict[str, Any]], max_turns: int = 20) -> list[dict[str, str]]:
+def _sanitize_history(history: list[dict[str, Any]], max_turns: int = 10) -> list[dict[str, str]]:
     """Keep recent useful turns and avoid sending huge or malformed history to Ollama."""
     cleaned: list[dict[str, str]] = []
     for entry in history[-max_turns:]:
@@ -224,7 +226,7 @@ def _ollama_chat(
             "content": f"[OPERATIONAL CONTEXT]\n{context}",
         })
 
-    messages.extend(_sanitize_history(history, max_turns=20))
+    messages.extend(_sanitize_history(history, max_turns=10))
 
     messages.append({"role": "user", "content": prompt})
 
@@ -240,6 +242,7 @@ def _ollama_chat(
                     "temperature": OLLAMA_TEMPERATURE,
                     "top_p": OLLAMA_TOP_P,
                     "num_ctx": OLLAMA_NUM_CTX,
+                    "num_predict": OLLAMA_NUM_PREDICT,
                     "repeat_penalty": 1.08,
                 },
             },
@@ -1484,6 +1487,14 @@ def _handle_conversation(
     if injected_context:
         used_ctx.append("context:injected")
 
+    # Fast identity response to avoid repetitive/off-topic LLM answers.
+    if re.search(r"\b(what(?:'s| is) your name|who are you)\b", lower):
+        return _mk_response(
+            "I'm Christy, your AOJ field assistant. I can help with game planning, rules, diagnostics, and mission operations.",
+            confidence=0.95,
+            used_ctx=[*used_ctx, "advisor:identity"],
+        )
+
     # -----------------------------------------------------------------------
     # 1. Operational command flow (confirm before proceeding)
     # -----------------------------------------------------------------------
@@ -2277,6 +2288,21 @@ def ask_ai(
     prompt = (prompt or "").strip()
     if not prompt:
         return _mk_response("Ready. What do you need?", confidence=0.9, used_ctx=["advisor:empty_prompt"])
+
+    # Fast-path common requests for lower latency and higher consistency.
+    # This keeps conversational UX snappy for greeting/identity/game-selection prompts.
+    lower = prompt.lower()
+    nums = _extract_numbers(lower)
+    if (
+        _detect_response_mode(prompt) == "casual"
+        or re.search(r"\b(what(?:'s| is) your name|who are you)\b", lower)
+        or _is_game_suggestion_request(lower, nums)
+    ):
+        return _handle_conversation(
+            prompt=prompt,
+            history=history,
+            injected_context=injected_context,
+        )
 
     # ------------------------------------------------------------------
     # Attempt Ollama (re-check once per cold start, then cache result)

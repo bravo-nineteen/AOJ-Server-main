@@ -1,4 +1,5 @@
 import json
+import asyncio
 from datetime import datetime, timezone
 from datetime import timedelta
 import re
@@ -217,6 +218,190 @@ def _detect_intent_route(raw_prompt: str) -> str:
         if re.search(pattern, text):
             return route
     return "general"
+
+
+def _parse_scores_from_text(text: str) -> tuple[int, int] | None:
+    lower = text.lower()
+    m = re.search(r"red\s*(\d+)\s*[-:]\s*(\d+)\s*blue", lower)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.search(r"blue\s*(\d+)\s*[-:]\s*(\d+)\s*red", lower)
+    if m:
+        return int(m.group(2)), int(m.group(1))
+    m = re.search(r"\b(\d+)\s*[-:]\s*(\d+)\b", lower)
+    if m:
+        # Default order for plain score format is red-blue.
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def _try_execute_system_command(
+    db: Session,
+    conversation: models.AIConversation,
+    raw_prompt: str,
+) -> dict[str, object] | None:
+    lower = (raw_prompt or "").strip().lower()
+    if not lower:
+        return None
+
+    # Command: prepare and start next game from schedule.
+    if re.search(
+        r"\b(get|prepare|ready|setup|set up|start|launch)\b.*\b(next)\b.*\b(game|round|match|session)\b",
+        lower,
+    ):
+        state = mission_control_service.get_state()
+        if state.get("state") in ("running", "paused"):
+            return {
+                "answer": "A game is already in progress. End or pause/resume the current game before preparing the next one.",
+                "used_context": ["command:next_game_ready", "execution:blocked_active_game"],
+                "suggested_actions": ["End current game, then ask again to prepare next game."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.9,
+                "model": "system-command-executor",
+            }
+
+        now = datetime.now(timezone.utc)
+        next_item = (
+            db.query(models.ScheduleItem)
+            .filter(models.ScheduleItem.is_complete.is_(False))
+            .filter(
+                (models.ScheduleItem.activity_type.ilike("%game%"))
+                | (models.ScheduleItem.title.ilike("%game%"))
+            )
+            .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
+            .first()
+        )
+
+        if next_item is None:
+            return {
+                "answer": "No upcoming game item was found in the schedule. Add a game schedule item, then ask me to prepare the next game.",
+                "used_context": ["command:next_game_ready", "execution:no_schedule_item"],
+                "suggested_actions": ["Create a schedule item with activity type 'Game'."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.85,
+                "model": "system-command-executor",
+            }
+
+        game_mode = (next_item.game_mode or "Skirmish").strip() or "Skirmish"
+        objectives = ["Capture Alpha", "Capture Bravo", "Hold Center"]
+        main_timer_seconds = 1800
+        try:
+            delta = int((next_item.end_time - next_item.start_time).total_seconds())
+            if delta > 0:
+                main_timer_seconds = max(300, min(delta, 7200))
+        except Exception:
+            pass
+
+        mission_payload = schemas.MissionControlCreateMissionRequest(
+            title=next_item.title,
+            description=next_item.details or f"Auto-prepared from schedule item #{next_item.id}",
+            game_mode=game_mode,
+            main_timer_seconds=main_timer_seconds,
+            phase_timer_seconds=300,
+            objectives=objectives,
+        )
+
+        # These service methods are async; execute from this sync context.
+        asyncio.run(mission_control_service.create_mission(db, mission_payload))
+        asyncio.run(mission_control_service.set_team_ready("red", db))
+        asyncio.run(mission_control_service.set_team_ready("blue", db))
+
+        next_item.is_complete = True
+        next_item.completed_at = now
+        db.commit()
+
+        return {
+            "answer": (
+                f"Next game is ready: **{next_item.title}** ({game_mode}). "
+                "I created the mission, marked both teams ready, and started the countdown."
+            ),
+            "used_context": ["command:next_game_ready", "execution:success", f"schedule_item:{next_item.id}"],
+            "suggested_actions": ["Monitor Mission Control state and objective status."],
+            "blocked_actions": [],
+            "requires_admin_confirmation": False,
+            "confidence": 0.93,
+            "model": "system-command-executor",
+        }
+
+    # Command: record game results (e.g. "record result red 120-100 blue").
+    if re.search(r"\b(record|log|save|submit)\b.*\b(result|score|outcome)\b", lower):
+        scores = _parse_scores_from_text(raw_prompt)
+        if scores is None:
+            return {
+                "answer": (
+                    "I can record that result, but I need the score format. "
+                    "Example: 'record result red 120-100 blue notes close finish'."
+                ),
+                "used_context": ["command:record_result", "execution:missing_score"],
+                "suggested_actions": ["Provide red and blue points in the same command."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.82,
+                "model": "system-command-executor",
+            }
+
+        red_points, blue_points = scores
+        if "cancel" in lower:
+            winner = "Cancelled"
+        elif "draw" in lower or red_points == blue_points:
+            winner = "Draw"
+        elif red_points > blue_points:
+            winner = "Red"
+        else:
+            winner = "Blue"
+
+        state = mission_control_service.get_state()
+        session_name = state.get("mission_title") or "Recorded Session"
+        notes = ""
+        notes_match = re.search(r"\bnotes?\b[:\-\s]*(.+)$", raw_prompt, re.IGNORECASE)
+        if notes_match:
+            notes = notes_match.group(1).strip()[:500]
+
+        active_session = (
+            db.query(models.GameSession)
+            .filter(models.GameSession.is_active.is_(True))
+            .order_by(models.GameSession.id.desc())
+            .first()
+        )
+        schedule_item = (
+            db.query(models.ScheduleItem)
+            .filter(models.ScheduleItem.is_complete.is_(False))
+            .filter(models.ScheduleItem.activity_type.ilike("%game%"))
+            .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
+            .first()
+        )
+
+        result_row = models.GameResult(
+            game_session_id=active_session.id if active_session else None,
+            schedule_item_id=schedule_item.id if schedule_item else None,
+            session_name=session_name,
+            winner=winner,
+            red_points=red_points,
+            blue_points=blue_points,
+            red_penalties=0,
+            blue_penalties=0,
+            notes=notes,
+        )
+        db.add(result_row)
+        db.commit()
+        db.refresh(result_row)
+
+        return {
+            "answer": (
+                f"Recorded result for **{session_name}**: winner **{winner}**, "
+                f"Red {red_points} - Blue {blue_points}."
+            ),
+            "used_context": ["command:record_result", "execution:success", f"result_id:{result_row.id}"],
+            "suggested_actions": ["Ask me for a summary of today's results."],
+            "blocked_actions": [],
+            "requires_admin_confirmation": False,
+            "confidence": 0.94,
+            "model": "system-command-executor",
+        }
+
+    return None
 
 
 def _build_intent_router_block(intent_route: str) -> str:
@@ -1191,6 +1376,43 @@ def send_message(
     # next AI reply can immediately use updated member/team facts.
     _update_member_from_message(db, raw_prompt)
     _update_correction_memory(conversation, raw_prompt)
+
+    # Execute supported system-control commands directly when explicitly requested.
+    executed = _try_execute_system_command(db, conversation, raw_prompt)
+    if executed is not None:
+        assistant_message = models.AIMessage(
+            conversation_id=conversation_id,
+            role=models.MessageRole.assistant,
+            content=str(executed["answer"]),
+            confidence=float(executed.get("confidence", 0.9)),
+            used_context=_to_json_list(list(executed.get("used_context", []))),
+            suggested_actions=_to_json_list(list(executed.get("suggested_actions", []))),
+            blocked_actions=_to_json_list(list(executed.get("blocked_actions", []))),
+            warnings=_to_json_list([]),
+            blocked_action=False,
+            requires_admin_confirmation=bool(executed.get("requires_admin_confirmation", False)),
+            model=str(executed.get("model", "system-command-executor")),
+            action_request_id=None,
+        )
+        db.add(assistant_message)
+        db.flush()
+        conversation.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user_message)
+        db.refresh(assistant_message)
+        return schemas.AIChatReplyResponse(
+            answer=assistant_message.content,
+            confidence=assistant_message.confidence,
+            used_context=_from_json_list(assistant_message.used_context),
+            suggested_actions=_from_json_list(assistant_message.suggested_actions),
+            blocked_actions=_from_json_list(assistant_message.blocked_actions),
+            warnings=_from_json_list(assistant_message.warnings),
+            requires_admin_confirmation=assistant_message.requires_admin_confirmation,
+            conversation_id=conversation_id,
+            user_message=_to_message_read(user_message),
+            assistant_message=_to_message_read(assistant_message),
+            action_request=None,
+        )
 
     policy = evaluate_ai_prompt(raw_prompt)
     context_summary = _build_operational_context(db, conversation)
