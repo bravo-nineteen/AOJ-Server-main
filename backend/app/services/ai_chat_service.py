@@ -244,6 +244,137 @@ def _try_execute_system_command(
     if not lower:
         return None
 
+    # Mission lifecycle direct commands.
+    if re.search(r"\b(start|begin|launch)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.start_game(db))
+            return {
+                "answer": f"Game started for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:start_game", "execution:success"],
+                "suggested_actions": ["Ask for live score or objective status."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't start game: {str(e)}",
+                "used_context": ["command:start_game", "execution:error"],
+                "suggested_actions": ["Check mission state and ensure it is ready."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    if re.search(r"\b(pause|hold)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.pause_game(db))
+            return {
+                "answer": f"Game paused for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:pause_game", "execution:success"],
+                "suggested_actions": ["Ask to resume when ready."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't pause game: {str(e)}",
+                "used_context": ["command:pause_game", "execution:error"],
+                "suggested_actions": ["Check current mission state."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    if re.search(r"\b(resume|continue|unpause)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.resume_game(db))
+            return {
+                "answer": f"Game resumed for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:resume_game", "execution:success"],
+                "suggested_actions": ["Ask for live objective status if needed."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't resume game: {str(e)}",
+                "used_context": ["command:resume_game", "execution:error"],
+                "suggested_actions": ["Check current mission state."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    if re.search(r"\b(end|stop|finish)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.end_game(db))
+            return {
+                "answer": f"Game ended for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:end_game", "execution:success"],
+                "suggested_actions": ["You can ask me to record the result now."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't end game: {str(e)}",
+                "used_context": ["command:end_game", "execution:error"],
+                "suggested_actions": ["Check current mission state."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    score_match = re.search(r"\b(add|plus|increase|decrease|subtract|set)\b\s*(\d+)\s*(?:points?\s*)?(?:to\s*)?\b(red|blue)\b", lower)
+    if score_match:
+        action, amount_raw, team = score_match.groups()
+        amount = int(amount_raw)
+        if action in {"decrease", "subtract"}:
+            delta = -amount
+        elif action == "set":
+            state = mission_control_service.get_state()
+            current = int(state.get("red_team_score", 0) if team == "red" else state.get("blue_team_score", 0))
+            delta = amount - current
+        else:
+            delta = amount
+        try:
+            payload = schemas.MissionControlScoreRequest(team=team, delta=delta, reason="ai_command")
+            state = asyncio.run(mission_control_service.adjust_score(payload, db))
+            return {
+                "answer": (
+                    f"Score updated: Red {state.get('red_team_score',0)} - "
+                    f"Blue {state.get('blue_team_score',0)}."
+                ),
+                "used_context": ["command:adjust_score", "execution:success"],
+                "suggested_actions": ["Ask me to record final result when game ends."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't update score: {str(e)}",
+                "used_context": ["command:adjust_score", "execution:error"],
+                "suggested_actions": ["Check mission state and team name (red/blue)."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
     # Command: prepare and start next game from schedule.
     if re.search(
         r"\b(get|prepare|ready|setup|set up|start|launch)\b.*\b(next)\b.*\b(game|round|match|session)\b",
@@ -305,8 +436,7 @@ def _try_execute_system_command(
 
         # These service methods are async; execute from this sync context.
         asyncio.run(mission_control_service.create_mission(db, mission_payload))
-        asyncio.run(mission_control_service.set_team_ready("red", db))
-        asyncio.run(mission_control_service.set_team_ready("blue", db))
+        asyncio.run(mission_control_service.start_game(db))
 
         next_item.is_complete = True
         next_item.completed_at = now
@@ -315,7 +445,7 @@ def _try_execute_system_command(
         return {
             "answer": (
                 f"Next game is ready: **{next_item.title}** ({game_mode}). "
-                "I created the mission, marked both teams ready, and started the countdown."
+                "I created the mission and started the game."
             ),
             "used_context": ["command:next_game_ready", "execution:success", f"schedule_item:{next_item.id}"],
             "suggested_actions": ["Monitor Mission Control state and objective status."],
