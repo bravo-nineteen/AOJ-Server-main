@@ -2295,9 +2295,12 @@ def ask_ai(
     lower = prompt.lower()
     nums = _extract_numbers(lower)
     if (
-        _detect_response_mode(prompt) == "casual"
-        or re.search(r"\b(what(?:'s| is) your name|who are you)\b", lower)
-        or _is_game_suggestion_request(lower, nums)
+        not OLLAMA_STRICT
+        and (
+            _detect_response_mode(prompt) == "casual"
+            or re.search(r"\b(what(?:'s| is) your name|who are you)\b", lower)
+            or _is_game_suggestion_request(lower, nums)
+        )
     ):
         return _handle_conversation(
             prompt=prompt,
