@@ -31,7 +31,7 @@ def create_system_setting(
 
     log_action(
         db,
-        level=models.LogLevel.debug,
+        level=models.LogLevel.info,
         category=models.LogCategory.system,
         source="settings",
         message=f"Setting updated: {payload.key}",
@@ -87,7 +87,7 @@ def update_system_setting(
 
     log_action(
         db,
-        level=models.LogLevel.debug,
+        level=models.LogLevel.info,
         category=models.LogCategory.system,
         source="settings",
         message=f"Setting updated: {setting_key}",
