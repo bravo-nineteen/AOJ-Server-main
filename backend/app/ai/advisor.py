@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
+OLLAMA_STRICT = os.getenv("OLLAMA_STRICT", "false").strip().lower() == "true"
 OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "75"))
 OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.35"))
 OLLAMA_TOP_P = float(os.getenv("OLLAMA_TOP_P", "0.9"))
@@ -2311,6 +2312,18 @@ def ask_ai(
     if _ollama_available is None:
         _check_ollama()
 
+    if OLLAMA_STRICT and not _ollama_available:
+        return _mk_response(
+            (
+                "Ollama is required but currently unavailable. "
+                "Please start Ollama and ensure at least one model is installed."
+            ),
+            confidence=0.1,
+            used_ctx=["advisor:ollama_required", "provider:ollama_unavailable"],
+            warnings=["OLLAMA_STRICT is enabled and fallback provider is disabled."],
+            model="ollama-required",
+        )
+
     if _ollama_available:
         llm_answer = _ollama_chat(
             prompt=prompt,
@@ -2328,6 +2341,14 @@ def ask_ai(
             )
         # Ollama request failed at runtime — retry on next request instead of
         # permanently disabling it for this process.
+        if OLLAMA_STRICT:
+            return _mk_response(
+                "Ollama request failed. Fallback is disabled in strict mode.",
+                confidence=0.1,
+                used_ctx=["advisor:ollama_required", "provider:ollama_error"],
+                warnings=["OLLAMA_STRICT is enabled and fallback provider is disabled."],
+                model="ollama-required",
+            )
         logger.warning("Ollama request failed; falling back to rules engine.")
         _ollama_available = None
 

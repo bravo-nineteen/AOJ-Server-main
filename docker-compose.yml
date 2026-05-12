@@ -23,9 +23,11 @@ services:
       
       # AI Configuration
       OLLAMA_ENABLED: "true"
+      # Force Ollama-only responses (no local rules-engine fallback).
+      OLLAMA_STRICT: "true"
       # Advisor reads OLLAMA_BASE; keep OLLAMA_HOST for compatibility.
-      OLLAMA_BASE: http://host.docker.internal:11434
-      OLLAMA_HOST: http://host.docker.internal:11434
+      OLLAMA_BASE: http://ollama:11434
+      OLLAMA_HOST: http://ollama:11434
       
       # TTS Configuration
       TTS_ENGINE: pyttsx3  # piper requires additional assets
@@ -61,22 +63,18 @@ services:
   # Optional: Ollama LLM Service
   # Uncomment to enable local AI model support
   # ============================================
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: aoj-ollama
-  #   ports:
-  #     - "11434:11434"
-  #   environment:
-  #     OLLAMA_HOST: 0.0.0.0:11434
-  #   volumes:
-  #     - ollama-models:/root/.ollama
-  #   networks:
-  #     - aoj-network
-  #   restart: unless-stopped
-  #
-  # Update aoj-app environment when using Ollama:
-  # OLLAMA_ENABLED: "true"
-  # OLLAMA_HOST: http://ollama:11434
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aoj-ollama
+    ports:
+      - "11434:11434"
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - aoj-network
+    restart: unless-stopped
 
   # ============================================
   # Optional: PostgreSQL Database
@@ -106,8 +104,8 @@ services:
 volumes:
   aoj-data:
     driver: local
-  # ollama-models:
-  #   driver: local
+  ollama-models:
+    driver: local
   # postgres-data:
   #   driver: local
 
