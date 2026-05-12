@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from sqlalchemy import func, text
@@ -44,7 +44,7 @@ class AIContextSnapshot:
         self.active_game_modes: list[dict[str, Any]] = []
         self.relevant_knowledge: list[dict[str, Any]] = []
         self.recent_critical_logs: list[dict[str, Any]] = []
-        self.collected_at: str = datetime.utcnow().isoformat() + "Z"
+        self.collected_at: str = datetime.now(timezone.utc).isoformat() + "Z"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -281,7 +281,7 @@ def _safe_query_all(query, fallback: list[Any] | None = None) -> list[Any]:
 def collect_context(db: Session, prompt: str = "", mission_id: int | None = None) -> AIContextSnapshot:
     """Collect and aggregate limited AI context from the database."""
     snapshot = AIContextSnapshot()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
     prompt_keywords = _extract_keywords(prompt)

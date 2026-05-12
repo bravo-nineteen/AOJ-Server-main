@@ -1,0 +1,109 @@
+services:
+  # ============================================
+  # AOJ Command OS Backend + Frontend
+  # ============================================
+  aoj-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aoj-app
+    ports:
+      - "8000:8000"      # Backend API
+    environment:
+      # API Configuration
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: INFO
+      
+      # Database
+      DATABASE_URL: sqlite:///./backend/aoj_command_os.db
+      
+      # LoRa (use 'mock' in Docker, configure 'usb_serial' or 'rpi_spi' for hardware)
+      LORA_MODE: mock
+      
+      # AI Configuration (disable in Docker unless Ollama is running)
+      OLLAMA_ENABLED: "false"
+      
+      # TTS Configuration
+      TTS_ENGINE: pyttsx3  # piper requires additional assets
+      
+      # Deployment mode
+      DEPLOYMENT_MODE: development
+    
+    volumes:
+      # Persist database between runs
+      - aoj-data:/app/backend:rw
+      
+      # Optional: Mount local source for development
+      # - ./backend/app:/app/backend/app:rw
+      # - ./frontend/dist:/app/frontend/dist:rw
+    
+    restart: unless-stopped
+    
+    networks:
+      - aoj-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # Optional: Ollama LLM Service
+  # Uncomment to enable local AI model support
+  # ============================================
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: aoj-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   environment:
+  #     OLLAMA_HOST: 0.0.0.0:11434
+  #   volumes:
+  #     - ollama-models:/root/.ollama
+  #   networks:
+  #     - aoj-network
+  #   restart: unless-stopped
+  #
+  # Update aoj-app environment when using Ollama:
+  # OLLAMA_ENABLED: "true"
+  # OLLAMA_HOST: http://ollama:11434
+
+  # ============================================
+  # Optional: PostgreSQL Database
+  # Only use if migrating from SQLite
+  # ============================================
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: aoj-postgres
+  #   environment:
+  #     POSTGRES_DB: aoj_command_os
+  #     POSTGRES_USER: aoj_user
+  #     POSTGRES_PASSWORD: changeme
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   networks:
+  #     - aoj-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U aoj_user"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #
+  # Update aoj-app when using PostgreSQL:
+  # DATABASE_URL: postgresql://aoj_user:changeme@postgres:5432/aoj_command_os
+
+volumes:
+  aoj-data:
+    driver: local
+  # ollama-models:
+  #   driver: local
+  # postgres-data:
+  #   driver: local
+
+networks:
+  aoj-network:
+    driver: bridge

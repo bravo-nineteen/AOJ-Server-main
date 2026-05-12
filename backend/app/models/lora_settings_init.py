@@ -3,7 +3,7 @@
 Run this migration to add LoRa-related test settings to the system database.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from app.models.system_setting import SystemSetting
 
 
@@ -137,7 +137,7 @@ def add_lora_settings(session) -> None:
     Args:
         session: SQLAlchemy session instance
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     added = 0
 
     for setting_data in LORA_SETTINGS:

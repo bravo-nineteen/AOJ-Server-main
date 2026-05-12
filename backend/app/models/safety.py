@@ -1,7 +1,7 @@
 """Safety and compliance tracking - chrono checks, medical incidents, waivers."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
@@ -29,7 +29,7 @@ class ChronoCheck(Base):
     max_allowed_fps: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
     passed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    checked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     checked_by: Mapped[str] = mapped_column(String(100), default="", nullable=False)
 
     __table_args__ = (
@@ -55,8 +55,8 @@ class MedicalIncident(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     action_taken: Mapped[str] = mapped_column(Text, default="", nullable=False)
     witnessed_by: Mapped[str] = mapped_column(String(200), default="", nullable=False)
-    incident_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    incident_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class SafetyViolation(Base):
@@ -77,8 +77,8 @@ class SafetyViolation(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     action_taken: Mapped[str] = mapped_column(Text, default="", nullable=False)
     reported_by: Mapped[str] = mapped_column(String(100), default="", nullable=False)
-    violation_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    violation_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Waiver(Base):
@@ -96,4 +96,4 @@ class Waiver(Base):
         String(200), default="", nullable=False
     )  # parent name if minor
     expiry_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -57,7 +57,7 @@ class SystemLog(Base):
     device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     mission: Mapped["Mission | None"] = relationship(back_populates="logs")
     game_session: Mapped["GameSession | None"] = relationship(back_populates="logs")

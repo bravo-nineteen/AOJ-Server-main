@@ -1,7 +1,7 @@
 """Game event timeline - records objectives, equipment, and game events."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
@@ -52,8 +52,8 @@ class GameEvent(Base):
     event_metadata: Mapped[str] = mapped_column(
         "metadata", Text, default="{}", nullable=False
     )  # JSON for extensibility
-    happened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    happened_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         # Index for common queries during game playback

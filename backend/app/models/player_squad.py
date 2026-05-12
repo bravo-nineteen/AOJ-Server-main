@@ -1,7 +1,7 @@
 """Player squad and team assignment models."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
@@ -33,9 +33,9 @@ class Squad(Base):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     callsign: Mapped[str] = mapped_column(String(50), default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     squad_members: Mapped[list["SquadMember"]] = relationship(back_populates="squad")
@@ -55,7 +55,7 @@ class SquadMember(Base):
     role: Mapped[SquadRole] = mapped_column(
         String(30), default=SquadRole.rifleman, nullable=False
     )
-    joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     squad: Mapped["Squad"] = relationship(back_populates="squad_members")
 
@@ -74,4 +74,4 @@ class PlayerTeamAssignment(Base):
     team_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("teams.id"), nullable=False, index=True
     )
-    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

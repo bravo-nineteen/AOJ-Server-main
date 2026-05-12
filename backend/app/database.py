@@ -2,6 +2,10 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+import logging
+import re
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATABASE_URL = f"sqlite:///{BASE_DIR / 'aoj_command_os.db'}"
@@ -12,6 +16,15 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+
+def _is_valid_identifier(name: str) -> bool:
+    """Validate that a string is a safe SQL identifier.
+    
+    Prevents SQL injection by ensuring identifiers contain only alphanumeric
+    characters and underscores, starting with a letter or underscore.
+    """
+    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
 
 
 def get_db():
@@ -163,6 +176,10 @@ def _ensure_ai_columns() -> None:
             for column_name, column_sql in ai_message_required_columns.items():
                 if column_name in existing:
                     continue
+                # Use parameterized approach with explicit validation
+                if not _is_valid_identifier(column_name):
+                    logger.warning("Skipping invalid column name: %s", column_name)
+                    continue
                 connection.execute(
                     text(f"ALTER TABLE ai_messages ADD COLUMN {column_name} {column_sql}")
                 )
@@ -178,6 +195,9 @@ def _ensure_ai_columns() -> None:
             existing = {row[1] for row in rows}
             for column_name, column_sql in ai_conversation_required_columns.items():
                 if column_name in existing:
+                    continue
+                if not _is_valid_identifier(column_name):
+                    logger.warning("Skipping invalid column name: %s", column_name)
                     continue
                 connection.execute(
                     text(

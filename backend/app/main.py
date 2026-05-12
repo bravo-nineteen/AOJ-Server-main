@@ -4,7 +4,7 @@ import logging
 import os
 import time
 import uuid
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -83,7 +83,28 @@ def _configure_logging() -> None:
 
 _configure_logging()
 
+# lifespan is defined later in this file; forward-assigned after definition
 app = FastAPI(title=APP_TITLE, version=APP_VERSION)
+
+def _custom_openapi():
+    """Generate OpenAPI schema with proper documentation."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    openapi_schema = get_openapi(
+        title=APP_TITLE,
+        version=APP_VERSION,
+        description="Local-first command system for airsoft field operations with LoRa-connected props, AI assistant, mission control, and real-time WebSocket updates.",
+        routes=app.routes,
+    )
+    openapi_schema["info"]["x-logo"] = {
+        "url": "https://example.com/logo.png"
+    }
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = _custom_openapi
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -161,9 +182,10 @@ app.include_router(system_settings.router)
 app.include_router(firmware_rollouts.router)
 
 
-@app.on_event("startup")
-async def on_startup() -> None:
-    """Start database, LoRa service, and background tickers safely."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan: startup and shutdown."""
+    # ── STARTUP ──────────────────────────────────────────────────────────────
     logger.info("Starting AOJ Command OS backend")
     init_db()
 
@@ -171,8 +193,8 @@ async def on_startup() -> None:
         db = SessionLocal()
         try:
             handle_firmware_ack_event(db, device_id, ack_value, message_id)
-        except Exception:
-            logger.exception("Firmware ACK handling failed for device_id=%s", device_id)
+        except Exception as e:
+            logger.exception("Firmware ACK handling failed for device_id=%s: %s", device_id, str(e))
         finally:
             db.close()
 
@@ -192,8 +214,8 @@ async def on_startup() -> None:
                     f"message_id={frame.message_id}"
                 ),
             )
-        except Exception:
-            logger.exception("Inbound LoRa logging failed for device_id=%s", frame.device_id)
+        except Exception as e:
+            logger.exception("Inbound LoRa logging failed for device_id=%s: %s", frame.device_id, str(e))
         finally:
             db.close()
 
@@ -211,8 +233,8 @@ async def on_startup() -> None:
                     f"ACK timeout device_id={device_id} message_id={message_id} retries={retries}"
                 ),
             )
-        except Exception:
-            logger.exception("LoRa timeout logging failed for device_id=%s", device_id)
+        except Exception as e:
+            logger.exception("LoRa timeout logging failed for device_id=%s: %s", device_id, str(e))
         finally:
             db.close()
 
@@ -230,8 +252,8 @@ async def on_startup() -> None:
                 ),
                 loop,
             )
-        except Exception:
-            logger.exception("LoRa timeout websocket broadcast failed for device_id=%s", device_id)
+        except Exception as e:
+            logger.exception("LoRa timeout websocket broadcast failed for device_id=%s: %s", device_id, str(e))
 
     lora_service.set_on_ack_callback(_ack_callback)
     lora_service.set_on_incoming_callback(_incoming_callback)
@@ -240,8 +262,8 @@ async def on_startup() -> None:
     try:
         lora_service.start()
         logger.info("LoRa service started")
-    except Exception:
-        logger.exception("LoRa service failed to start")
+    except Exception as e:
+        logger.exception("LoRa service failed to start: %s", str(e))
 
     app.state.mission_control_task = asyncio.create_task(
         mission_control_service.ticker(),
@@ -256,10 +278,9 @@ async def on_startup() -> None:
         name="scheduled_announcements_ticker",
     )
 
+    yield  # Application is running
 
-@app.on_event("shutdown")
-async def on_shutdown() -> None:
-    """Stop background work cleanly."""
+    # ── SHUTDOWN ──────────────────────────────────────────────────────────────
     logger.info("Stopping AOJ Command OS backend")
 
     for task_name in ("mission_control_task", "christy_task", "scheduled_announcements_task"):
@@ -272,8 +293,12 @@ async def on_shutdown() -> None:
     try:
         lora_service.stop()
         logger.info("LoRa service stopped")
-    except Exception:
-        logger.exception("LoRa service failed to stop cleanly")
+    except Exception as e:
+        logger.exception("LoRa service failed to stop cleanly: %s", str(e))
+
+
+# Wire the lifespan into the app after it is defined
+app.router.lifespan_context = lifespan
 
 
 @app.websocket("/ws/live")
@@ -298,6 +323,12 @@ async def live_updates(websocket: WebSocket) -> None:
         while True:
             payload = await websocket.receive_text()
             await websocket_manager.broadcast({"event": "echo", "payload": payload})
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected normally")
+        websocket_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error("WebSocket error: %s", str(e), exc_info=True)
+        websocket_manager.disconnect(websocket)
 
     except WebSocketDisconnect:
         websocket_manager.disconnect(websocket)

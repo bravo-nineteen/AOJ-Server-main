@@ -1,7 +1,7 @@
 """Tournament and bracket system for multi-round competitions."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
@@ -46,9 +46,9 @@ class Tournament(Base):
     rules: Mapped[str] = mapped_column(
         Text, default="{}", nullable=False
     )  # JSON configuration
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -64,7 +64,7 @@ class TournamentTeam(Base):
         Integer, ForeignKey("teams.id"), nullable=False, index=True
     )
     seed_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class TournamentMatch(Base):
@@ -98,7 +98,7 @@ class TournamentMatch(Base):
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class TournamentStandings(Base):
@@ -120,5 +120,5 @@ class TournamentStandings(Base):
     tournament_points: Mapped[int] = mapped_column(default=0, nullable=False)
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )

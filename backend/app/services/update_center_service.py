@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import text
@@ -205,7 +205,7 @@ def get_update_center_status(db: Session) -> schemas.UpdateCenterStatusResponse:
 
 def backup_database(db: Session) -> schemas.UpdateCenterActionResponse:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     backup_path = BACKUP_DIR / f"aoj_command_os_backup_{timestamp}.db"
     shutil.copy2(DATABASE_FILE_PATH, backup_path)
     log_action(
@@ -314,7 +314,7 @@ def upload_firmware_package(
         raise ValueError("Firmware version is required.")
 
     _ensure_firmware_dirs()
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_filename = Path(filename).name
     stored_name = f"{timestamp}_{safe_filename}"
     stored_path = FIRMWARE_PACKAGE_DIR / stored_name
@@ -328,7 +328,7 @@ def upload_firmware_package(
         "version": version.strip(),
         "size_bytes": len(content),
         "sha256": checksum,
-        "uploaded_at": datetime.utcnow().isoformat(),
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "notes": notes.strip(),
     }
 
@@ -377,7 +377,7 @@ def apply_firmware_package(
         lora_service.send_command(item.device_id, "FIRMWARE_UPDATE", firmware_value)
         item.status = "maintenance"
         item.firmware_version = str(package["version"])
-        item.last_seen = datetime.utcnow()
+        item.last_seen = datetime.now(timezone.utc)
         target_ids.append(item.id)
 
         rollout_targets.append(
@@ -387,7 +387,7 @@ def apply_firmware_package(
                 "name": item.name,
                 "status": "queued",
                 "message": "Firmware update command queued.",
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -464,7 +464,7 @@ def update_firmware_rollout_progress(
 
     target["status"] = payload.status
     target["message"] = payload.message.strip()
-    target["updated_at"] = datetime.utcnow().isoformat()
+    target["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     acknowledged_count = sum(1 for item in targets if item.get("status") == "acked")
     failed_count = sum(1 for item in targets if item.get("status") == "failed")
@@ -477,7 +477,7 @@ def update_firmware_rollout_progress(
         prop = db.query(models.Prop).filter(models.Prop.id == payload.prop_id).first()
         if prop is not None:
             prop.status = "online"
-            prop.last_seen = datetime.utcnow()
+            prop.last_seen = datetime.now(timezone.utc)
 
     log_action(
         db,
@@ -538,7 +538,7 @@ def handle_firmware_ack_event(
             # Update target status to acked.
             target["status"] = "acked"
             target["message"] = f"Acknowledged via LoRa message {message_id}: {ack_value}"
-            target["updated_at"] = datetime.utcnow().isoformat()
+            target["updated_at"] = datetime.now(timezone.utc).isoformat()
 
             # Recalculate job aggregate status from all targets.
             acknowledged_count = sum(1 for item in targets if item.get("status") == "acked")
@@ -550,7 +550,7 @@ def handle_firmware_ack_event(
 
             # Update prop status.
             prop.status = "online"
-            prop.last_seen = datetime.utcnow()
+            prop.last_seen = datetime.now(timezone.utc)
 
             log_action(
                 db,

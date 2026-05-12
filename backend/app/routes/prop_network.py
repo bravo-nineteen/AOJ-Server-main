@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -83,7 +83,7 @@ async def ingest_prop_status_report(
     item.status = payload.status
     item.battery_level = payload.battery_level
     item.signal_strength = payload.signal_strength
-    item.last_seen = datetime.utcnow()
+    item.last_seen = datetime.now(timezone.utc)
     if payload.firmware_version:
         item.firmware_version = payload.firmware_version
 
@@ -201,7 +201,7 @@ async def send_prop_command(
                 "name": item.name,
                 "command": payload.command,
                 "status": item.status,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
     )

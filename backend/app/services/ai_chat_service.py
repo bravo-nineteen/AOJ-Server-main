@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from datetime import timedelta
 import re
 
@@ -302,7 +302,7 @@ def _extract_correction_facts(user_text: str) -> list[str]:
 
 def _update_correction_memory(conversation: models.AIConversation, user_text: str) -> None:
     correction_memory = _from_json_dict(conversation.correction_memory)
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).isoformat() + "Z"
 
     for record in _extract_correction_records(user_text):
         entity_key = record["entity"].lower()
@@ -316,7 +316,7 @@ def _update_correction_memory(conversation: models.AIConversation, user_text: st
 
 
 def _trim_conversation_history(db: Session, conversation: models.AIConversation) -> dict[str, int]:
-    cutoff = datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MEMORY_RETENTION_DAYS)
     expired_rows = (
         db.query(models.AIMessage.id)
         .filter(
@@ -359,7 +359,7 @@ def _trim_conversation_history(db: Session, conversation: models.AIConversation)
 
 
 def _build_memory_context(db: Session, conversation: models.AIConversation) -> dict:
-    cutoff = datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MEMORY_RETENTION_DAYS)
     rows = (
         db.query(models.AIMessage)
         .filter(
@@ -614,7 +614,7 @@ def _build_context_block(sections: dict[str, list[str]]) -> str:
 
 
 def _build_operational_context(db: Session, conversation: models.AIConversation) -> dict:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     _trim_conversation_history(db, conversation)
     memory_ctx = _build_memory_context(db, conversation)
 
@@ -1312,7 +1312,7 @@ def send_message(
         db.query(models.AIMessage)
         .filter(
             models.AIMessage.conversation_id == conversation_id,
-            models.AIMessage.created_at >= datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS),
+            models.AIMessage.created_at >= datetime.now(timezone.utc) - timedelta(days=MEMORY_RETENTION_DAYS),
         )
         .order_by(models.AIMessage.created_at.desc(), models.AIMessage.id.desc())
         .limit(150)
@@ -1320,7 +1320,7 @@ def send_message(
     )
     _update_conversation_learning(conversation, retained_messages)
 
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.now(timezone.utc)
 
     audit_decision = (
         models.AIAuditDecision.requires_confirmation
@@ -1399,7 +1399,7 @@ def clear_conversation(
     conversation.memory_summary = ""
     conversation.learned_trends = "[]"
     conversation.correction_memory = "{}"
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.now(timezone.utc)
     db.commit()
 
     return schemas.AIConversationClearResponse(

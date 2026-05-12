@@ -13,7 +13,7 @@ import asyncio
 import logging
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -80,8 +80,11 @@ class ChristyProactiveService:
         while True:
             try:
                 await self._check_and_announce()
-            except Exception:
-                logger.exception("Christy proactive ticker error")
+            except asyncio.CancelledError:
+                logger.info("Christy service cancelled")
+                raise
+            except Exception as e:
+                logger.exception("Christy proactive ticker error: %s", str(e))
             await asyncio.sleep(30)
 
     async def _check_and_announce(self) -> None:
@@ -206,7 +209,7 @@ class ChristyProactiveService:
             "payload": {
                 "type": event_type,
                 "content": text,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         })
         logger.info("Christy announcement (%s): %s", event_type, text[:80])

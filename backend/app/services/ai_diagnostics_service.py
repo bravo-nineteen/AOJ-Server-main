@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -35,7 +35,7 @@ def _find_device_in_prompt(db: Session, prompt: str) -> models.Device | None:
 
 
 def analyze_device_status(db: Session, prompt: str) -> dict:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(minutes=_LAST_SEEN_STALE_MINUTES)
 
     target = _find_device_in_prompt(db, prompt)
@@ -150,7 +150,7 @@ def analyze_logs(db: Session) -> dict:
 
 
 def analyze_schedule(db: Session, mission_id: int | None = None) -> dict:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     query = db.query(models.ScheduleItem)
     if mission_id is not None:
         query = query.filter(models.ScheduleItem.mission_id == mission_id)

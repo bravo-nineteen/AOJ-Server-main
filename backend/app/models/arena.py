@@ -1,7 +1,7 @@
 """Field/arena management - locations, objectives, respawn points."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,9 +22,9 @@ class Arena(Base):
         String(500), default="", nullable=False
     )  # URL to map image/file
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -43,7 +43,7 @@ class ArenaLocation(Base):
     x_coord: Mapped[float] = mapped_column(default=0.0, nullable=False)
     y_coord: Mapped[float] = mapped_column(default=0.0, nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class RespawnPoint(Base):
@@ -66,7 +66,7 @@ class RespawnPoint(Base):
     )  # 0 = unlimited
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class NoFireZone(Base):
@@ -83,7 +83,7 @@ class NoFireZone(Base):
     radius_meters: Mapped[float] = mapped_column(default=10.0, nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class ObjectiveMarker(Base):
@@ -106,7 +106,7 @@ class ObjectiveMarker(Base):
     status: Mapped[str] = mapped_column(
         String(50), default="neutral", nullable=False
     )  # neutral, red_controlled, blue_controlled, contested
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )

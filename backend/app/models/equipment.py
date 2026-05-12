@@ -1,7 +1,7 @@
 """Equipment inventory and maintenance tracking."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,7 +19,7 @@ class EquipmentType(Base):
         String(50), nullable=False
     )  # prop, weapon, comm, protective, ammo
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Equipment(Base):
@@ -44,9 +44,9 @@ class Equipment(Base):
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     purchased_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_maintenance: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -66,11 +66,11 @@ class MaintenanceRecord(Base):
         Text, default="", nullable=False
     )  # comma-separated list
     performed_by: Mapped[str] = mapped_column(String(100), nullable=False)
-    maintenance_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    maintenance_date: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     next_maintenance_due: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cost: Mapped[float] = mapped_column(default=0.0, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class EquipmentCheckout(Base):
@@ -88,7 +88,7 @@ class EquipmentCheckout(Base):
         Integer, ForeignKey("players.id"), nullable=True
     )
     checked_out_by: Mapped[str] = mapped_column(String(100), nullable=False)
-    checked_out_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    checked_out_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     checked_in_by: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     checked_in_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     condition_before: Mapped[str] = mapped_column(

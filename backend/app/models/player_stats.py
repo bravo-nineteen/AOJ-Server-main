@@ -1,7 +1,7 @@
 """Player statistics and leaderboard models."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -32,7 +32,7 @@ class PlayerSession(Base):
     participation_minutes: Mapped[int] = mapped_column(
         default=0, nullable=False
     )  # time in game
-    joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -67,7 +67,7 @@ class PlayerStatistic(Base):
         String(500), default="", nullable=False
     )  # comma-separated
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     __table_args__ = (Index("ix_player_stat_type", "player_id", "stat_type"),)
@@ -88,5 +88,5 @@ class ObjectiveCompletion(Base):
     objective_type: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # capture, defend, retrieve, etc
-    completed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     points_awarded: Mapped[int] = mapped_column(default=0, nullable=False)
