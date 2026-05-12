@@ -21,8 +21,11 @@ services:
       # LoRa (use 'mock' in Docker, configure 'usb_serial' or 'rpi_spi' for hardware)
       LORA_MODE: mock
       
-      # AI Configuration (disable in Docker unless Ollama is running)
-      OLLAMA_ENABLED: "false"
+      # AI Configuration
+      OLLAMA_ENABLED: "true"
+      # Advisor reads OLLAMA_BASE; keep OLLAMA_HOST for compatibility.
+      OLLAMA_BASE: http://host.docker.internal:11434
+      OLLAMA_HOST: http://host.docker.internal:11434
       
       # TTS Configuration
       TTS_ENGINE: pyttsx3  # piper requires additional assets
@@ -39,6 +42,10 @@ services:
       # - ./frontend/dist:/app/frontend/dist:rw
     
     restart: unless-stopped
+
+    # Allow container to reach services running on the host machine.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     
     networks:
       - aoj-network
