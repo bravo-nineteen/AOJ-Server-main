@@ -243,10 +243,55 @@ class DrawStroke {
       );
 }
 
+class SquadPlan {
+  final String id;
+  String name;
+  TeamType team;
+  String objectiveEn;
+  String objectiveJa;
+  double? objectiveX;
+  double? objectiveY;
+
+  SquadPlan({
+    required this.id,
+    required this.name,
+    required this.team,
+    this.objectiveEn = '',
+    this.objectiveJa = '',
+    this.objectiveX,
+    this.objectiveY,
+  });
+
+  bool get hasObjective => objectiveX != null && objectiveY != null;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'team': team.name,
+        'objectiveEn': objectiveEn,
+        'objectiveJa': objectiveJa,
+        'objectiveX': objectiveX,
+        'objectiveY': objectiveY,
+      };
+
+  factory SquadPlan.fromJson(Map<String, dynamic> j) => SquadPlan(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        team: TeamType.values.byName(j['team'] as String),
+        objectiveEn: j['objectiveEn'] as String? ?? '',
+        objectiveJa: j['objectiveJa'] as String? ?? '',
+        objectiveX:
+            j['objectiveX'] != null ? (j['objectiveX'] as num).toDouble() : null,
+        objectiveY:
+            j['objectiveY'] != null ? (j['objectiveY'] as num).toDouble() : null,
+      );
+}
+
 class FieldMapData {
   String? imagePath;
   List<MapMarker> markers;
   List<DrawStroke> strokes;
+  List<SquadPlan> squads;
   String briefingEn;
   String briefingJa;
   String respawnRulesEn;
@@ -260,6 +305,7 @@ class FieldMapData {
     this.imagePath,
     List<MapMarker>? markers,
     List<DrawStroke>? strokes,
+    List<SquadPlan>? squads,
     this.briefingEn = '',
     this.briefingJa = '',
     this.respawnRulesEn = '',
@@ -269,12 +315,14 @@ class FieldMapData {
     this.objectiveEn = '',
     this.objectiveJa = '',
   })  : markers = markers ?? [],
-        strokes = strokes ?? [];
+      strokes = strokes ?? [],
+      squads = squads ?? [];
 
   Map<String, dynamic> toJson() => {
         'imagePath': imagePath,
         'markers': markers.map((m) => m.toJson()).toList(),
         'strokes': strokes.map((s) => s.toJson()).toList(),
+        'squads': squads.map((s) => s.toJson()).toList(),
         'briefingEn': briefingEn,
         'briefingJa': briefingJa,
         'respawnRulesEn': respawnRulesEn,
@@ -293,6 +341,9 @@ class FieldMapData {
         strokes: (j['strokes'] as List<dynamic>)
             .map((s) => DrawStroke.fromJson(s as Map<String, dynamic>))
             .toList(),
+        squads: ((j['squads'] as List<dynamic>?) ?? const [])
+          .map((s) => SquadPlan.fromJson(s as Map<String, dynamic>))
+          .toList(),
         briefingEn: j['briefingEn'] as String? ?? '',
         briefingJa: j['briefingJa'] as String? ?? '',
         respawnRulesEn: j['respawnRulesEn'] as String? ?? '',
