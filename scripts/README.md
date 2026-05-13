@@ -72,3 +72,26 @@ Optional flags for `build`:
 - `--target-platform <value>` forwarded to Flutter build
 - `--output-dir <path>` to control where APKs are copied
 - `--no-copy` to skip output copy step
+
+## AOJ Repo CLI (Wrapper)
+
+Use the repository-level wrapper command for Team-Terminals APK actions:
+
+```bash
+chmod +x ./scripts/aoj_cli.sh
+./scripts/aoj_cli.sh terminals-apk build --release
+```
+
+Alias:
+
+```bash
+./scripts/aoj_cli.sh tt-apk build --release
+```
+
+Examples:
+
+```bash
+./scripts/aoj_cli.sh terminals-apk locate
+./scripts/aoj_cli.sh terminals-apk clean
+./scripts/aoj_cli.sh terminals-apk doctor
+```
