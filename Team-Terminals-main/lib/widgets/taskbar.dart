@@ -116,12 +116,64 @@ class _TaskbarState extends State<Taskbar> {
                   ),
                 ),
 
+              _ServerStatusChip(state: state),
+
               // Clock
               _Clock(borderColor: ext.taskbarBorderColor),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ServerStatusChip extends StatelessWidget {
+  const _ServerStatusChip({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final ext = Theme.of(context).extension<AppThemeExtension>()!;
+    final isConnected = state.serverConnected;
+    final isBusy = state.serverBusy;
+
+    final color = isBusy
+        ? const Color(0xFFFFC107)
+        : isConnected
+            ? const Color(0xFF4CAF50)
+            : const Color(0xFFFF6B35);
+
+    final label = isBusy
+        ? 'SYNC'
+        : isConnected
+            ? 'ONLINE'
+            : 'OFFLINE';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: ext.taskbarBorderColor.withAlpha(40),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withAlpha(160)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 8, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              letterSpacing: 1.2,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

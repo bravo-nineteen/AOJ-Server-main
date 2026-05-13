@@ -28,7 +28,10 @@ class ServerIntegrationService {
   }
 
   /// Load member profiles and map them into tablet-side Player models.
-  Future<List<Player>> getPlayers() async {
+  ///
+  /// Returns null on connectivity/API failure so the caller can preserve local
+  /// cache instead of accidentally clearing data.
+  Future<List<Player>?> getPlayers() async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/members'),
@@ -41,7 +44,7 @@ class ServerIntegrationService {
             .toList();
       }
     } catch (_) {}
-    return [];
+    return null;
   }
 
   /// Create or update member profile from a Player.

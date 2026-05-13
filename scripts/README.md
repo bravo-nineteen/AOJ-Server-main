@@ -46,3 +46,29 @@ powershell -ExecutionPolicy Bypass -File .\scripts\sync_outputs_windows.ps1 -Ver
 Output path:
 
 - `outputs\<version>\windows\`
+
+## Team-Terminals APK CLI
+
+Build Android APKs for the Flutter Team-Terminals app from repo root.
+
+```bash
+chmod +x ./scripts/team_terminals_apk_cli.sh
+./scripts/team_terminals_apk_cli.sh build --release
+```
+
+Useful commands:
+
+```bash
+./scripts/team_terminals_apk_cli.sh build --debug
+./scripts/team_terminals_apk_cli.sh build --split-per-abi
+./scripts/team_terminals_apk_cli.sh locate
+./scripts/team_terminals_apk_cli.sh clean
+./scripts/team_terminals_apk_cli.sh doctor
+```
+
+Optional flags for `build`:
+
+- `--flutter-bin <path>` to use a specific Flutter binary
+- `--target-platform <value>` forwarded to Flutter build
+- `--output-dir <path>` to control where APKs are copied
+- `--no-copy` to skip output copy step

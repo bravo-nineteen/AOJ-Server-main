@@ -32,7 +32,7 @@ class _AdminBodyState extends State<_AdminBody>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -53,6 +53,7 @@ class _AdminBodyState extends State<_AdminBody>
           unselectedLabelColor: Colors.white54,
           tabs: const [
             Tab(text: 'TEAM'),
+            Tab(text: 'NETWORK'),
             Tab(text: 'PIN'),
             Tab(text: 'ABOUT'),
           ],
@@ -62,6 +63,7 @@ class _AdminBodyState extends State<_AdminBody>
             controller: _tabs,
             children: const [
               _TeamTab(),
+              _NetworkTab(),
               _PinTab(),
               _AboutTab(),
             ],
@@ -130,6 +132,184 @@ class _TeamTab extends StatelessWidget {
             'Changing the team updates the theme on this device immediately.',
             style: TextStyle(color: Colors.white38, fontSize: 11),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Network tab ─────────────────────────────────────────────────────────────
+
+class _NetworkTab extends StatefulWidget {
+  const _NetworkTab();
+
+  @override
+  State<_NetworkTab> createState() => _NetworkTabState();
+}
+
+class _NetworkTabState extends State<_NetworkTab> {
+  final _hostCtrl = TextEditingController();
+  final _portCtrl = TextEditingController();
+  bool _syncEnabled = true;
+  String? _message;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = context.read<AppState>();
+    if (_hostCtrl.text.isEmpty) {
+      _hostCtrl.text = state.serverHost;
+      _portCtrl.text = state.serverPort.toString();
+      _syncEnabled = state.serverSyncEnabled;
+    }
+  }
+
+  @override
+  void dispose() {
+    _hostCtrl.dispose();
+    _portCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save(AppState state, {bool refreshPlayers = false}) async {
+    final host = _hostCtrl.text.trim();
+    final parsedPort = int.tryParse(_portCtrl.text.trim());
+
+    if (host.isEmpty) {
+      setState(() => _message = 'Host is required.');
+      return;
+    }
+    if (parsedPort == null || parsedPort < 1 || parsedPort > 65535) {
+      setState(() => _message = 'Port must be between 1 and 65535.');
+      return;
+    }
+
+    final ok = await state.updateServerSettings(
+      host: host,
+      port: parsedPort,
+      enableSync: _syncEnabled,
+      refreshPlayers: refreshPlayers,
+    );
+
+    setState(() {
+      if (!_syncEnabled) {
+        _message = 'Server sync disabled. Local mode active.';
+      } else if (ok) {
+        _message = refreshPlayers
+            ? 'Connected and synced roster successfully.'
+            : 'Network settings saved and connection verified.';
+      } else {
+        _message = state.lastServerError ?? 'Connection failed.';
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final ext = Theme.of(context).extension<AppThemeExtension>()!;
+
+    final statusText = state.serverBusy
+        ? 'Syncing...'
+        : state.serverConnected
+            ? 'Connected'
+            : 'Offline';
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('SERVER STATUS',
+              style: TextStyle(
+                  color: ext.accentColor,
+                  fontSize: 10,
+                  letterSpacing: 2)),
+          const SizedBox(height: 8),
+          Text(
+            '$statusText   ${state.serverHost}:${state.serverPort}',
+            style: TextStyle(
+              color: state.serverConnected
+                  ? const Color(0xFF4CAF50)
+                  : const Color(0xFFFF6B35),
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          if (state.lastSyncAt != null)
+            Text(
+              'Last roster sync: ${state.lastSyncAt}',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+          if (state.lastServerError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                state.lastServerError!,
+                style: const TextStyle(color: Color(0xFFFF6B35), fontSize: 12),
+              ),
+            ),
+          const SizedBox(height: 22),
+          Text('CONNECTION SETTINGS',
+              style: TextStyle(
+                  color: ext.accentColor,
+                  fontSize: 10,
+                  letterSpacing: 2)),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _hostCtrl,
+            enabled: !state.serverBusy,
+            decoration: const InputDecoration(
+              labelText: 'AOJ Server Host',
+              prefixIcon: Icon(Icons.dns_outlined),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _portCtrl,
+            enabled: !state.serverBusy,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'AOJ Server Port',
+              prefixIcon: Icon(Icons.settings_ethernet),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Enable server sync'),
+            subtitle: const Text('When disabled, Team-Terminals works in local-only mode.'),
+            value: _syncEnabled,
+            onChanged: state.serverBusy
+                ? null
+                : (v) => setState(() => _syncEnabled = v),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: state.serverBusy ? null : () => _save(state),
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('SAVE SETTINGS'),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton.icon(
+                onPressed: state.serverBusy
+                    ? null
+                    : () => _save(state, refreshPlayers: true),
+                icon: const Icon(Icons.sync),
+                label: const Text('SYNC NOW'),
+              ),
+            ],
+          ),
+          if (_message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                _message!,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ),
         ],
       ),
     );

@@ -18,8 +18,12 @@ class AppState extends ChangeNotifier {
   List<GameFile> _gameFiles = [];
   String? _activeGameFileId;
   String _serverHost = '127.0.0.1';
+  int _serverPort = 8000;
   bool _serverConnected = false;
   bool _serverSyncEnabled = true;
+  bool _serverBusy = false;
+  String? _lastServerError;
+  DateTime? _lastSyncAt;
   ServerIntegrationService? _server;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -28,7 +32,11 @@ class AppState extends ChangeNotifier {
   bool get isAdmin => _isAdmin;
   bool get serverConnected => _serverConnected;
   bool get serverSyncEnabled => _serverSyncEnabled;
+  bool get serverBusy => _serverBusy;
   String get serverHost => _serverHost;
+  int get serverPort => _serverPort;
+  String? get lastServerError => _lastServerError;
+  DateTime? get lastSyncAt => _lastSyncAt;
   List<Player> get players => List.unmodifiable(_players);
   List<DeviceInfo> get devices => List.unmodifiable(_devices);
   List<GameFile> get gameFiles => List.unmodifiable(_gameFiles);
@@ -78,10 +86,11 @@ class AppState extends ChangeNotifier {
 
     _activeGameFileId = prefs.getString('activeGameFileId');
     _serverHost = prefs.getString('serverHost') ?? '127.0.0.1';
+    _serverPort = prefs.getInt('serverPort') ?? 8000;
     _serverSyncEnabled = prefs.getBool('serverSyncEnabled') ?? true;
 
     if (_serverSyncEnabled) {
-      await connectToServer(_serverHost);
+      await connectToServer(_serverHost, port: _serverPort);
       await refreshPlayersFromServer();
     }
   }
@@ -101,15 +110,28 @@ class AppState extends ChangeNotifier {
       await prefs.setString('activeGameFileId', _activeGameFileId!);
     }
     await prefs.setString('serverHost', _serverHost);
+    await prefs.setInt('serverPort', _serverPort);
     await prefs.setBool('serverSyncEnabled', _serverSyncEnabled);
   }
 
   // ── Server Integration ───────────────────────────────────────────────────
   Future<bool> connectToServer(String host, {int port = 8000}) async {
     _serverHost = host;
-    _server = ServerIntegrationService(host, port: port);
+    _serverPort = port;
+    _serverBusy = true;
+    _lastServerError = null;
+    notifyListeners();
+
+    _server = ServerIntegrationService(host, port: _serverPort);
     _serverSyncEnabled = true;
     _serverConnected = await _server!.testConnection();
+
+    if (!_serverConnected) {
+      _lastServerError =
+          'Unable to reach server at $_serverHost:$_serverPort.';
+    }
+
+    _serverBusy = false;
     await _persist();
     notifyListeners();
     return _serverConnected;
@@ -118,6 +140,7 @@ class AppState extends ChangeNotifier {
   Future<void> disableServerSync() async {
     _serverConnected = false;
     _serverSyncEnabled = false;
+    _serverBusy = false;
     _server = null;
     await _persist();
     notifyListeners();
@@ -125,10 +148,50 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshPlayersFromServer() async {
     if (!_serverSyncEnabled || _server == null) return;
+
+    _serverBusy = true;
+    _lastServerError = null;
+    notifyListeners();
+
     final remotePlayers = await _server!.getPlayers();
+
+    if (remotePlayers == null) {
+      _serverConnected = false;
+      _lastServerError =
+          'Player sync failed. Local roster kept unchanged.';
+      _serverBusy = false;
+      await _persist();
+      notifyListeners();
+      return;
+    }
+
     _players = remotePlayers;
+    _serverConnected = true;
+    _lastSyncAt = DateTime.now();
+    _serverBusy = false;
     await _persist();
     notifyListeners();
+  }
+
+  Future<bool> updateServerSettings({
+    required String host,
+    required int port,
+    required bool enableSync,
+    bool refreshPlayers = true,
+  }) async {
+    _serverHost = host.trim();
+    _serverPort = port;
+
+    if (!enableSync) {
+      await disableServerSync();
+      return true;
+    }
+
+    final connected = await connectToServer(_serverHost, port: _serverPort);
+    if (connected && refreshPlayers) {
+      await refreshPlayersFromServer();
+    }
+    return connected;
   }
 
   void _syncInBackground(Future<void> Function() action) {
@@ -151,7 +214,7 @@ class AppState extends ChangeNotifier {
     }
     await _persist();
     if (_serverSyncEnabled) {
-      await connectToServer(_serverHost);
+      await connectToServer(_serverHost, port: _serverPort);
       await refreshPlayersFromServer();
     }
     notifyListeners();
