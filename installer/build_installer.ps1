@@ -23,11 +23,20 @@ param(
     [string]$CertificatePassword = $env:AOJ_SIGN_CERT_PASSWORD,
     [string]$TimestampUrl = $(if ($env:AOJ_SIGN_TIMESTAMP_URL) { $env:AOJ_SIGN_TIMESTAMP_URL } else { 'http://timestamp.digicert.com' }),
     [string]$SignToolPath = $env:AOJ_SIGNTOOL_PATH,
-    [string]$ProductUrl = $(if ($env:AOJ_PRODUCT_URL) { $env:AOJ_PRODUCT_URL } else { 'https://github.com/YOUR_ORG/AOJ-Server' })
+    [string]$ProductUrl = $(if ($env:AOJ_PRODUCT_URL) { $env:AOJ_PRODUCT_URL } else { 'https://github.com/bravo-nineteen/AOJ-Server' })
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Version tracking file (can be updated to bump installer version)
+$VersionFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'VERSION.txt'
+$CurrentVersion = '1.0.1'
+if (Test-Path $VersionFile) {
+    $ReadVersion = Get-Content $VersionFile -Raw | Select-String -Pattern '\d+\.\d+\.\d+' -AllMatches | ForEach-Object { $_.Matches[0].Value }
+    if ($ReadVersion) { $CurrentVersion = $ReadVersion }
+}
+Write-Host "Building AOJ Command OS Installer Version $CurrentVersion" -ForegroundColor Cyan
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 
@@ -108,12 +117,32 @@ if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir | Out-Null
 }
 
+# Verify and warn about logo assets
+$AssetDir = Join-Path $PSScriptRoot 'assets'
+$LogoFile = Join-Path $AssetDir 'aoj_logo.bmp'
+$IconFile = Join-Path $AssetDir 'aoj_icon.ico'
+
+if (-not (Test-Path $IconFile)) {
+    Write-Host "WARNING: aoj_icon.ico not found at $IconFile" -ForegroundColor Yellow
+    Write-Host "  Installer will use default icon. Place your logo icon file for branding." -ForegroundColor Yellow
+}
+
+if (-not (Test-Path $LogoFile)) {
+    Write-Host "NOTE: aoj_logo.bmp not found at $LogoFile" -ForegroundColor Yellow
+    Write-Host "  Wizard will not display custom branding. Place a 480x360px BMP file for wizard image." -ForegroundColor Yellow
+}
+
+# Clean old installers before building new version
+Write-Host "Cleaning previous builds..." -ForegroundColor Gray
+Get-ChildItem -Path $OutputDir -Filter 'AOJ_CommandOS_Setup_*.exe' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
 # Build
 $IssFile = Join-Path $PSScriptRoot 'aoj_installer.iss'
 Write-Host ""
 Write-Host "Building installer..." -ForegroundColor Cyan
-Write-Host "  Script : $IssFile"
-Write-Host "  Output : $OutputDir"
+Write-Host "  Version : $CurrentVersion"
+Write-Host "  Script  : $IssFile"
+Write-Host "  Output  : $OutputDir"
 Write-Host ""
 
 & $Iscc $IssFile

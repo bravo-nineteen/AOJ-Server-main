@@ -25,7 +25,7 @@ class ScheduledAnnouncementsService:
         # Set of (rule_id, schedule_item_id) that have already fired today
         self._fired: set[tuple[int, int]] = set()
         # Reset fired set at midnight UTC
-        self._last_reset_day: int = datetime.utcnow().day
+        self._last_reset_day: int = datetime.now(timezone.utc).day
 
     async def ticker(self) -> None:
         """Run every 60 seconds."""

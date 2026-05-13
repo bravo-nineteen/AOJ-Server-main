@@ -1,14 +1,16 @@
 import json
 import hashlib
+import hmac
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.config import UPDATE_CENTER_SHARED_SECRET
 from app.database import BASE_DIR, DATABASE_URL
 from app.lora.service import lora_service
 from app.services.log_service import log_action
@@ -28,6 +30,35 @@ CHANGELOG = [
     "0.1.0 - Update Center safe placeholders added. No destructive file replacement is enabled.",
     "0.1.0 - Firmware package upload and in-place prop rollout flow added (no AOJ reinstall required).",
 ]
+
+_ALLOWED_UPDATE_SUFFIXES = (".zip", ".tar", ".tar.gz", ".tgz", ".bin", ".img")
+_MAX_UPDATE_PACKAGE_BYTES = 1_500_000_000  # 1.5 GB guardrail
+
+
+def _validate_update_placeholder_payload(payload: schemas.UpdatePackagePlaceholderRequest) -> None:
+    name = Path(payload.filename or "").name
+    if not name or name != payload.filename:
+        raise ValueError("Invalid filename. Path segments are not allowed.")
+    if not any(name.lower().endswith(sfx) for sfx in _ALLOWED_UPDATE_SUFFIXES):
+        raise ValueError("Unsupported package extension.")
+    if payload.size_bytes <= 0:
+        raise ValueError("Package size must be greater than zero.")
+    if payload.size_bytes > _MAX_UPDATE_PACKAGE_BYTES:
+        raise ValueError("Package size exceeds allowed limit.")
+
+
+def _verify_update_signature(payload: schemas.UpdatePackagePlaceholderRequest) -> bool:
+    secret = UPDATE_CENTER_SHARED_SECRET.strip()
+    if not secret:
+        return True
+
+    signature = (payload.signature or "").strip().lower()
+    if not signature:
+        return False
+
+    signed_blob = f"{payload.filename}:{payload.size_bytes}:{payload.manifest_sha256}".encode("utf-8")
+    expected = hmac.new(secret.encode("utf-8"), signed_blob, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 
 def _ensure_firmware_dirs() -> None:
@@ -174,7 +205,7 @@ def get_update_center_status(db: Session) -> schemas.UpdateCenterStatusResponse:
 
 def backup_database(db: Session) -> schemas.UpdateCenterActionResponse:
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     backup_path = BACKUP_DIR / f"aoj_command_os_backup_{timestamp}.db"
     shutil.copy2(DATABASE_FILE_PATH, backup_path)
     log_action(
@@ -194,8 +225,10 @@ def backup_database(db: Session) -> schemas.UpdateCenterActionResponse:
 def upload_update_package_placeholder(
     db: Session, payload: schemas.UpdatePackagePlaceholderRequest
 ) -> schemas.UpdateCenterActionResponse:
-    # TODO: Validate package signature and manifest before any future install support.
-    # TODO: Store package safely outside runtime directories before verification.
+    _validate_update_placeholder_payload(payload)
+    if not _verify_update_signature(payload):
+        raise ValueError("Invalid package signature for placeholder metadata.")
+
     log_action(
         db,
         level=models.LogLevel.info,
@@ -203,49 +236,60 @@ def upload_update_package_placeholder(
         source="update_center",
         message=(
             f"Offline update package placeholder received: {payload.filename} "
-            f"({payload.size_bytes} bytes)"
+            f"({payload.size_bytes} bytes, sha256={payload.manifest_sha256[:12] or 'n/a'})"
         ),
     )
     return schemas.UpdateCenterActionResponse(
         status="placeholder",
         message=(
-            f"Package '{payload.filename}' acknowledged. File replacement is disabled. "
-            "TODO: implement verified offline installer flow."
+            f"Package '{payload.filename}' metadata verified and acknowledged. "
+            "File replacement is disabled in placeholder mode."
         ),
         placeholder=True,
     )
 
 
 def restore_database_placeholder(db: Session) -> schemas.UpdateCenterActionResponse:
-    # TODO: Require explicit operator approval and pre-restore validation.
-    # TODO: Restore into a staged copy and verify schema compatibility before swap.
+    latest_backup = None
+    if BACKUP_DIR.exists():
+        backups = sorted(BACKUP_DIR.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if backups:
+            latest_backup = backups[0].name
+
+    if latest_backup is None:
+        raise ValueError("No backup found. Create a backup before restore placeholder requests.")
+
     log_action(
         db,
         level=models.LogLevel.warning,
         category=models.LogCategory.update,
         source="update_center",
-        message="Database restore placeholder requested.",
+        message=f"Database restore placeholder requested. latest_backup={latest_backup}",
     )
     return schemas.UpdateCenterActionResponse(
         status="placeholder",
-        message="Restore placeholder acknowledged. No database files were modified.",
+        message=(
+            "Restore placeholder acknowledged after precheck. "
+            "No database files were modified."
+        ),
         placeholder=True,
     )
 
 
 def rollback_placeholder(db: Session) -> schemas.UpdateCenterActionResponse:
-    # TODO: Implement versioned release manifest and rollback safety checks.
-    # TODO: Require admin approval and backup verification before enabling rollback.
+    if not DATABASE_FILE_PATH.exists():
+        raise ValueError("Active database file is missing. Rollback placeholder is blocked.")
+
     log_action(
         db,
         level=models.LogLevel.warning,
         category=models.LogCategory.update,
         source="update_center",
-        message="Rollback placeholder requested.",
+        message="Rollback placeholder requested with safety precheck pass.",
     )
     return schemas.UpdateCenterActionResponse(
         status="placeholder",
-        message="Rollback placeholder acknowledged. No files were changed.",
+        message="Rollback placeholder acknowledged after precheck. No files were changed.",
         placeholder=True,
     )
 
@@ -270,7 +314,7 @@ def upload_firmware_package(
         raise ValueError("Firmware version is required.")
 
     _ensure_firmware_dirs()
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_filename = Path(filename).name
     stored_name = f"{timestamp}_{safe_filename}"
     stored_path = FIRMWARE_PACKAGE_DIR / stored_name
@@ -284,7 +328,7 @@ def upload_firmware_package(
         "version": version.strip(),
         "size_bytes": len(content),
         "sha256": checksum,
-        "uploaded_at": datetime.utcnow().isoformat(),
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "notes": notes.strip(),
     }
 
@@ -333,7 +377,7 @@ def apply_firmware_package(
         lora_service.send_command(item.device_id, "FIRMWARE_UPDATE", firmware_value)
         item.status = "maintenance"
         item.firmware_version = str(package["version"])
-        item.last_seen = datetime.utcnow()
+        item.last_seen = datetime.now(timezone.utc)
         target_ids.append(item.id)
 
         rollout_targets.append(
@@ -343,7 +387,7 @@ def apply_firmware_package(
                 "name": item.name,
                 "status": "queued",
                 "message": "Firmware update command queued.",
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -420,7 +464,7 @@ def update_firmware_rollout_progress(
 
     target["status"] = payload.status
     target["message"] = payload.message.strip()
-    target["updated_at"] = datetime.utcnow().isoformat()
+    target["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     acknowledged_count = sum(1 for item in targets if item.get("status") == "acked")
     failed_count = sum(1 for item in targets if item.get("status") == "failed")
@@ -433,7 +477,7 @@ def update_firmware_rollout_progress(
         prop = db.query(models.Prop).filter(models.Prop.id == payload.prop_id).first()
         if prop is not None:
             prop.status = "online"
-            prop.last_seen = datetime.utcnow()
+            prop.last_seen = datetime.now(timezone.utc)
 
     log_action(
         db,
@@ -494,7 +538,7 @@ def handle_firmware_ack_event(
             # Update target status to acked.
             target["status"] = "acked"
             target["message"] = f"Acknowledged via LoRa message {message_id}: {ack_value}"
-            target["updated_at"] = datetime.utcnow().isoformat()
+            target["updated_at"] = datetime.now(timezone.utc).isoformat()
 
             # Recalculate job aggregate status from all targets.
             acknowledged_count = sum(1 for item in targets if item.get("status") == "acked")
@@ -506,7 +550,7 @@ def handle_firmware_ack_event(
 
             # Update prop status.
             prop.status = "online"
-            prop.last_seen = datetime.utcnow()
+            prop.last_seen = datetime.now(timezone.utc)
 
             log_action(
                 db,

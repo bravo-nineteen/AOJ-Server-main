@@ -16,6 +16,10 @@ class MissionCreate(MissionBase):
     pass
 
 
+class MissionUpdate(MissionBase):
+    pass
+
+
 class MissionRead(MissionBase):
     id: int
     created_at: datetime

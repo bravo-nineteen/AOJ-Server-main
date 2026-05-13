@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/schedule", tags=["Schedule"])
 
 @router.get("/items", response_model=list[schemas.ScheduleItemRead])
 def list_schedule_items(db: Session = Depends(get_db)):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
     return (
@@ -61,7 +61,7 @@ def edit_schedule_item(
     update_data["end_time"] = resolved_end
     for key, value in update_data.items():
         setattr(item, key, value)
-    item.completed_at = datetime.utcnow() if payload.is_complete else None
+    item.completed_at = datetime.now(timezone.utc) if payload.is_complete else None
     db.commit()
     db.refresh(item)
     log_action(
@@ -98,7 +98,7 @@ def mark_schedule_item_complete(item_id: int, db: Session = Depends(get_db)):
     if item is None:
         raise HTTPException(status_code=404, detail="Schedule item not found")
     item.is_complete = True
-    item.completed_at = datetime.utcnow()
+    item.completed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(item)
     log_action(
@@ -113,7 +113,7 @@ def mark_schedule_item_complete(item_id: int, db: Session = Depends(get_db)):
 
 @router.get("/overview", response_model=schemas.ScheduleOverviewResponse)
 def get_schedule_overview(db: Session = Depends(get_db)):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
 

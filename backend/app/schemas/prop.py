@@ -44,4 +44,14 @@ class PropRead(PropBase):
 
 
 class PropCommandRequest(BaseModel):
-    command: Literal["arm", "disarm", "reset", "status_request", "trigger_alarm"]
+    command: Literal[
+        "arm",
+        "disarm",
+        "reset",
+        "status_request",
+        "trigger_alarm",
+        "game_start",
+        "game_end",
+        "ready",
+        "test_buzz",
+    ]

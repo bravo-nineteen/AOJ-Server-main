@@ -1,5 +1,6 @@
 import json
-from datetime import datetime
+import asyncio
+from datetime import datetime, timezone
 from datetime import timedelta
 import re
 
@@ -37,6 +38,109 @@ _CONFIRM_ONLY_PATTERN = re.compile(
     r"^\s*(yes|yeah|yep|ok|okay|confirm|confirmed|proceed|go ahead|do it|approved|affirmative)\s*[!.?]*\s*$",
     re.IGNORECASE,
 )
+_CORRECTION_PREFIX_PATTERN = re.compile(
+    r"\b(actually|correction|to clarify|i meant|sorry|update|rather|instead|not quite|no,|no\.)\b",
+    re.IGNORECASE,
+)
+_LANGUAGE_VARIANTS: dict[str, str] = {
+    "start": r"\b(start|begin|commence|kick\s*-?off|launch|go\s+live|open\s+up|開始)\b",
+    "stop": r"\b(stop|end|finish|wrap\s+up|conclude|shut\s+down|halt|終了|停止)\b",
+    "pause": r"\b(pause|hold|freeze|suspend|一時停止)\b",
+    "resume": r"\b(resume|continue|carry\s+on|unpause|restart|再開)\b",
+    "reset": r"\b(reset|clear|wipe|reinitialize|初期化|リセット)\b",
+    "score": r"\b(score|points|tally|scoreboard|standing|得点|スコア)\b",
+    "schedule": r"\b(schedule|agenda|rundown|itinerary|timetable|timeline|予定|スケジュール)\b",
+    "announcement": r"\b(announcement|broadcast|notify|notification|message\s+everyone|tell\s+everyone|告知|アナウンス)\b",
+    "team": r"\b(team|squad|fireteam|group|side|班|分隊)\b",
+    "game_mode": r"\b(game\s*mode|mode|ruleset|variant|format|scenario|ルール|モード)\b",
+    "device_issue": r"\b(device|prop|node|sensor|relay|radio|lora|terminal|unit|beacon|problem|issue|fault|malfunction|acting\s+up|故障|不具合)\b",
+}
+_TEAM_ALIASES: dict[str, str] = {
+    "task force onyx": "Task Force Onyx",
+    "onyx": "Task Force Onyx",
+    "tfo": "Task Force Onyx",
+    "black talon": "Black Talon",
+    "talon": "Black Talon",
+    "red team": "Red Team",
+    "red": "Red Team",
+    "blue team": "Blue Team",
+    "blue": "Blue Team",
+    "alpha team": "Alpha Team",
+    "alpha": "Alpha Team",
+    "bravo team": "Bravo Team",
+    "bravo": "Bravo Team",
+}
+_SKILL_ALIASES: dict[str, str] = {
+    "beginner": "beginner",
+    "novice": "beginner",
+    "new": "beginner",
+    "newbie": "beginner",
+    "rookie": "beginner",
+    "intermediate": "intermediate",
+    "experienced": "experienced",
+    "advanced": "advanced",
+    "expert": "expert",
+    "veteran": "veteran",
+    "pro": "pro",
+}
+_INTENT_ROUTE_PATTERNS: list[tuple[str, str]] = [
+    (
+        "operations_control",
+        r"\b(start|stop|pause|resume|reset|arm|disarm|trigger|launch|end|terminate)\b.*\b(game|mission|session|round|device|prop)\b",
+    ),
+    (
+        "diagnostics",
+        r"\b(diagnose|debug|troubleshoot|investigate|fault|malfunction|offline|error|issue|fix)\b",
+    ),
+    (
+        "compliance_safety",
+        r"\b(legal|law|compliance|allowed|forbidden|joule|chrono|under\s*-?18|minor|waiver|ppe|wbgt|heat|emergency|119)\b",
+    ),
+    (
+        "roster_identity",
+        r"\b(team|callsign|player|member|assign|reassign|moved|switched|actually|correction|update)\b",
+    ),
+    (
+        "planning_rules",
+        r"\b(game\s*mode|ruleset|briefing|announcement|schedule|objective|plan|scenario|format)\b",
+    ),
+    (
+        "casual_chat",
+        r"^\s*(hi|hello|hey|thanks|thank\s+you|ok|okay|cool|great)\s*[!.?]*\s*$",
+    ),
+]
+_INTENT_ROUTE_GUIDANCE: dict[str, str] = {
+    "operations_control": (
+        "Focus on operational safety. For state-changing actions, require explicit confirmation before procedural steps."
+    ),
+    "diagnostics": (
+        "Prioritize root-cause troubleshooting with fast checks first, then deeper checks, and clear next actions."
+    ),
+    "compliance_safety": (
+        "Apply conservative Japan safety/compliance guidance and ask one clarification if legal scope is ambiguous."
+    ),
+    "roster_identity": (
+        "Prioritize identity/team consistency and apply latest user corrections over older assumptions."
+    ),
+    "planning_rules": (
+        "Provide actionable event/game planning guidance with concise structure and operator-ready wording."
+    ),
+    "casual_chat": (
+        "Respond naturally and briefly without forcing operational dashboards unless requested."
+    ),
+    "general": (
+        "Answer directly, use available context where relevant, and avoid unnecessary verbosity."
+    ),
+}
+_INTENT_ROUTE_TOPICS: dict[str, set[str]] = {
+    "operations_control": {"rules", "prop_issues", "event_management"},
+    "diagnostics": {"prop_issues", "event_management"},
+    "compliance_safety": {"rules", "briefings"},
+    "roster_identity": {"teams"},
+    "planning_rules": {"rules", "game_modes", "schedule", "briefings", "announcements"},
+    "casual_chat": set(),
+    "general": set(),
+}
 
 
 def _to_json_list(items: list[str]) -> str:
@@ -53,6 +157,24 @@ def _from_json_list(raw: str | None) -> list[str]:
     return [str(item) for item in value] if isinstance(value, list) else []
 
 
+def _from_json_dict(raw: str | None) -> dict[str, dict[str, str]]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+
+    normalized: dict[str, dict[str, str]] = {}
+    for key, item in value.items():
+        if not isinstance(item, dict):
+            continue
+        normalized[str(key)] = {str(k): str(v) for k, v in item.items() if v is not None}
+    return normalized
+
+
 def _truncate_text(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
@@ -62,31 +184,454 @@ def _truncate_text(text: str, max_len: int) -> str:
 
 
 def _parse_json_list(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
-    return [str(item) for item in data] if isinstance(data, list) else []
+    """DEPRECATED: Use _from_json_list instead. This is identical function for compatibility."""
+    return _from_json_list(raw)
 
 
-def _last_assistant_text(db: Session, conversation_id: int) -> str:
-    row = (
-        db.query(models.AIMessage)
-        .filter(
-            models.AIMessage.conversation_id == conversation_id,
-            models.AIMessage.role == models.MessageRole.assistant,
-        )
-        .order_by(models.AIMessage.created_at.desc(), models.AIMessage.id.desc())
-        .first()
+def _normalize_user_language(text_value: str) -> str:
+    text_value = (text_value or "").strip()
+    if not text_value:
+        return text_value
+
+    lower = text_value.lower()
+    canonical_terms: list[str] = []
+    for canonical, pattern in _LANGUAGE_VARIANTS.items():
+        if re.search(pattern, lower):
+            canonical_terms.append(canonical)
+
+    canonical_terms = list(dict.fromkeys(canonical_terms))
+    if not canonical_terms:
+        return text_value
+
+    return (
+        f"{text_value}\n\n"
+        f"[INTERPRETED INTENT]\ncanonical_terms={', '.join(canonical_terms)}"
     )
-    return row.content if row and row.content else ""
 
+
+def _detect_intent_route(raw_prompt: str) -> str:
+    text = (raw_prompt or "").strip().lower()
+    if not text:
+        return "general"
+
+    for route, pattern in _INTENT_ROUTE_PATTERNS:
+        if re.search(pattern, text):
+            return route
+    return "general"
+
+
+def _parse_scores_from_text(text: str) -> tuple[int, int] | None:
+    lower = text.lower()
+    m = re.search(r"red\s*(\d+)\s*[-:]\s*(\d+)\s*blue", lower)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.search(r"blue\s*(\d+)\s*[-:]\s*(\d+)\s*red", lower)
+    if m:
+        return int(m.group(2)), int(m.group(1))
+    m = re.search(r"\b(\d+)\s*[-:]\s*(\d+)\b", lower)
+    if m:
+        # Default order for plain score format is red-blue.
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def _try_execute_system_command(
+    db: Session,
+    conversation: models.AIConversation,
+    raw_prompt: str,
+) -> dict[str, object] | None:
+    lower = (raw_prompt or "").strip().lower()
+    if not lower:
+        return None
+
+    # Mission lifecycle direct commands.
+    if re.search(r"\b(start|begin|launch)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.start_game(db))
+            return {
+                "answer": f"Game started for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:start_game", "execution:success"],
+                "suggested_actions": ["Ask for live score or objective status."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't start game: {str(e)}",
+                "used_context": ["command:start_game", "execution:error"],
+                "suggested_actions": ["Check mission state and ensure it is ready."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    if re.search(r"\b(pause|hold)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.pause_game(db))
+            return {
+                "answer": f"Game paused for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:pause_game", "execution:success"],
+                "suggested_actions": ["Ask to resume when ready."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't pause game: {str(e)}",
+                "used_context": ["command:pause_game", "execution:error"],
+                "suggested_actions": ["Check current mission state."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    if re.search(r"\b(resume|continue|unpause)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.resume_game(db))
+            return {
+                "answer": f"Game resumed for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:resume_game", "execution:success"],
+                "suggested_actions": ["Ask for live objective status if needed."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't resume game: {str(e)}",
+                "used_context": ["command:resume_game", "execution:error"],
+                "suggested_actions": ["Check current mission state."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    if re.search(r"\b(end|stop|finish)\b.*\b(game|mission|round)\b", lower):
+        try:
+            state = asyncio.run(mission_control_service.end_game(db))
+            return {
+                "answer": f"Game ended for mission **{state.get('mission_title','Unknown')}**.",
+                "used_context": ["command:end_game", "execution:success"],
+                "suggested_actions": ["You can ask me to record the result now."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't end game: {str(e)}",
+                "used_context": ["command:end_game", "execution:error"],
+                "suggested_actions": ["Check current mission state."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    score_match = re.search(r"\b(add|plus|increase|decrease|subtract|set)\b\s*(\d+)\s*(?:points?\s*)?(?:to\s*)?\b(red|blue)\b", lower)
+    if score_match:
+        action, amount_raw, team = score_match.groups()
+        amount = int(amount_raw)
+        if action in {"decrease", "subtract"}:
+            delta = -amount
+        elif action == "set":
+            state = mission_control_service.get_state()
+            current = int(state.get("red_team_score", 0) if team == "red" else state.get("blue_team_score", 0))
+            delta = amount - current
+        else:
+            delta = amount
+        try:
+            payload = schemas.MissionControlScoreRequest(team=team, delta=delta, reason="ai_command")
+            state = asyncio.run(mission_control_service.adjust_score(payload, db))
+            return {
+                "answer": (
+                    f"Score updated: Red {state.get('red_team_score',0)} - "
+                    f"Blue {state.get('blue_team_score',0)}."
+                ),
+                "used_context": ["command:adjust_score", "execution:success"],
+                "suggested_actions": ["Ask me to record final result when game ends."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.95,
+                "model": "system-command-executor",
+            }
+        except Exception as e:
+            return {
+                "answer": f"Couldn't update score: {str(e)}",
+                "used_context": ["command:adjust_score", "execution:error"],
+                "suggested_actions": ["Check mission state and team name (red/blue)."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.8,
+                "model": "system-command-executor",
+            }
+
+    # Command: prepare and start next game from schedule.
+    if re.search(
+        r"\b(get|prepare|ready|setup|set up|start|launch)\b.*\b(next)\b.*\b(game|round|match|session)\b",
+        lower,
+    ):
+        state = mission_control_service.get_state()
+        if state.get("state") in ("running", "paused"):
+            return {
+                "answer": "A game is already in progress. End or pause/resume the current game before preparing the next one.",
+                "used_context": ["command:next_game_ready", "execution:blocked_active_game"],
+                "suggested_actions": ["End current game, then ask again to prepare next game."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.9,
+                "model": "system-command-executor",
+            }
+
+        now = datetime.now(timezone.utc)
+        next_item = (
+            db.query(models.ScheduleItem)
+            .filter(models.ScheduleItem.is_complete.is_(False))
+            .filter(
+                (models.ScheduleItem.activity_type.ilike("%game%"))
+                | (models.ScheduleItem.title.ilike("%game%"))
+            )
+            .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
+            .first()
+        )
+
+        if next_item is None:
+            return {
+                "answer": "No upcoming game item was found in the schedule. Add a game schedule item, then ask me to prepare the next game.",
+                "used_context": ["command:next_game_ready", "execution:no_schedule_item"],
+                "suggested_actions": ["Create a schedule item with activity type 'Game'."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.85,
+                "model": "system-command-executor",
+            }
+
+        game_mode = (next_item.game_mode or "Skirmish").strip() or "Skirmish"
+        objectives = ["Capture Alpha", "Capture Bravo", "Hold Center"]
+        main_timer_seconds = 1800
+        try:
+            delta = int((next_item.end_time - next_item.start_time).total_seconds())
+            if delta > 0:
+                main_timer_seconds = max(300, min(delta, 7200))
+        except Exception:
+            pass
+
+        mission_payload = schemas.MissionControlCreateMissionRequest(
+            title=next_item.title,
+            description=next_item.details or f"Auto-prepared from schedule item #{next_item.id}",
+            game_mode=game_mode,
+            main_timer_seconds=main_timer_seconds,
+            phase_timer_seconds=300,
+            objectives=objectives,
+        )
+
+        # These service methods are async; execute from this sync context.
+        asyncio.run(mission_control_service.create_mission(db, mission_payload))
+        asyncio.run(mission_control_service.start_game(db))
+
+        next_item.is_complete = True
+        next_item.completed_at = now
+        db.commit()
+
+        return {
+            "answer": (
+                f"Next game is ready: **{next_item.title}** ({game_mode}). "
+                "I created the mission and started the game."
+            ),
+            "used_context": ["command:next_game_ready", "execution:success", f"schedule_item:{next_item.id}"],
+            "suggested_actions": ["Monitor Mission Control state and objective status."],
+            "blocked_actions": [],
+            "requires_admin_confirmation": False,
+            "confidence": 0.93,
+            "model": "system-command-executor",
+        }
+
+    # Command: record game results (e.g. "record result red 120-100 blue").
+    if re.search(r"\b(record|log|save|submit)\b.*\b(result|score|outcome)\b", lower):
+        scores = _parse_scores_from_text(raw_prompt)
+        if scores is None:
+            return {
+                "answer": (
+                    "I can record that result, but I need the score format. "
+                    "Example: 'record result red 120-100 blue notes close finish'."
+                ),
+                "used_context": ["command:record_result", "execution:missing_score"],
+                "suggested_actions": ["Provide red and blue points in the same command."],
+                "blocked_actions": [],
+                "requires_admin_confirmation": False,
+                "confidence": 0.82,
+                "model": "system-command-executor",
+            }
+
+        red_points, blue_points = scores
+        if "cancel" in lower:
+            winner = "Cancelled"
+        elif "draw" in lower or red_points == blue_points:
+            winner = "Draw"
+        elif red_points > blue_points:
+            winner = "Red"
+        else:
+            winner = "Blue"
+
+        state = mission_control_service.get_state()
+        session_name = state.get("mission_title") or "Recorded Session"
+        notes = ""
+        notes_match = re.search(r"\bnotes?\b[:\-\s]*(.+)$", raw_prompt, re.IGNORECASE)
+        if notes_match:
+            notes = notes_match.group(1).strip()[:500]
+
+        active_session = (
+            db.query(models.GameSession)
+            .filter(models.GameSession.is_active.is_(True))
+            .order_by(models.GameSession.id.desc())
+            .first()
+        )
+        schedule_item = (
+            db.query(models.ScheduleItem)
+            .filter(models.ScheduleItem.is_complete.is_(False))
+            .filter(models.ScheduleItem.activity_type.ilike("%game%"))
+            .order_by(models.ScheduleItem.start_time.asc(), models.ScheduleItem.id.asc())
+            .first()
+        )
+
+        result_row = models.GameResult(
+            game_session_id=active_session.id if active_session else None,
+            schedule_item_id=schedule_item.id if schedule_item else None,
+            session_name=session_name,
+            winner=winner,
+            red_points=red_points,
+            blue_points=blue_points,
+            red_penalties=0,
+            blue_penalties=0,
+            notes=notes,
+        )
+        db.add(result_row)
+        db.commit()
+        db.refresh(result_row)
+
+        return {
+            "answer": (
+                f"Recorded result for **{session_name}**: winner **{winner}**, "
+                f"Red {red_points} - Blue {blue_points}."
+            ),
+            "used_context": ["command:record_result", "execution:success", f"result_id:{result_row.id}"],
+            "suggested_actions": ["Ask me for a summary of today's results."],
+            "blocked_actions": [],
+            "requires_admin_confirmation": False,
+            "confidence": 0.94,
+            "model": "system-command-executor",
+        }
+
+    return None
+
+
+def _build_intent_router_block(intent_route: str) -> str:
+    guidance = _INTENT_ROUTE_GUIDANCE.get(intent_route, _INTENT_ROUTE_GUIDANCE["general"])
+    return "\n".join(
+        [
+            "[INTENT ROUTER]",
+            f"route={intent_route}",
+            f"guidance={guidance}",
+        ]
+    )
+
+
+def _extract_team_label(lower_text: str) -> str | None:
+    for alias, canonical in sorted(_TEAM_ALIASES.items(), key=lambda item: -len(item[0])):
+        if re.search(rf"\b{re.escape(alias)}\b", lower_text):
+            return canonical
+    return None
+
+
+def _extract_correction_records(user_text: str) -> list[dict[str, str]]:
+    lower = user_text.lower()
+    records: list[dict[str, str]] = []
+
+    name_match = re.search(r"\b([A-Z][a-z]{1,20})\b", user_text)
+    subject_name = name_match.group(1) if name_match else None
+    if not subject_name:
+        return records
+
+    team_label = _extract_team_label(lower)
+    if team_label and (
+        _CORRECTION_PREFIX_PATTERN.search(user_text)
+        or re.search(r"\b(now|currently|moved|switched|assigned|plays\s+for|is\s+on)\b", lower)
+    ):
+        records.append({"entity": subject_name, "field": "team", "value": team_label})
+
+    skill_match = re.search(
+        r"\b(beginner|novice|new|newbie|rookie|intermediate|experienced|advanced|expert|veteran|pro)\b",
+        lower,
+    )
+    if skill_match and (
+        _CORRECTION_PREFIX_PATTERN.search(user_text) or re.search(r"\b(now|actually|update)\b", lower)
+    ):
+        records.append(
+            {
+                "entity": subject_name,
+                "field": "skill",
+                "value": _SKILL_ALIASES[skill_match.group(1)],
+            }
+        )
+
+    callsign_match = re.search(
+        r"\b([A-Z][a-z]{1,20})\b.{0,30}\bcallsign\s+(?:is|=|now)?\s*([A-Za-z0-9_-]{2,24})",
+        user_text,
+        re.IGNORECASE,
+    )
+    if callsign_match:
+        records.append(
+            {
+                "entity": callsign_match.group(1),
+                "field": "callsign",
+                "value": callsign_match.group(2),
+            }
+        )
+
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for record in records:
+        marker = (record["entity"].lower(), record["field"], record["value"])
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(record)
+    return deduped
+
+
+def _extract_correction_facts(user_text: str) -> list[str]:
+    return [
+        f"{record['entity']} {record['field']}={record['value']}"
+        for record in _extract_correction_records(user_text)
+    ]
+
+
+def _update_correction_memory(conversation: models.AIConversation, user_text: str) -> None:
+    correction_memory = _from_json_dict(conversation.correction_memory)
+    now = datetime.now(timezone.utc).isoformat() + "Z"
+
+    for record in _extract_correction_records(user_text):
+        entity_key = record["entity"].lower()
+        entity_entry = correction_memory.get(entity_key, {})
+        entity_entry["entity"] = record["entity"]
+        entity_entry[record["field"]] = record["value"]
+        entity_entry["updated_at"] = now
+        correction_memory[entity_key] = entity_entry
+
+    conversation.correction_memory = json.dumps(correction_memory, ensure_ascii=True)
 
 
 def _trim_conversation_history(db: Session, conversation: models.AIConversation) -> dict[str, int]:
-    cutoff = datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MEMORY_RETENTION_DAYS)
     expired_rows = (
         db.query(models.AIMessage.id)
         .filter(
@@ -129,7 +674,7 @@ def _trim_conversation_history(db: Session, conversation: models.AIConversation)
 
 
 def _build_memory_context(db: Session, conversation: models.AIConversation) -> dict:
-    cutoff = datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MEMORY_RETENTION_DAYS)
     rows = (
         db.query(models.AIMessage)
         .filter(
@@ -153,11 +698,24 @@ def _build_memory_context(db: Session, conversation: models.AIConversation) -> d
         total_chars += len(line) + 1
 
     learned_trends = _parse_json_list(conversation.learned_trends)
+    correction_memory = _from_json_dict(conversation.correction_memory)
     summary = conversation.memory_summary.strip()
     if summary:
         lines.append(f"LEARNED: {_truncate_text(summary, 260)}")
     if learned_trends:
         lines.append(f"TRENDS: {', '.join(learned_trends[:8])}")
+    if correction_memory:
+        correction_lines: list[str] = []
+        for item in list(correction_memory.values())[:6]:
+            entity = item.get("entity", "unknown")
+            fact_parts = []
+            for field_name in ("team", "skill", "callsign"):
+                if item.get(field_name):
+                    fact_parts.append(f"{field_name}={item[field_name]}")
+            if fact_parts:
+                correction_lines.append(f"{entity}: {', '.join(fact_parts)}")
+        if correction_lines:
+            lines.append("CORRECTIONS: " + " | ".join(correction_lines))
 
     return {
         "lines": lines,
@@ -172,6 +730,7 @@ def _update_conversation_learning(
 ) -> None:
     token_counts: dict[str, int] = {}
     action_counts: dict[str, int] = {}
+    correction_counts: dict[str, int] = {}
 
     for row in retained_messages:
         if row.role == models.MessageRole.user:
@@ -180,12 +739,16 @@ def _update_conversation_learning(
                     continue
                 token_counts[token] = token_counts.get(token, 0) + 1
 
+            for fact in _extract_correction_facts(row.content):
+                correction_counts[fact] = correction_counts.get(fact, 0) + 1
+
         for action in _parse_json_list(row.suggested_actions):
             if action.isupper() and " " not in action:
                 action_counts[action] = action_counts.get(action, 0) + 1
 
     top_tokens = sorted(token_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:8]
     top_actions = sorted(action_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
+    top_corrections = sorted(correction_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
 
     trends = [token for token, _ in top_tokens] + [action for action, _ in top_actions]
     trends = list(dict.fromkeys(trends))[:12]
@@ -199,6 +762,10 @@ def _update_conversation_learning(
     if top_tokens:
         summary_parts.append(
             "top_topics=" + ",".join([f"{name}:{count}" for name, count in top_tokens[:5]])
+        )
+    if top_corrections:
+        summary_parts.append(
+            "corrections=" + " | ".join([fact for fact, _ in top_corrections[:4]])
         )
 
     conversation.learned_trends = _to_json_list(trends)
@@ -219,7 +786,6 @@ _GENDER_WORDS = {
     "he": "male", "him": "male", "his": "male", "guy": "male", "man": "male",
     "she": "female", "her": "female", "hers": "female", "girl": "female", "woman": "female",
 }
-_SKILL_WORDS = {"beginner", "novice", "new", "intermediate", "experienced", "advanced", "expert", "veteran", "pro"}
 _STRENGTHS_KEYWORDS = {"good at", "great at", "strength", "strong", "skilled at", "excels", "best at"}
 _WEAKNESS_KEYWORDS = {"struggles", "weakness", "weak at", "bad at", "poor at", "needs work"}
 
@@ -277,14 +843,14 @@ def _update_member_from_message(db: Session, user_text: str) -> None:
             break
 
     # Team
-    team_match = re.search(r"(?:on|for|team)\s+(red|blue|alpha|bravo|[\w]+\s*team)", lower)
-    if team_match:
-        existing.team = team_match.group(1).strip().title()
+    team_label = _extract_team_label(lower)
+    if team_label:
+        existing.team = team_label
 
     # Skill level
-    for skill in _SKILL_WORDS:
-        if skill in lower:
-            existing.skill_level = skill
+    for skill, canonical_skill in _SKILL_ALIASES.items():
+        if re.search(rf"\b{re.escape(skill)}\b", lower):
+            existing.skill_level = canonical_skill
             break
 
     # Strengths
@@ -306,7 +872,8 @@ def _update_member_from_message(db: Session, user_text: str) -> None:
             break
 
     # Append a Christy memory note
-    note = f"Mentioned in conversation: {user_text[:120].strip()}"
+    prefix = "Correction noted" if _CORRECTION_PREFIX_PATTERN.search(user_text) else "Mentioned in conversation"
+    note = f"{prefix}: {user_text[:120].strip()}"
     current_memory = existing.christy_memory or ""
     if note not in current_memory:
         existing.christy_memory = (current_memory + "\n" + note).strip()
@@ -362,7 +929,7 @@ def _build_context_block(sections: dict[str, list[str]]) -> str:
 
 
 def _build_operational_context(db: Session, conversation: models.AIConversation) -> dict:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     _trim_conversation_history(db, conversation)
     memory_ctx = _build_memory_context(db, conversation)
 
@@ -700,6 +1267,7 @@ def to_conversation_read(item: models.AIConversation) -> schemas.AIConversationR
         status=item.status,
         memory_summary=item.memory_summary or "",
         learned_trends=_parse_json_list(item.learned_trends),
+        correction_memory=_from_json_dict(item.correction_memory),
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -823,7 +1391,11 @@ def _enforce_final_action_safety(
     return filtered_suggestions, final_blocked_actions, final_requires_admin, enforcement_warnings
 
 
-def _build_custom_knowledge_block(db: Session, prompt: str) -> dict[str, str | list[str]]:
+def _build_custom_knowledge_block(
+    db: Session,
+    prompt: str,
+    intent_route: str = "general",
+) -> dict[str, str | list[str]]:
     """Build custom knowledge block from CustomKnowledgeEntry, CustomTeam, CustomGameMode if relevant."""
     result = {
         "block_text": "",
@@ -847,6 +1419,8 @@ def _build_custom_knowledge_block(db: Session, prompt: str) -> dict[str, str | l
     for topic, pattern in custom_keywords.items():
         if re.search(pattern, prompt_lower):
             detected_topics.add(topic)
+
+    detected_topics |= _INTENT_ROUTE_TOPICS.get(intent_route, set())
 
     context_snapshot = collect_context(db, prompt=prompt)
 
@@ -924,18 +1498,69 @@ def send_message(
     db.add(user_message)
     db.flush()
 
-    last_assistant = _last_assistant_text(db, conversation_id)
-    normalized_prompt = (payload.content or "").strip()
+    raw_prompt = (payload.content or "").strip()
+    normalized_prompt = _normalize_user_language(raw_prompt)
+    intent_route = _detect_intent_route(raw_prompt)
 
-    policy = evaluate_ai_prompt(normalized_prompt)
+    # Learn and apply explicit user corrections before building context so the
+    # next AI reply can immediately use updated member/team facts.
+    _update_member_from_message(db, raw_prompt)
+    _update_correction_memory(conversation, raw_prompt)
+
+    # Execute supported system-control commands directly when explicitly requested.
+    executed = _try_execute_system_command(db, conversation, raw_prompt)
+    if executed is not None:
+        assistant_message = models.AIMessage(
+            conversation_id=conversation_id,
+            role=models.MessageRole.assistant,
+            content=str(executed["answer"]),
+            confidence=float(executed.get("confidence", 0.9)),
+            used_context=_to_json_list(list(executed.get("used_context", []))),
+            suggested_actions=_to_json_list(list(executed.get("suggested_actions", []))),
+            blocked_actions=_to_json_list(list(executed.get("blocked_actions", []))),
+            warnings=_to_json_list([]),
+            blocked_action=False,
+            requires_admin_confirmation=bool(executed.get("requires_admin_confirmation", False)),
+            model=str(executed.get("model", "system-command-executor")),
+            action_request_id=None,
+        )
+        db.add(assistant_message)
+        db.flush()
+        conversation.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(user_message)
+        db.refresh(assistant_message)
+        return schemas.AIChatReplyResponse(
+            answer=assistant_message.content,
+            confidence=assistant_message.confidence,
+            used_context=_from_json_list(assistant_message.used_context),
+            suggested_actions=_from_json_list(assistant_message.suggested_actions),
+            blocked_actions=_from_json_list(assistant_message.blocked_actions),
+            warnings=_from_json_list(assistant_message.warnings),
+            requires_admin_confirmation=assistant_message.requires_admin_confirmation,
+            conversation_id=conversation_id,
+            user_message=_to_message_read(user_message),
+            assistant_message=_to_message_read(assistant_message),
+            action_request=None,
+        )
+
+    policy = evaluate_ai_prompt(raw_prompt)
     context_summary = _build_operational_context(db, conversation)
-    custom_knowledge_block = _build_custom_knowledge_block(db, normalized_prompt)
+    custom_knowledge_block = _build_custom_knowledge_block(
+        db,
+        normalized_prompt,
+        intent_route=intent_route,
+    )
+    intent_block = _build_intent_router_block(intent_route)
 
     injected_prompt_parts = [
+        intent_block,
         context_summary['context_block'],
         custom_knowledge_block['block_text'],
-        f"[USER REQUEST]\n{normalized_prompt}",
+        f"[USER REQUEST]\n{raw_prompt}",
     ]
+    if normalized_prompt != raw_prompt:
+        injected_prompt_parts.append(f"[INTERPRETED USER REQUEST]\n{normalized_prompt}")
     injected_prompt = "\n\n".join([part for part in injected_prompt_parts if part])
 
     # Collect conversation history for the advisor (last 20 turns).
@@ -961,6 +1586,7 @@ def send_message(
     used_context = list(
         dict.fromkeys(
             [
+                f"intent:{intent_route}",
                 *advisor_response.used_context,
                 *policy.used_context,
                 *context_summary["used_context"],
@@ -1014,7 +1640,7 @@ def send_message(
             user_message_id=user_message.id,
             user_id=payload.user_id,
             blocked_actions=blocked_actions,
-            prompt=normalized_prompt,
+            prompt=raw_prompt,
         )
 
     assistant_message = models.AIMessage(
@@ -1038,7 +1664,7 @@ def send_message(
         db.query(models.AIMessage)
         .filter(
             models.AIMessage.conversation_id == conversation_id,
-            models.AIMessage.created_at >= datetime.utcnow() - timedelta(days=MEMORY_RETENTION_DAYS),
+            models.AIMessage.created_at >= datetime.now(timezone.utc) - timedelta(days=MEMORY_RETENTION_DAYS),
         )
         .order_by(models.AIMessage.created_at.desc(), models.AIMessage.id.desc())
         .limit(150)
@@ -1046,10 +1672,7 @@ def send_message(
     )
     _update_conversation_learning(conversation, retained_messages)
 
-    # Scan the user's message for member introductions and update profiles
-    _update_member_from_message(db, payload.content)
-
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = datetime.now(timezone.utc)
 
     audit_decision = (
         models.AIAuditDecision.requires_confirmation
@@ -1064,7 +1687,7 @@ def send_message(
         action_request_id=action_request.id if action_request else None,
         decision=audit_decision,
         risk_level=risk_level,
-        prompt_excerpt=normalized_prompt[:300],
+        prompt_excerpt=raw_prompt[:300],
         response_excerpt=answer[:300],
         used_context=used_context,
         blocked_actions=blocked_actions,
@@ -1127,7 +1750,8 @@ def clear_conversation(
 
     conversation.memory_summary = ""
     conversation.learned_trends = "[]"
-    conversation.updated_at = datetime.utcnow()
+    conversation.correction_memory = "{}"
+    conversation.updated_at = datetime.now(timezone.utc)
     db.commit()
 
     return schemas.AIConversationClearResponse(

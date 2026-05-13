@@ -23,13 +23,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 OLLAMA_BASE = os.getenv("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
+OLLAMA_STRICT = os.getenv("OLLAMA_STRICT", "false").strip().lower() == "true"
 OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "75"))
 OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", "0.35"))
 OLLAMA_TOP_P = float(os.getenv("OLLAMA_TOP_P", "0.9"))
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "160"))
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m")
 # Preferred models in order — first one found wins. Put smarter 7B-class models first.
 OLLAMA_MODEL_PREFERENCE = [
+    "qwen2.5:0.5b",
     "qwen2.5:7b-instruct",
     "qwen2.5:7b",
     "qwen2.5",
@@ -138,7 +141,8 @@ def _check_ollama() -> tuple[bool, str | None]:
             return True, installed[0]
         _ollama_available = False
         return False, None
-    except Exception:
+    except Exception as e:
+        logger.debug("Ollama availability check failed: %s", e)
         _ollama_available = False
         return False, None
 
@@ -184,7 +188,7 @@ def _build_runtime_system_prompt(user_prompt: str) -> str:
     )
 
 
-def _sanitize_history(history: list[dict[str, Any]], max_turns: int = 20) -> list[dict[str, str]]:
+def _sanitize_history(history: list[dict[str, Any]], max_turns: int = 10) -> list[dict[str, str]]:
     """Keep recent useful turns and avoid sending huge or malformed history to Ollama."""
     cleaned: list[dict[str, str]] = []
     for entry in history[-max_turns:]:
@@ -223,7 +227,7 @@ def _ollama_chat(
             "content": f"[OPERATIONAL CONTEXT]\n{context}",
         })
 
-    messages.extend(_sanitize_history(history, max_turns=20))
+    messages.extend(_sanitize_history(history, max_turns=10))
 
     messages.append({"role": "user", "content": prompt})
 
@@ -239,6 +243,7 @@ def _ollama_chat(
                     "temperature": OLLAMA_TEMPERATURE,
                     "top_p": OLLAMA_TOP_P,
                     "num_ctx": OLLAMA_NUM_CTX,
+                    "num_predict": OLLAMA_NUM_PREDICT,
                     "repeat_penalty": 1.08,
                 },
             },
@@ -1483,6 +1488,14 @@ def _handle_conversation(
     if injected_context:
         used_ctx.append("context:injected")
 
+    # Fast identity response to avoid repetitive/off-topic LLM answers.
+    if re.search(r"\b(what(?:'s| is) your name|who are you)\b", lower):
+        return _mk_response(
+            "I'm Christy, your AOJ field assistant. I can help with game planning, rules, diagnostics, and mission operations.",
+            confidence=0.95,
+            used_ctx=[*used_ctx, "advisor:identity"],
+        )
+
     # -----------------------------------------------------------------------
     # 1. Operational command flow (confirm before proceeding)
     # -----------------------------------------------------------------------
@@ -2277,12 +2290,42 @@ def ask_ai(
     if not prompt:
         return _mk_response("Ready. What do you need?", confidence=0.9, used_ctx=["advisor:empty_prompt"])
 
+    # Fast-path common requests for lower latency and higher consistency.
+    # This keeps conversational UX snappy for greeting/identity/game-selection prompts.
+    lower = prompt.lower()
+    nums = _extract_numbers(lower)
+    if (
+        not OLLAMA_STRICT
+        and (
+            _detect_response_mode(prompt) == "casual"
+            or re.search(r"\b(what(?:'s| is) your name|who are you)\b", lower)
+            or _is_game_suggestion_request(lower, nums)
+        )
+    ):
+        return _handle_conversation(
+            prompt=prompt,
+            history=history,
+            injected_context=injected_context,
+        )
+
     # ------------------------------------------------------------------
     # Attempt Ollama (re-check once per cold start, then cache result)
     # ------------------------------------------------------------------
     global _ollama_available, _ollama_model
     if _ollama_available is None:
         _check_ollama()
+
+    if OLLAMA_STRICT and not _ollama_available:
+        return _mk_response(
+            (
+                "Ollama is required but currently unavailable. "
+                "Please start Ollama and ensure at least one model is installed."
+            ),
+            confidence=0.1,
+            used_ctx=["advisor:ollama_required", "provider:ollama_unavailable"],
+            warnings=["OLLAMA_STRICT is enabled and fallback provider is disabled."],
+            model="ollama-required",
+        )
 
     if _ollama_available:
         llm_answer = _ollama_chat(
@@ -2301,6 +2344,14 @@ def ask_ai(
             )
         # Ollama request failed at runtime — retry on next request instead of
         # permanently disabling it for this process.
+        if OLLAMA_STRICT:
+            return _mk_response(
+                "Ollama request failed. Fallback is disabled in strict mode.",
+                confidence=0.1,
+                used_ctx=["advisor:ollama_required", "provider:ollama_error"],
+                warnings=["OLLAMA_STRICT is enabled and fallback provider is disabled."],
+                model="ollama-required",
+            )
         logger.warning("Ollama request failed; falling back to rules engine.")
         _ollama_available = None
 

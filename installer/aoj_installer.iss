@@ -16,35 +16,51 @@
 ; =============================================================================
 
 #define AppName      "AOJ Command OS"
-#define AppVersion   "1.0.0"
+#define AppVersion   "1.0.1"
+#define AppVersionMajor      1
+#define AppVersionMinor      0
+#define AppVersionRevision   1
+#define AppVersionBuild      0
 #define AppPublisher "Airsoft Online Japan"
 #define AppCreator   "is Nineteen"
-#define AppURL       "https://github.com/YOUR_ORG/AOJ-Server"
+#define AppURL       "https://github.com/bravo-nineteen/AOJ-Server"
 #define AppExe       "AOJ Command OS.lnk"
+#define AppGUID      "{{6F3A1D2B-84CE-4B7E-9031-F2C84A6D5E90}}"
 
 [Setup]
-AppId={{6F3A1D2B-84CE-4B7E-9031-F2C84A6D5E90}
+AppId={#AppGUID}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppVerName={#AppName} {#AppVersion}
+AppVerName={#AppName} v{#AppVersion}
 AppPublisher={#AppPublisher}
-AppCopyright=Created by {#AppCreator}
+AppCopyright=(C) 2024-2026 {#AppPublisher}
 AppPublisherURL={#AppURL}
-AppSupportURL={#AppURL}
-AppUpdatesURL={#AppURL}
-DefaultDirName={autopf}\AOJ Command OS
-DefaultGroupName=AOJ Command OS
-DisableProgramGroupPage=yes
-AllowNoIcons=yes
+AppSupportURL={#AppURL}/issues
+AppUpdatesURL={#AppURL}/releases
+DefaultDirName={autopf}\{#AppName}
+DefaultGroupName={#AppName}
+DisableProgramGroupPage=no
+AllowNoIcons=no
+CreateAppDir=yes
 ; Output
 OutputDir=..\dist\installer
-OutputBaseFilename=AOJ_Command_OS_Setup_{#AppVersion}
+OutputBaseFilename=AOJ_CommandOS_Setup_v{#AppVersion}_x64
 ; Compression
 Compression=lzma2/ultra64
 SolidCompression=yes
 ; UI
 WizardStyle=modern
 WizardSizePercent=120
+; Setup icon and branding — only set if asset files are present in the repo.
+; Place aoj_icon.ico and aoj_logo.bmp in installer/assets/ to enable full branding.
+#if FileExists(SourcePath + "assets\aoj_icon.ico")
+SetupIconFile=assets\aoj_icon.ico
+WizardSmallImageFile=assets\aoj_icon.ico
+UninstallDisplayIcon={app}\assets\aoj_icon.ico
+#endif
+#if FileExists(SourcePath + "assets\aoj_logo.bmp")
+WizardImageFile=assets\aoj_logo.bmp
+#endif
 ; Privileges — needs admin to write to Program Files and run pip
 PrivilegesRequired=admin
 ; Windows 10 minimum
@@ -52,16 +68,19 @@ MinVersion=10.0.17763
 ; Architecture
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
-; Setup icon and image (optional — place your own files here or remove these lines)
-; SetupIconFile=assets\aoj_icon.ico
-; WizardImageFile=assets\wizard_banner.bmp
 ; Uninstaller
-UninstallDisplayName={#AppName}
-UninstallDisplayIcon={app}\assets\aoj_icon.ico
+UninstallDisplayName={#AppName} v{#AppVersion}
 VersionInfoCompany={#AppPublisher}
-VersionInfoDescription={#AppName} Installer
+VersionInfoDescription={#AppName} Installer v{#AppVersion}
 VersionInfoProductName={#AppName}
-VersionInfoCopyright=Created by {#AppCreator}
+; Must be strictly numeric (major.minor.revision.build) for Windows version resources.
+VersionInfoProductVersion={#AppVersionMajor}.{#AppVersionMinor}.{#AppVersionRevision}.{#AppVersionBuild}
+VersionInfoVersion={#AppVersionMajor}.{#AppVersionMinor}.{#AppVersionRevision}.{#AppVersionBuild}
+VersionInfoCopyright=(C) 2024-2026 {#AppPublisher}
+; Installation upgrade behavior
+AllowUNCPath=no
+CloseApplications=force
+CloseApplicationsFilter=*.exe,*.vbs
 ; After install, ask to launch
 InfoAfterFile=..\installer\after_install.txt
 
@@ -69,8 +88,8 @@ InfoAfterFile=..\installer\after_install.txt
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon";   Description: "Create a &desktop shortcut";   GroupDescription: "Additional shortcuts:"; Flags: unchecked
-Name: "startupentry";  Description: "Launch AOJ on &Windows startup"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "desktopicon";   Description: "Create a &desktop shortcut"
+Name: "startupentry";  Description: "Launch AOJ on &Windows startup"
 
 [Dirs]
 Name: "{app}"
@@ -114,12 +133,13 @@ Source: "..\installer\assets\aoj_icon.ico"; DestDir: "{app}\assets";        Flag
 
 [Icons]
 ; Start Menu
-Name: "{group}\{#AppName}";                     Filename: "{app}\launch.vbs";   WorkingDir: "{app}"; Comment: "Start AOJ Command OS"
-Name: "{group}\Open in Browser";                Filename: "http://localhost:8000"
+Name: "{group}\{#AppName}";                     Filename: "{app}\launch.vbs";   WorkingDir: "{app}"; IconFilename: "{app}\assets\aoj_icon.ico"; Comment: "Start AOJ Command OS - Tactical Server and Frontend"
+Name: "{group}\Open in Browser";                Filename: "http://localhost:8000"; IconFilename: "{app}\assets\aoj_icon.ico"
+Name: "{group}\Documentation";                  Filename: "{app}\README.md"; Comment: "View installation guide"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 
 ; Desktop
-Name: "{autodesktop}\{#AppName}";               Filename: "{app}\launch.vbs";   WorkingDir: "{app}"; Tasks: desktopicon; Comment: "Start AOJ Command OS"
+Name: "{autodesktop}\{#AppName}";               Filename: "{app}\launch.vbs";   WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\assets\aoj_icon.ico"; Comment: "Start AOJ Command OS - Tactical Server and Frontend"
 
 ; Startup
 Name: "{userstartup}\{#AppName}";               Filename: "{app}\launch.vbs";   WorkingDir: "{app}"; Tasks: startupentry
@@ -129,7 +149,7 @@ Name: "{userstartup}\{#AppName}";               Filename: "{app}\launch.vbs";   
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Normal -File ""{app}\scripts\install_windows.ps1"""; WorkingDir: "{app}"; StatusMsg: "Installing dependencies and building frontend (may take 2-5 minutes)..."; Flags: waituntilterminated
 
 ; Step 2 — offer to launch immediately after install
-Filename: "wscript.exe"; Parameters: """{app}\launch.vbs"""; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent unchecked
+Filename: "wscript.exe"; Parameters: """{app}\launch.vbs"""; Description: "Launch {#AppName} now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Stop any running instance before uninstall

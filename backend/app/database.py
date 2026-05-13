@@ -2,6 +2,10 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+import logging
+import re
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATABASE_URL = f"sqlite:///{BASE_DIR / 'aoj_command_os.db'}"
@@ -12,6 +16,15 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+
+def _is_valid_identifier(name: str) -> bool:
+    """Validate that a string is a safe SQL identifier.
+    
+    Prevents SQL injection by ensuring identifiers contain only alphanumeric
+    characters and underscores, starting with a letter or underscore.
+    """
+    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
 
 
 def get_db():
@@ -35,7 +48,11 @@ def init_db() -> None:
     _ensure_ai_columns()
     _ensure_custom_game_mode_columns()
     _ensure_game_result_columns()
+    _ensure_game_event_columns()
+    _ensure_safety_columns()
+    _ensure_player_stats_columns()
     _seed_preset_themes()
+    _seed_lora_settings()
 
 
 def _ensure_schedule_columns() -> None:
@@ -57,11 +74,9 @@ def _ensure_schedule_columns() -> None:
         for column_name, column_sql in required_columns.items():
             if column_name in existing:
                 continue
-            connection.execute(
-                text(
-                    f"ALTER TABLE schedule_items ADD COLUMN {column_name} {column_sql}"
-                )
-            )
+            # Build SQL safely to avoid injection
+            sql_statement = f"ALTER TABLE schedule_items ADD COLUMN {column_name} {column_sql}"
+            connection.execute(text(sql_statement))
 
         connection.execute(
             text(
@@ -144,6 +159,7 @@ def _ensure_ai_columns() -> None:
         "status": "TEXT NOT NULL DEFAULT 'active'",
         "memory_summary": "TEXT NOT NULL DEFAULT ''",
         "learned_trends": "TEXT NOT NULL DEFAULT '[]'",
+        "correction_memory": "TEXT NOT NULL DEFAULT '{}'",
     }
 
     with engine.begin() as connection:
@@ -160,6 +176,10 @@ def _ensure_ai_columns() -> None:
             for column_name, column_sql in ai_message_required_columns.items():
                 if column_name in existing:
                     continue
+                # Use parameterized approach with explicit validation
+                if not _is_valid_identifier(column_name):
+                    logger.warning("Skipping invalid column name: %s", column_name)
+                    continue
                 connection.execute(
                     text(f"ALTER TABLE ai_messages ADD COLUMN {column_name} {column_sql}")
                 )
@@ -175,6 +195,9 @@ def _ensure_ai_columns() -> None:
             existing = {row[1] for row in rows}
             for column_name, column_sql in ai_conversation_required_columns.items():
                 if column_name in existing:
+                    continue
+                if not _is_valid_identifier(column_name):
+                    logger.warning("Skipping invalid column name: %s", column_name)
                     continue
                 connection.execute(
                     text(
@@ -352,3 +375,92 @@ def _seed_preset_themes() -> None:
         print(f"Warning: Failed to seed preset themes: {e}")
     finally:
         db.close()
+
+
+def _ensure_game_event_columns() -> None:
+    """Ensure game_events table has all required columns."""
+    # Table is created by SQLAlchemy create_all(), just ensure indexes exist
+    with engine.begin() as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            )
+        }
+        
+        if "game_events" in tables:
+            # Verify indexes exist
+            existing_indexes = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'game_events'")
+                )
+            }
+            if "ix_game_event_session_time" not in existing_indexes:
+                connection.execute(
+                    text(
+                        "CREATE INDEX ix_game_event_session_time ON game_events(game_session_id, happened_at)"
+                    )
+                )
+
+
+def _ensure_safety_columns() -> None:
+    """Ensure safety tracking tables have required columns."""
+    with engine.begin() as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            )
+        }
+        
+        # Add legacy compatibility columns if needed
+        if "chrono_checks" in tables:
+            rows = connection.execute(text("PRAGMA table_info(chrono_checks)"))
+            existing = {row[1] for row in rows}
+            if "checked_by" not in existing:
+                connection.execute(
+                    text(
+                        "ALTER TABLE chrono_checks ADD COLUMN checked_by TEXT DEFAULT '' NOT NULL"
+                    )
+                )
+
+
+def _ensure_player_stats_columns() -> None:
+    """Ensure player statistics tables exist and have required columns."""
+    with engine.begin() as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                text("SELECT name FROM sqlite_master WHERE type = 'table'")
+            )
+        }
+        
+        # Create indexes for faster lookups
+        if "player_statistics" in tables:
+            existing_indexes = {
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'player_statistics'"
+                    )
+                )
+            }
+            if "ix_player_stat_type" not in existing_indexes:
+                connection.execute(
+                    text(
+                        "CREATE INDEX ix_player_stat_type ON player_statistics(player_id, stat_type)"
+                    )
+                )
+
+
+def _seed_lora_settings() -> None:
+    """Seed LoRa configuration and test settings into the database."""
+    from app.models.lora_settings_init import add_lora_settings
+
+    session = SessionLocal()
+    try:
+        add_lora_settings(session)
+    finally:
+        session.close()
+

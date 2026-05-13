@@ -179,18 +179,49 @@ function toTimeInputValue(isoDate) {
   return `${h}:${m}`;
 }
 
+function formatFeedTime(value = new Date()) {
+  return value.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 function App() {
   const host = window.location.hostname || 'localhost';
+  const isSecure = window.location.protocol === 'https:';
+  // In GitHub Codespaces (and similar tunnels) each port gets its own hostname,
+  // e.g. crispy-engine-...-5173.app.github.dev → crispy-engine-...-8000.app.github.dev
+  const backendHost = useMemo(() => {
+    if (isSecure && host.includes('-5173.')) {
+      return host.replace('-5173.', '-8000.');
+    }
+    return host;
+  }, [host, isSecure]);
   const apiBase = useMemo(() => {
     // When frontend is served by backend on :8000, use same-origin API paths.
     if (window.location.port === '8000') {
       return '/api';
     }
-    return `http://${host}:8000/api`;
-  }, [host]);
+    // When on Vite dev server (port 5173), use the Vite proxy (same-origin).
+    // This avoids CORS and mixed-protocol issues in Codespaces/tunnels.
+    if (window.location.port === '5173' || window.location.port === '') {
+      return '/api';
+    }
+    const scheme = isSecure ? 'https' : 'http';
+    const port = isSecure ? '' : ':8000';
+    return `${scheme}://${backendHost}${port}/api`;
+  }, [backendHost, isSecure]);
   const wsUrl = useMemo(() => {
-    return `ws://${host}:8000/ws/live`;
-  }, [host]);
+    // Use same-origin WebSocket when proxied through Vite dev server.
+    if (window.location.port === '5173' || (isSecure && window.location.port === '')) {
+      const wsScheme = isSecure ? 'wss' : 'ws';
+      return `${wsScheme}://${window.location.host}/ws/live`;
+    }
+    const scheme = isSecure ? 'wss' : 'ws';
+    const port = isSecure ? '' : ':8000';
+    return `${scheme}://${backendHost}${port}/ws/live`;
+  }, [backendHost, isSecure]);
   const apiOrigin = useMemo(() => {
     return apiBase.endsWith('/api') ? apiBase.slice(0, -4) : apiBase;
   }, [apiBase]);
@@ -1380,7 +1411,7 @@ function App() {
           playTtsText(announcementText).catch(() => {});
           return;
         }
-        const line = `${new Date().toLocaleTimeString()} :: ${JSON.stringify(data)}`;
+        const line = `${formatFeedTime()} :: ${JSON.stringify(data)}`;
         // Only show game/mission/warning/error events in the live feed
         const eventStr = (data.event || '').toLowerCase();
         const isImportant = eventStr.includes('mission') || eventStr.includes('game') || eventStr.includes('score')
@@ -1390,7 +1421,7 @@ function App() {
           setEvents((previous) => [line, ...previous].slice(0, 20));
         }
       } catch {
-        const line = `${new Date().toLocaleTimeString()} :: ${message.data}`;
+        const line = `${formatFeedTime()} :: ${message.data}`;
         const isImportant = /warn|error|alarm|mission|game|score|result/i.test(line);
         if (isImportant) {
           setEvents((previous) => [line, ...previous].slice(0, 20));
@@ -2613,6 +2644,30 @@ function App() {
                             >
                               Trigger Alarm
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'game_start')}
+                            >
+                              Game Start
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'game_end')}
+                            >
+                              Game End
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'ready')}
+                            >
+                              Ready
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => sendPropCommand(item.id, 'test_buzz')}
+                            >
+                              Test Buzzer
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -2964,10 +3019,24 @@ function App() {
                             {/* Render simple markdown: **bold**, numbered lists, bullet lines */}
                             <div style={{ whiteSpace: 'pre-wrap' }}>
                               {item.text.split('\n').map((line, li) => {
-                                const bold = line.replace(/\*\*(.+?)\*\*/g, (_, m) => `<strong>${m}</strong>`);
+                                const parts = [];
+                                let lastIndex = 0;
+                                const regex = /\*\*(.+?)\*\*/g;
+                                let match;
+                                while ((match = regex.exec(line)) !== null) {
+                                  if (match.index > lastIndex) {
+                                    parts.push(line.substring(lastIndex, match.index));
+                                  }
+                                  parts.push(<strong key={`${li}-${match.index}`}>{match[1]}</strong>);
+                                  lastIndex = match.index + match[0].length;
+                                }
+                                if (lastIndex < line.length) {
+                                  parts.push(line.substring(lastIndex));
+                                }
                                 return (
-                                  <p key={li} style={{ margin: '0.15rem 0' }}
-                                    dangerouslySetInnerHTML={{ __html: bold }} />
+                                  <p key={li} style={{ margin: '0.15rem 0' }}>
+                                    {parts.length > 0 ? parts : line}
+                                  </p>
                                 );
                               })}
                             </div>
@@ -3075,12 +3144,11 @@ function App() {
             </div>
             <div className="window-content">
               {events.length === 0 ? <p className="muted">Awaiting field telemetry...</p> : null}
-              <ul>
+              <ul className="live-feed-list">
                 {events.map((line) => (
                   <li key={line}>{line}</li>
                 ))}
               </ul>
-              <p className="endpoint">Endpoint: {wsUrl}</p>
             </div>
           </article>
         </section>

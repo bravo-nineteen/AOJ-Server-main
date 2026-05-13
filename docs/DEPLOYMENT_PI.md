@@ -6,6 +6,7 @@ This guide describes a practical Raspberry Pi deployment for an airsoft field co
 - FastAPI backend
 - built React frontend
 - SQLite database
+- local Ollama LLM (offline)
 - local operator access over Wi-Fi LAN
 
 ## Recommended Hardware
@@ -45,6 +46,7 @@ Recommended model:
 
 Use:
 - `scripts/install_pi.sh`
+- `scripts/setup_pi_ollama.sh`
 
 What it does:
 - updates apt metadata
@@ -57,6 +59,11 @@ What it does:
 What it does not do:
 - it does not enable systemd services automatically
 - it does not overwrite system configuration files beyond package installation
+
+Additional Ollama setup (`scripts/setup_pi_ollama.sh`):
+- installs Ollama runtime
+- enables `ollama` systemd service
+- pulls default model `qwen2.5:0.5b` (override with `OLLAMA_MODEL=...`)
 
 ## Service Startup Scripts
 
@@ -108,6 +115,7 @@ Default assumptions:
 2. SSH into the Pi.
 3. Run `chmod +x scripts/*.sh` if execute bits were not preserved.
 4. Run `./scripts/install_pi.sh`.
+5. Run `./scripts/setup_pi_ollama.sh`.
 5. Test backend with `./scripts/start_backend.sh`.
 6. In a second terminal, test frontend with `./scripts/start_frontend.sh`.
 7. Open the frontend from a tablet using the Pi IP and port `4173`.
@@ -122,7 +130,8 @@ After installation:
 - Open `http://PI_IP:4173`
 - Confirm the frontend can reach the backend
 - Confirm websocket live updates connect
-- Verify database file exists at `backend/aoj_command_os.db`
+- Verify database file exists at `backend/data/aoj_command_os.db`
+- Verify Ollama is reachable at `http://127.0.0.1:11434/api/tags`
 
 ## Database Backups
 
@@ -146,6 +155,16 @@ Typical field URLs:
 - Backend API: `http://PI_IP:8000`
 - Health check: `http://PI_IP:8000/api/health`
 - WebSocket: `ws://PI_IP:8000/ws/live`
+
+## AI Provider On Pi 5
+
+AOJ now supports Ollama-only mode on Raspberry Pi 5.
+
+Recommended backend runtime environment:
+- `OLLAMA_BASE=http://127.0.0.1:11434`
+- `OLLAMA_STRICT=true`
+
+With `OLLAMA_STRICT=true`, AOJ will not fall back to mock/rules-engine responses when Ollama is unavailable.
 
 ## Service Management Example
 

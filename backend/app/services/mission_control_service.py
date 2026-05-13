@@ -1,6 +1,6 @@
 import asyncio
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -28,7 +28,7 @@ _IDLE_STATE: dict = {
 class MissionControlService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        self._state: dict = {**_IDLE_STATE, "updated_at": datetime.utcnow().isoformat()}
+        self._state: dict = {**_IDLE_STATE, "updated_at": datetime.now(timezone.utc).isoformat()}
         self._team_ready: dict[str, bool] = {"red": False, "blue": False}
         self._countdown_task: asyncio.Task | None = None
 
@@ -97,7 +97,7 @@ class MissionControlService:
                     "blue_team_score": 0,
                     "objectives": objectives,
                     "event_feed": [],
-                    "updated_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             self._push_event_locked(f"Mission created: {payload.title}")
@@ -169,8 +169,8 @@ class MissionControlService:
             # Send countdown tick to all siren props via LoRa
             try:
                 lora_service.send_command("ALL_SIRENS", "COUNTDOWN", str(remaining))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to send countdown tick to LoRa: %s", str(e))
             await asyncio.sleep(1)
 
         # Final GO broadcast
@@ -180,16 +180,18 @@ class MissionControlService:
         })
         try:
             lora_service.send_command("ALL_SIRENS", "START_SIREN", "")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to send start siren command: %s", str(e))
 
         # Reset ready flags then start the game
         self._team_ready = {"red": False, "blue": False}
         db2 = SessionLocal()
         try:
             await self.start_game(db2)
-        except HTTPException:
-            pass
+        except HTTPException as e:
+            logger.warning("Failed to start game after countdown: %s", str(e))
+        except Exception as e:
+            logger.exception("Unexpected error starting game: %s", str(e))
         finally:
             db2.close()
 
@@ -204,15 +206,15 @@ class MissionControlService:
                     ),
                 )
             self._state["state"] = "running"
-            self._state["updated_at"] = datetime.utcnow().isoformat()
+            self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._push_event_locked("Game started")
             mission_id = self._state["mission_id"]
             db.query(models.Mission).filter(
                 models.Mission.id == mission_id
-            ).update({"status": models.MissionStatus.active, "start_time": datetime.utcnow()})
+            ).update({"status": models.MissionStatus.active, "start_time": datetime.now(timezone.utc)})
             db.query(models.GameSession).filter(
                 models.GameSession.mission_id == mission_id
-            ).update({"is_active": True, "start_time": datetime.utcnow()})
+            ).update({"is_active": True, "start_time": datetime.now(timezone.utc)})
             db.commit()
             log_msg = f"Game started for mission_id={mission_id}"
             snapshot = self.get_state()
@@ -233,7 +235,7 @@ class MissionControlService:
                     ),
                 )
             self._state["state"] = "paused"
-            self._state["updated_at"] = datetime.utcnow().isoformat()
+            self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._push_event_locked("Game paused")
             log_msg = f"Game paused for mission_id={self._state['mission_id']}"
             snapshot = self.get_state()
@@ -254,7 +256,7 @@ class MissionControlService:
                     ),
                 )
             self._state["state"] = "running"
-            self._state["updated_at"] = datetime.utcnow().isoformat()
+            self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._push_event_locked("Game resumed")
             log_msg = f"Game resumed for mission_id={self._state['mission_id']}"
             snapshot = self.get_state()
@@ -280,17 +282,17 @@ class MissionControlService:
             self._state["state"] = "ended"
             self._state["main_timer_seconds"] = 0
             self._state["phase_timer_seconds"] = 0
-            self._state["updated_at"] = datetime.utcnow().isoformat()
+            self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._push_event_locked("Game ended")
             red_points = int(self._state["red_team_score"])
             blue_points = int(self._state["blue_team_score"])
             mission_title = str(self._state["mission_title"])
             db.query(models.Mission).filter(
                 models.Mission.id == mission_id
-            ).update({"status": models.MissionStatus.complete, "end_time": datetime.utcnow()})
+            ).update({"status": models.MissionStatus.complete, "end_time": datetime.now(timezone.utc)})
             db.query(models.GameSession).filter(
                 models.GameSession.mission_id == mission_id
-            ).update({"is_active": False, "end_time": datetime.utcnow()})
+            ).update({"is_active": False, "end_time": datetime.now(timezone.utc)})
             db.commit()
 
             game_session = (
@@ -348,7 +350,7 @@ class MissionControlService:
                 self._state["blue_team_score"] = max(
                     0, self._state["blue_team_score"] + payload.delta
                 )
-            self._state["updated_at"] = datetime.utcnow().isoformat()
+            self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._push_event_locked(
                 f"Score update {payload.team.upper()} {payload.delta:+d} ({payload.reason})"
             )
@@ -385,7 +387,7 @@ class MissionControlService:
                     break
             if not matched:
                 raise HTTPException(status_code=404, detail=f"Objective {objective_id} not found")
-            self._state["updated_at"] = datetime.utcnow().isoformat()
+            self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
             mission_id = self._state["mission_id"]
             snapshot = self.get_state()
 
@@ -394,7 +396,7 @@ class MissionControlService:
             db.query(models.MissionObjective).filter(
                 models.MissionObjective.mission_id == mission_id,
                 models.MissionObjective.seq == objective_id,
-            ).update({"status": payload.status, "updated_at": datetime.utcnow()})
+            ).update({"status": payload.status, "updated_at": datetime.now(timezone.utc)})
             db.commit()
 
         if log_msg:
@@ -425,7 +427,7 @@ class MissionControlService:
                         self._push_event_locked("Main timer reached zero – game auto-ended")
                         timer_expired = True
                         mission_id_to_close = self._state["mission_id"]
-                    self._state["updated_at"] = datetime.utcnow().isoformat()
+                    self._state["updated_at"] = datetime.now(timezone.utc).isoformat()
                     should_broadcast = True
                 snapshot = self.get_state()
 
@@ -436,10 +438,10 @@ class MissionControlService:
                 try:
                     db.query(models.Mission).filter(
                         models.Mission.id == mission_id_to_close
-                    ).update({"status": models.MissionStatus.complete, "end_time": datetime.utcnow()})
+                    ).update({"status": models.MissionStatus.complete, "end_time": datetime.now(timezone.utc)})
                     db.query(models.GameSession).filter(
                         models.GameSession.mission_id == mission_id_to_close
-                    ).update({"is_active": False, "end_time": datetime.utcnow()})
+                    ).update({"is_active": False, "end_time": datetime.now(timezone.utc)})
                     db.commit()
                     log_action(
                         db,
@@ -454,7 +456,7 @@ class MissionControlService:
                 # Reset to idle after broadcasting the ended state.
                 await self.broadcast_state(snapshot)
                 async with self._lock:
-                    self._state = {**_IDLE_STATE, "updated_at": datetime.utcnow().isoformat()}
+                    self._state = {**_IDLE_STATE, "updated_at": datetime.now(timezone.utc).isoformat()}
             elif should_broadcast:
                 await self.broadcast_state(snapshot)
 
@@ -469,7 +471,7 @@ class MissionControlService:
         )
 
     def _push_event_locked(self, message: str) -> None:
-        line = f"{datetime.utcnow().strftime('%H:%M:%S')}Z :: {message}"
+        line = f"{datetime.now(timezone.utc).strftime('%H:%M:%S')}Z :: {message}"
         self._state["event_feed"] = [line, *self._state["event_feed"]][:30]
 
 

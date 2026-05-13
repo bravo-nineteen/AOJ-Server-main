@@ -10,8 +10,9 @@ Goal:
 from __future__ import annotations
 
 import json
+import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from sqlalchemy import func, text
@@ -19,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from app import models
 
+
+logger = logging.getLogger(__name__)
 
 MAX_GAME_MODES = 15
 MAX_KNOWLEDGE = 6
@@ -41,7 +44,7 @@ class AIContextSnapshot:
         self.active_game_modes: list[dict[str, Any]] = []
         self.relevant_knowledge: list[dict[str, Any]] = []
         self.recent_critical_logs: list[dict[str, Any]] = []
-        self.collected_at: str = datetime.utcnow().isoformat() + "Z"
+        self.collected_at: str = datetime.now(timezone.utc).isoformat() + "Z"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -270,14 +273,15 @@ def _calculate_relevance(knowledge_entry: models.CustomKnowledgeEntry, prompt_ke
 def _safe_query_all(query, fallback: list[Any] | None = None) -> list[Any]:
     try:
         return query.all()
-    except Exception:
+    except Exception as e:
+        logger.debug("Safe query all failed: %s", e)
         return fallback or []
 
 
 def collect_context(db: Session, prompt: str = "", mission_id: int | None = None) -> AIContextSnapshot:
     """Collect and aggregate limited AI context from the database."""
     snapshot = AIContextSnapshot()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
     prompt_keywords = _extract_keywords(prompt)
@@ -315,10 +319,21 @@ def collect_context(db: Session, prompt: str = "", mission_id: int | None = None
         }
 
     if active_session is not None:
+        # Older/newer schemas may not expose GameSession.state directly.
+        # Derive a stable state label so AI context collection never crashes.
+        session_state = getattr(active_session, "state", None)
+        if session_state is None:
+            if bool(getattr(active_session, "is_active", False)):
+                session_state = "running"
+            elif getattr(active_session, "end_time", None):
+                session_state = "ended"
+            else:
+                session_state = "idle"
+
         snapshot.active_game_session = {
             "id": active_session.id,
             "name": active_session.name,
-            "state": _safe_enum_value(active_session.state),
+            "state": _safe_enum_value(session_state),
             "red_score": active_session.red_score,
             "blue_score": active_session.blue_score,
             "main_timer_seconds": active_session.main_timer_seconds,

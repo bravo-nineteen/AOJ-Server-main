@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+alembic
+pyttsx3
+piper-tts
+httpx
+python-multipart
+pyserial

@@ -1,5 +1,5 @@
 """AnnouncementRule – configurable timed announcement before a schedule activity type."""
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -20,7 +20,7 @@ class AnnouncementRule(Base):
     trigger_minutes_before: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
     # The message to broadcast. Supports {title}, {start_time}, {activity_type} placeholders.
     message_template: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )

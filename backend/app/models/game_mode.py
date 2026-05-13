@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,9 +15,9 @@ class GameMode(Base):
     default_main_timer_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
     default_phase_timer_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     rules: Mapped[str] = mapped_column(Text, default="{}", nullable=False)  # JSON
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     missions: Mapped[list["Mission"]] = relationship(back_populates="game_mode")

@@ -40,6 +40,20 @@ from app.models.user_role import UserRole  # legacy CRUD table kept for backward
 from app.models.christy_announcement import ChristyAnnouncement
 from app.models.member_profile import MemberProfile
 from app.models.announcement_rule import AnnouncementRule
+from app.models.player_squad import Squad, SquadMember, SquadRole, PlayerTeamAssignment
+from app.models.game_event import GameEvent, GameEventType
+from app.models.safety import ChronoCheck, MedicalIncident, SafetyViolation, Waiver
+from app.models.equipment import EquipmentType, Equipment, MaintenanceRecord, EquipmentCheckout
+from app.models.arena import Arena, ArenaLocation, RespawnPoint, NoFireZone, ObjectiveMarker
+from app.models.tournament import (
+    Tournament,
+    TournamentFormat,
+    TournamentStatus,
+    TournamentTeam,
+    TournamentMatch,
+    TournamentStandings,
+)
+from app.models.player_stats import PlayerSession, PlayerStatistic, ObjectiveCompletion
 
 __all__ = [
     # New
@@ -92,5 +106,39 @@ __all__ = [
     "AnnouncementRule",
     "ChristyAnnouncement",
     "MemberProfile",
+    # Player Management
+    "Squad",
+    "SquadMember",
+    "SquadRole",
+    "PlayerTeamAssignment",
+    "PlayerSession",
+    "PlayerStatistic",
+    "ObjectiveCompletion",
+    # Gameplay Events & Tracking
+    "GameEvent",
+    "GameEventType",
+    # Safety & Compliance
+    "ChronoCheck",
+    "MedicalIncident",
+    "SafetyViolation",
+    "Waiver",
+    # Equipment Management
+    "EquipmentType",
+    "Equipment",
+    "MaintenanceRecord",
+    "EquipmentCheckout",
+    # Arena/Field Management
+    "Arena",
+    "ArenaLocation",
+    "RespawnPoint",
+    "NoFireZone",
+    "ObjectiveMarker",
+    # Tournaments
+    "Tournament",
+    "TournamentFormat",
+    "TournamentStatus",
+    "TournamentTeam",
+    "TournamentMatch",
+    "TournamentStandings",
 ]
 

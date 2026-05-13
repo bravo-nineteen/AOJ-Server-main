@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -17,8 +17,8 @@ class ScoreEvent(Base):
     points: Mapped[int] = mapped_column(Integer, default=0)
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     reason: Mapped[str] = mapped_column(String(255), default="", nullable=False)
-    happened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    happened_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     game_session: Mapped["GameSession"] = relationship(back_populates="score_events")
     team: Mapped["Team | None"] = relationship(back_populates="score_events")

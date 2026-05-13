@@ -22,6 +22,8 @@ class UpdateCenterActionResponse(BaseModel):
 class UpdatePackagePlaceholderRequest(BaseModel):
     filename: str
     size_bytes: int = 0
+    manifest_sha256: str = ""
+    signature: str = ""
 
 
 class FirmwarePackageRead(BaseModel):

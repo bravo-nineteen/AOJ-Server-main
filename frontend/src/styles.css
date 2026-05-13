@@ -270,6 +270,11 @@ button.indicator {
   font-size: 0.74rem;
 }
 
+.live-feed-list li {
+  font-size: 0.72rem;
+  padding: 0.4rem 0.5rem;
+}
+
 .mission-control {
   display: block;
 }
@@ -860,7 +865,7 @@ button.indicator {
 
 .prop-command-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.4rem;
   margin-top: 0.45rem;
 }
