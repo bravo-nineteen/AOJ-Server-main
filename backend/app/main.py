@@ -46,6 +46,7 @@ from app.routes import (
     update_center,
 )
 from app.services.christy_service import christy_service
+from app.services.device_init_service import initialize_devices
 from app.services.log_service import log_action
 from app.services.mission_control_service import mission_control_service
 from app.services.scheduled_announcements_service import scheduled_announcements_service
@@ -188,6 +189,20 @@ async def lifespan(app: FastAPI):
     # ── STARTUP ──────────────────────────────────────────────────────────────
     logger.info("Starting AOJ Command OS backend")
     init_db()
+
+    # Initialize default firmware devices
+    db = SessionLocal()
+    try:
+        device_stats = initialize_devices(db)
+        logger.info(
+            "Device initialization complete: %d created, %d existing",
+            device_stats["created"],
+            device_stats["existing"],
+        )
+    except Exception as e:
+        logger.exception("Device initialization failed: %s", str(e))
+    finally:
+        db.close()
 
     def _ack_callback(device_id: str, ack_value: str, message_id: str) -> None:
         db = SessionLocal()

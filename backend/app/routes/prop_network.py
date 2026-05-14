@@ -176,10 +176,14 @@ async def send_prop_command(
         "reset": "RESET",
         "status_request": "STATUS_REQUEST",
         "trigger_alarm": "TRIGGER_ALARM",
+        "trigger": "TRIGGER",
         "game_start": "GAME_START",
         "game_end": "GAME_END",
         "ready": "READY",
-        "test_buzz": "TEST",
+        "test_buzz": "TEST_BUZZER",
+        "test_buzzer": "TEST_BUZZER",
+        "test_leds": "TEST_LEDS",
+        "test_relay": "TEST_RELAY",
     }
 
     # Dispatch command to LoRa radio (mock in non-Pi mode).
@@ -189,10 +193,12 @@ async def send_prop_command(
         item.status = "armed"
     elif payload.command == "disarm":
         item.status = "disarmed"
+    elif payload.command == "trigger" or payload.command == "trigger_alarm":
+        item.status = "alarm"
     elif payload.command == "reset":
         item.status = "online"
-    elif payload.command == "trigger_alarm":
-        item.status = "alarm"
+    elif payload.command in ["test_buzz", "test_buzzer", "test_leds", "test_relay"]:
+        pass  # Don't change status for test commands
 
     log_action(
         db,
@@ -219,3 +225,257 @@ async def send_prop_command(
     )
 
     return {"status": "command_sent", "prop": schemas.PropRead.model_validate(item)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Testing and Diagnostics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/{prop_id}/test/buzzer")
+async def test_buzzer(prop_id: int, db: Session = Depends(get_db)):
+    """Test the buzzer on a device."""
+    item = db.query(models.Prop).filter(models.Prop.id == prop_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Prop not found")
+
+    lora_service.send_command(item.device_id, "TEST_BUZZER")
+
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_diagnostics",
+        message=f"Buzzer test initiated: {item.device_id}",
+    )
+
+    return {"status": "test_initiated", "device_id": item.device_id, "test": "buzzer"}
+
+
+@router.post("/{prop_id}/test/leds")
+async def test_leds(prop_id: int, db: Session = Depends(get_db)):
+    """Test the LEDs on a device."""
+    item = db.query(models.Prop).filter(models.Prop.id == prop_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Prop not found")
+
+    lora_service.send_command(item.device_id, "TEST_LEDS")
+
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_diagnostics",
+        message=f"LED test initiated: {item.device_id}",
+    )
+
+    return {"status": "test_initiated", "device_id": item.device_id, "test": "leds"}
+
+
+@router.post("/{prop_id}/test/relay")
+async def test_relay(prop_id: int, db: Session = Depends(get_db)):
+    """Test the relay (horn) on a device."""
+    item = db.query(models.Prop).filter(models.Prop.id == prop_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Prop not found")
+
+    lora_service.send_command(item.device_id, "TEST_RELAY")
+
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_diagnostics",
+        message=f"Relay test initiated: {item.device_id}",
+    )
+
+    return {"status": "test_initiated", "device_id": item.device_id, "test": "relay"}
+
+
+@router.post("/init/all")
+async def initialize_all_props(db: Session = Depends(get_db)):
+    """Initialize all built-in firmware devices."""
+    devices = [
+        {"device_id": "BD-001", "name": "Main Bomb", "prop_type": "Bomb", "location": "Arena Center"},
+        {"device_id": "VEST-001", "name": "Bomb Vest", "prop_type": "Bomb Vest", "location": "Player Loadout"},
+        {"device_id": "CASE-001", "name": "Briefcase Bomb", "prop_type": "Briefcase Bomb", "location": "Mission Control"},
+        {"device_id": "DOM-001", "name": "Domination Point A", "prop_type": "Domination Point", "location": "Arena North"},
+        {"device_id": "DOM-002", "name": "Domination Point B", "prop_type": "Domination Point", "location": "Arena South"},
+        {"device_id": "RESP-001", "name": "Respawn Station 1", "prop_type": "Respawn Station", "location": "Team Alpha Spawn"},
+        {"device_id": "RESP-002", "name": "Respawn Station 2", "prop_type": "Respawn Station", "location": "Team Bravo Spawn"},
+        {"device_id": "GM-001", "name": "Game Master Unit", "prop_type": "Game Master Unit", "location": "Control Room"},
+        {"device_id": "CP-001", "name": "Control Panel Unit", "prop_type": "Control Panel Unit", "location": "Mission Control"},
+    ]
+
+    created = []
+    existing = []
+    for device in devices:
+        existing_prop = db.query(models.Prop).filter(models.Prop.device_id == device["device_id"]).first()
+        if existing_prop:
+            existing.append(existing_prop.device_id)
+        else:
+            prop = models.Prop(**device, status="offline")
+            db.add(prop)
+            created.append(device["device_id"])
+
+    db.commit()
+
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_init",
+        message=f"Initialized devices - Created: {len(created)}, Already existed: {len(existing)}",
+    )
+
+    return {
+        "status": "initialized",
+        "created": created,
+        "existing": existing,
+        "total": len(devices),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Device Status and Monitoring
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/status/all")
+def get_all_device_status(db: Session = Depends(get_db)) -> dict:
+    """Get comprehensive status of all devices."""
+    props = db.query(models.Prop).all()
+
+    status_by_type = {}
+    status_summary = {"online": 0, "offline": 0, "armed": 0, "alarm": 0}
+    battery_stats = {"average": 0, "min": 100, "max": 0}
+    signal_stats = {"average": 0, "min": 100, "max": 0}
+
+    total_battery = 0
+    total_signal = 0
+
+    for prop in props:
+        # Count status
+        if prop.status in status_summary:
+            status_summary[prop.status] += 1
+        else:
+            if prop.status not in status_summary:
+                status_summary[prop.status] = 0
+            status_summary[prop.status] += 1
+
+        # Collect by type
+        if prop.prop_type not in status_by_type:
+            status_by_type[prop.prop_type] = []
+        status_by_type[prop.prop_type].append({
+            "id": prop.id,
+            "device_id": prop.device_id,
+            "name": prop.name,
+            "status": prop.status,
+            "battery_level": prop.battery_level,
+            "signal_strength": prop.signal_strength,
+            "firmware_version": prop.firmware_version,
+            "last_seen": prop.last_seen.isoformat() if prop.last_seen else None,
+        })
+
+        # Battery stats
+        total_battery += prop.battery_level
+        battery_stats["min"] = min(battery_stats["min"], prop.battery_level)
+        battery_stats["max"] = max(battery_stats["max"], prop.battery_level)
+
+        # Signal stats
+        total_signal += prop.signal_strength
+        signal_stats["min"] = min(signal_stats["min"], prop.signal_strength)
+        signal_stats["max"] = max(signal_stats["max"], prop.signal_strength)
+
+    if props:
+        battery_stats["average"] = round(total_battery / len(props), 1)
+        signal_stats["average"] = round(total_signal / len(props), 1)
+
+    return {
+        "total_devices": len(props),
+        "status_summary": status_summary,
+        "battery_stats": battery_stats,
+        "signal_stats": signal_stats,
+        "devices_by_type": status_by_type,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/{prop_id}/status/detail")
+def get_device_detail(prop_id: int, db: Session = Depends(get_db)):
+    """Get detailed status information for a specific device."""
+    item = db.query(models.Prop).filter(models.Prop.id == prop_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Prop not found")
+
+    return {
+        "device_id": item.device_id,
+        "name": item.name,
+        "prop_type": item.prop_type,
+        "location": item.location,
+        "status": item.status,
+        "battery_level": item.battery_level,
+        "signal_strength": item.signal_strength,
+        "firmware_version": item.firmware_version,
+        "last_seen": item.last_seen.isoformat() if item.last_seen else None,
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+        "health": {
+            "battery_ok": item.battery_level > 20,
+            "signal_ok": item.signal_strength > 30,
+            "online": item.status != "offline",
+        },
+    }
+
+
+@router.post("/scan/all")
+async def scan_all_devices(db: Session = Depends(get_db)):
+    """Broadcast status request to all devices."""
+    props = db.query(models.Prop).all()
+
+    for prop in props:
+        lora_service.send_command(prop.device_id, "STATUS_REQUEST")
+
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_scan",
+        message=f"Broadcast status request to {len(props)} devices",
+    )
+
+    await websocket_manager.broadcast({
+        "event": "prop.scan_initiated",
+        "payload": {
+            "device_count": len(props),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    })
+
+    return {
+        "status": "scan_initiated",
+        "device_count": len(props),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post("/{prop_id}/scan")
+async def scan_device(prop_id: int, db: Session = Depends(get_db)):
+    """Request status from a specific device."""
+    item = db.query(models.Prop).filter(models.Prop.id == prop_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Prop not found")
+
+    lora_service.send_command(item.device_id, "STATUS_REQUEST")
+
+    log_action(
+        db,
+        level=models.LogLevel.info,
+        category=models.LogCategory.prop,
+        source="prop_scan",
+        message=f"Status request sent to device: {item.device_id}",
+    )
+
+    return {
+        "status": "status_request_sent",
+        "device_id": item.device_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

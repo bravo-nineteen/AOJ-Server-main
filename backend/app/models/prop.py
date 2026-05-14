@@ -9,8 +9,12 @@ from app.database import Base
 
 class PropType(str, enum.Enum):
     bomb = "Bomb"
+    bomb_vest = "Bomb Vest"
+    briefcase_bomb = "Briefcase Bomb"
     domination_point = "Domination Point"
     respawn_station = "Respawn Station"
+    gm_unit = "Game Master Unit"
+    cp_unit = "Control Panel Unit"
     alarm = "Alarm"
     sensor = "Sensor"
     custom = "Custom"

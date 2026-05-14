@@ -8,7 +8,8 @@ class PropBase(BaseModel):
     device_id: str
     name: str
     prop_type: Literal[
-        "Bomb", "Domination Point", "Respawn Station", "Alarm", "Sensor", "Custom"
+        "Bomb", "Bomb Vest", "Briefcase Bomb", "Domination Point", "Respawn Station",
+        "Game Master Unit", "Control Panel Unit", "Alarm", "Sensor", "Custom"
     ] = "Custom"
     location: str = ""
     firmware_version: str = ""
@@ -50,8 +51,13 @@ class PropCommandRequest(BaseModel):
         "reset",
         "status_request",
         "trigger_alarm",
+        "trigger",
         "game_start",
         "game_end",
         "ready",
         "test_buzz",
+        "test_buzzer",
+        "test_leds",
+        "test_relay",
     ]
+    value: str = ""
