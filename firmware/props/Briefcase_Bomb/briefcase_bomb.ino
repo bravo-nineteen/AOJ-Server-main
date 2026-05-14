@@ -1,13 +1,8 @@
-#include <Arduino.h>
+#include <AOJ_Core.h>
 #include <Wire.h>
-#include <SPI.h>
-#include <WiFi.h>
-#include <WebServer.h>
-#include <Preferences.h>
-#include <U8g2lib.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
-#include <RadioLib.h>
+#include <U8g2lib.h>
 #include <DFRobotDFPlayerMini.h>
 
 // =====================================================
@@ -23,16 +18,11 @@
 // USER SETTINGS
 // =====================================================
 
-#define UNIT_ID "CASE01"
-#define NETWORK_ID "AOJ"
-#define REMOTE_KEY "RAVEN19"
+#define DEVICE_ID "CASE-001"
+#define PROP_TYPE "Briefcase Bomb"
+#define FW_VERSION "1.1.0"
 
-const char* WIFI_SSID = "AOJ_CASE01";
-const char* WIFI_PASSWORD = "raven1975";
-
-// LoRa frequency.
-// Use only settings legal for your module and region.
-#define LORA_FREQ 920.6
+// LoRa is managed by AOJ_Core.h
 
 // Relay behaviour
 const bool RELAY_ACTIVE_LOW = true;
@@ -47,14 +37,7 @@ const unsigned long SHUTDOWN_DURATION_MS = 12000;
 // PIN MAP
 // =====================================================
 
-// Heltec V3 LoRa SX1262 pins
-#define LORA_NSS   8
-#define LORA_DIO1  14
-#define LORA_RST   12
-#define LORA_BUSY  13
-#define LORA_SCK   9
-#define LORA_MISO  11
-#define LORA_MOSI  10
+// LoRa pins configured in AOJ_Core.h for Heltec V3
 
 // Shared I2C bus for OLED and 20x4 LCD
 #define I2C_SDA 17
@@ -112,10 +95,9 @@ U8G2_SSD1309_128X64_NONAME0_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE);
 
 LiquidCrystal_I2C lcd(LCD_ADDR, 20, 4);
 
-SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
-
-WebServer server(80);
-Preferences prefs;
+// AOJ Core objects
+AojLoRa lora;
+AojWiFi wifi;
 
 HardwareSerial mp3Serial(1);
 DFRobotDFPlayerMini mp3;
@@ -750,22 +732,7 @@ void updateHorn() {
   }
 }
 
-void sendStatusOccasionally() {
-  if (millis() - lastStatusSend < 15000) return;
 
-  lastStatusSend = millis();
-
-  String msg = "STATUS:";
-  msg += stateName();
-  msg += ":TIME:";
-  msg += formatTime(remainingSeconds);
-  msg += ":PWR:";
-  msg += String(readPowerPercent());
-  msg += ":MISTAKES:";
-  msg += String(mistakeCount);
-
-  sendLoraMessage(msg);
-}
 
 // =====================================================
 // SHUTDOWN SEQUENCE
@@ -1123,6 +1090,8 @@ void updateDisplays() {
 // WIFI CONTROL PANEL
 // =====================================================
 
+// Web control panel removed - use LoRa commands or AOJ server interface
+/*
 String htmlPage() {
   String page = R"rawliteral(
 <!DOCTYPE html>
@@ -1322,179 +1291,27 @@ refreshStatus();
 
   return page;
 }
+*/
 
+/*
 void handleRoot() {
   server.send(200, "text/html", htmlPage());
 }
 
-void handleStatus() {
-  String json = "{";
-  json += "\"state\":\"" + stateName() + "\",";
-  json += "\"time\":\"" + formatTime(remainingSeconds) + "\",";
-  json += "\"power\":" + String(readPowerPercent()) + ",";
-  json += "\"voltage\":\"" + String(readPowerVoltage(), 2) + "\",";
-  json += "\"usb\":\"" + String(usbKeyInserted() ? "INSERTED" : "EMPTY") + "\",";
-  json += "\"mistakes\":" + String(mistakeCount) + ",";
-  json += "\"rate\":\"" + String(timerRate, 1) + "\",";
-  json += "\"horn\":\"" + String(hornActive ? "YES" : "NO") + "\",";
-  json += "\"armCode\":\"" + armCode + "\",";
-  json += "\"securityCode\":\"" + securityCode + "\",";
-  json += "\"timerMinutes\":" + String(configuredStartSeconds / 60) + ",";
-  json += "\"low\":" + String(lowDisarmPercent) + ",";
-  json += "\"high\":" + String(highTriggerPercent) + ",";
-  json += "\"abort\":" + String(abortShutdownPercent) + ",";
-  json += "\"maxMistakes\":" + String(maxMistakes) + ",";
-  json += "\"allowTrig\":" + String(allowPowerUpTrigger ? "true" : "false") + ",";
-  json += "\"volume\":" + String(mp3Volume);
-  json += "}";
 
-  server.send(200, "application/json", json);
-}
+*/
 
-void handleSave() {
-  if (server.hasArg("arm")) {
-    String v = server.arg("arm");
-    v.trim();
-    if (v.length() >= 1 && v.length() <= 10) armCode = v;
+void setupMp3() {
+  mp3Serial.begin(9600, SERIAL_8N1, MP3_RX_PIN, MP3_TX_PIN);
+  delay(500);
+
+  if (mp3.begin(mp3Serial)) {
+    mp3Ready = true;
+    mp3.volume(mp3Volume);
+    playMp3(1);
+  } else {
+    mp3Ready = false;
   }
-
-  if (server.hasArg("sec")) {
-    String v = server.arg("sec");
-    v.trim();
-    if (v.length() >= 1 && v.length() <= 10) securityCode = v;
-  }
-
-  if (server.hasArg("timer")) {
-    int minutes = server.arg("timer").toInt();
-    if (minutes < 1) minutes = 1;
-    if (minutes > 60) minutes = 60;
-    configuredStartSeconds = (unsigned long)minutes * 60UL;
-
-    if (state == STATE_SAFE || state == STATE_DISARMED) {
-      remainingSeconds = configuredStartSeconds;
-    }
-  }
-
-  if (server.hasArg("low")) {
-    int v = server.arg("low").toInt();
-    if (v >= 1 && v <= 40) lowDisarmPercent = v;
-  }
-
-  if (server.hasArg("high")) {
-    int v = server.arg("high").toInt();
-    if (v >= 60 && v <= 100) highTriggerPercent = v;
-  }
-
-  if (server.hasArg("abort")) {
-    int v = server.arg("abort").toInt();
-    if (v >= 10 && v <= 60) abortShutdownPercent = v;
-  }
-
-  if (abortShutdownPercent <= lowDisarmPercent) {
-    abortShutdownPercent = lowDisarmPercent + 15;
-  }
-
-  if (server.hasArg("mistakes")) {
-    int v = server.arg("mistakes").toInt();
-    if (v >= 1 && v <= 10) maxMistakes = v;
-  }
-
-  if (server.hasArg("allowTrig")) {
-    allowPowerUpTrigger = server.arg("allowTrig").toInt() == 1;
-  }
-
-  if (server.hasArg("volume")) {
-    int v = server.arg("volume").toInt();
-    if (v >= 0 && v <= 30) {
-      mp3Volume = v;
-      if (mp3Ready) mp3.volume(mp3Volume);
-    }
-  }
-
-  saveSettings();
-  server.send(200, "text/plain", "Settings saved");
-}
-
-void handleManualArm() {
-  armUnit();
-  server.send(200, "text/plain", "Manual arm complete");
-}
-
-void handleManualDisarm() {
-  disarmUnit("WEB");
-  server.send(200, "text/plain", "Manual disarm complete");
-}
-
-void handleReset() {
-  resetToSafe();
-  server.send(200, "text/plain", "Reset complete");
-}
-
-void handleManualTrigger() {
-  triggerHorn("WEB_MANUAL");
-  server.send(200, "text/plain", "Manual trigger complete");
-}
-
-void handleTestBuzzer() {
-  beep(100);
-  delay(100);
-  beep(100);
-  delay(100);
-  beep(250);
-  server.send(200, "text/plain", "Buzzer tested");
-}
-
-void handleTestLeds() {
-  digitalWrite(LED_GREEN, HIGH);
-  digitalWrite(LED_YELLOW, LOW);
-  digitalWrite(LED_RED, LOW);
-  delay(400);
-
-  digitalWrite(LED_GREEN, LOW);
-  digitalWrite(LED_YELLOW, HIGH);
-  digitalWrite(LED_RED, LOW);
-  delay(400);
-
-  digitalWrite(LED_GREEN, LOW);
-  digitalWrite(LED_YELLOW, LOW);
-  digitalWrite(LED_RED, HIGH);
-  delay(400);
-
-  updateLeds();
-
-  server.send(200, "text/plain", "LEDs tested");
-}
-
-void handleTestRelay() {
-  setRelay(true);
-  delay(1000);
-  setRelay(false);
-
-  server.send(200, "text/plain", "Relay tested");
-}
-
-void handleTestMp3() {
-  playMp3(1);
-  server.send(200, "text/plain", "MP3 test played");
-}
-
-void setupWiFi() {
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
-
-  server.on("/", handleRoot);
-  server.on("/api/status", handleStatus);
-  server.on("/api/save", handleSave);
-  server.on("/api/arm", handleManualArm);
-  server.on("/api/disarm", handleManualDisarm);
-  server.on("/api/reset", handleReset);
-  server.on("/api/trigger", handleManualTrigger);
-  server.on("/api/test/buzzer", handleTestBuzzer);
-  server.on("/api/test/leds", handleTestLeds);
-  server.on("/api/test/relay", handleTestRelay);
-  server.on("/api/test/mp3", handleTestMp3);
-
-  server.begin();
 }
 
 // =====================================================
@@ -1596,26 +1413,19 @@ void setupMp3() {
 void setup() {
   Serial.begin(115200);
   delay(500);
+  Serial.println("\n[AOJ] Briefcase Bomb — " DEVICE_ID);
 
-  loadSettings();
   remainingSeconds = configuredStartSeconds;
 
   setupPins();
   setupDisplays();
   setupMp3();
   setupRadio();
-  setupWiFi();
 
   resetToSafe();
+  sendStatus();
 
-  sendLoraMessage("BOOTED_WIFI_READY");
-
-  lcdPrintLine(0, "AOJ OVERRIDE CASE");
-  lcdPrintLine(1, "SYSTEM READY");
-  lcdPrintLine(2, "WiFi: AOJ_CASE01");
-  lcdPrintLine(3, "IP: 192.168.4.1");
-
-  successNoise();
+  Serial.println("[AOJ] Ready");
 }
 
 // =====================================================
@@ -1623,21 +1433,57 @@ void setup() {
 // =====================================================
 
 void loop() {
-  server.handleClient();
+  // ── LoRa receive ────────────────────────────────────────────────────────
+  if (lora.available()) {
+    String raw = lora.read();
+    if (raw.length() > 0) {
+      AOJFrame f = aojParseFrame(raw);
+      if (f.valid && (f.deviceId == DEVICE_ID || f.deviceId == "*")) {
+        if (f.command == "ARM") {
+          armUnit();
+          sendFrame("ACK", "OK", f.messageId);
+        }
+        else if (f.command == "DISARM") {
+          disarmUnit("COMMAND");
+          sendFrame("ACK", "OK", f.messageId);
+        }
+        else if (f.command == "TRIGGER") {
+          triggerHorn("COMMAND");
+          sendFrame("ACK", "OK", f.messageId);
+        }
+        else if (f.command == "RESET") {
+          resetToSafe();
+          sendFrame("ACK", "OK", f.messageId);
+        }
+        else if (f.command == "STATUS_REQUEST") {
+          sendFrame("ACK", "OK", f.messageId);
+          sendStatus();
+        }
+        else {
+          sendFrame("ACK", "UNKNOWN", f.messageId);
+        }
+      }
+    }
+  }
 
-  checkLora();
-
+  // ── Input handling ──────────────────────────────────────────────────────
   handleArmSwitch();
   handleButtons();
   handleUsbKey();
   handleKeypad();
 
+  // ── Timer and horn ────────────────────────────────────────────────────────
   updateTimer();
   updateBeeps();
   updateHorn();
   updateShutdownSequence();
 
+  // ── Display and status ────────────────────────────────────────────────────
   updateLeds();
   updateDisplays();
-  sendStatusOccasionally();
+
+  if (millis() - lastStatusSend >= 15000) {
+    lastStatusSend = millis();
+    sendStatus();
+  }
 }
