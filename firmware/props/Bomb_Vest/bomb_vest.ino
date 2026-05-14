@@ -1,7 +1,10 @@
 #include <AOJ_Core.h>
+#include <WiFi.h>
+#include <WebServer.h>
 #include <Wire.h>
 #include <Keypad.h>
 #include <U8g2lib.h>
+#include <Preferences.h>
 
 // =====================================================
 // AOJ SAFE AIRSOFT VEST PROP - WIFI CONTROL VERSION
@@ -18,6 +21,9 @@
 #define PROP_TYPE "Bomb Vest"
 #define FW_VERSION "1.2.0"
 
+#define AP_SSID "AOJ_VEST01"
+#define AP_PASSWORD "AOJ2023"
+
 // Default settings. These can be changed in the browser panel.
 String disarmCode = "1975";
 int correctWireNumber = 3;
@@ -26,6 +32,7 @@ unsigned long configuredStartSeconds = 10UL * 60UL;
 // Relay behaviour
 const bool RELAY_ACTIVE_LOW = true;
 const unsigned long HORN_DURATION_MS = 8000;
+const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 
 // LoRa is managed by AOJ_Core.h
 
@@ -76,6 +83,8 @@ U8G2_SSD1309_128X64_NONAME0_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE);
 // AOJ Core objects
 AojLoRa lora;
 AojWiFi wifi;
+WebServer server(80);
+Preferences prefs;
 
 // -------------------- GAME STATE --------------------
 
@@ -102,6 +111,7 @@ unsigned long lastBeep = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long hornStartedAt = 0;
 unsigned long lastStatusSend = 0;
+unsigned long lastHeartbeat = 0;
 
 bool hornActive = false;
 
@@ -273,15 +283,20 @@ void sendFrame(const String &cmd, const String &val, const String &mid) {
   lora.send(frame);
 }
 
+void sendLoraMessage(const String &message) {
+  sendFrame("EVENT", message, aojGenerateMessageId());
+}
+
 void sendStatus() {
   int battery = aojReadBattery(BATTERY_ADC_PIN, BATTERY_FULL_MV, BATTERY_EMPTY_MV);
   int rssi    = lora.rssiPercent();
-  String value = String(bombStateLabel()) + ":" +
+  String currentState = stateName();
+  String value = currentState + ":" +
                  String(battery) + ":" +
                  String(rssi) + ":" +
                  PROP_TYPE;
   sendFrame("STATUS", value, aojGenerateMessageId());
-  wifi.reportStatus(DEVICE_ID, bombStateLabel(), battery, rssi, FW_VERSION);
+  wifi.reportStatus(DEVICE_ID, currentState.c_str(), battery, rssi, FW_VERSION);
 }
 
 // -------------------- GAME ACTIONS --------------------
@@ -301,11 +316,7 @@ void activateHorn(String reason) {
 }
 
 void disarmUnit(String method) {
-  if (state != STATE_ARMED && state != STATE_TRIGGERED) {
-    state = STATE_DISARMED;
-  } else {
-    state = STATE_DISARMED;
-  }
+  state = STATE_DISARMED;
 
   hornActive = false;
   setRelay(false);
@@ -483,13 +494,18 @@ void updateHorn() {
 
 void handleCommand(const AOJFrame &f) {
   if (f.command == "ARM") {
-    unsigned long duration = timerDurationMs;
+    unsigned long overrideSeconds = 0;
     if (f.value.length() > 0) {
       long secs = f.value.toInt();
-      if (secs > 0) duration = (unsigned long)secs * 1000UL;
+      if (secs > 0) overrideSeconds = (unsigned long)secs;
     }
-    activateHorn("ARM_COMMAND");
-    sendFrame("ACK", "OK", f.messageId);
+
+    bool armed = armUnit();
+    if (armed && overrideSeconds > 0) {
+      remainingSeconds = overrideSeconds;
+    }
+
+    sendFrame("ACK", armed ? "OK" : "FAIL", f.messageId);
   }
   else if (f.command == "DISARM") {
     if (state == STATE_ARMED) disarmUnit("COMMAND");
@@ -873,6 +889,24 @@ void handleTestRelay() {
   server.send(200, "text/plain", "Relay tested");
 }
 
+void setupWebServer() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASSWORD, 6, 0, 4);
+
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/api/status", HTTP_GET, handleStatus);
+  server.on("/api/save", HTTP_GET, handleSave);
+  server.on("/api/arm", HTTP_GET, handleArm);
+  server.on("/api/disarm", HTTP_GET, handleDisarm);
+  server.on("/api/reset", HTTP_GET, handleReset);
+  server.on("/api/horn", HTTP_GET, handleHorn);
+  server.on("/api/test/buzzer", HTTP_GET, handleTestBuzzer);
+  server.on("/api/test/leds", HTTP_GET, handleTestLeds);
+  server.on("/api/test/relay", HTTP_GET, handleTestRelay);
+
+  server.begin();
+}
+
 void setupRadio() {
   if (!lora.begin()) {
     Serial.println("[AOJ] LoRa init failed — halting");
@@ -909,50 +943,19 @@ void setupDisplay() {
   display.setContrast(180);
 }
 
-void setupRadio() {
-  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
-
-  int result = radio.begin(
-    LORA_FREQ,
-    125.0,
-    7,
-    5,
-    0x12,
-    14,
-    8,
-    1.6,
-    false
-  );
-
-  if (result != RADIOLIB_ERR_NONE) {
-    display.clearBuffer();
-    display.setFont(u8g2_font_6x12_tf);
-    display.drawStr(0, 12, "LoRa failed.");
-    display.drawStr(0, 28, "Check module/pins.");
-    display.sendBuffer();
-
-    while (true) {
-      digitalWrite(LED_YELLOW, HIGH);
-      delay(200);
-      digitalWrite(LED_YELLOW, LOW);
-      delay(200);
-    }
-  }
-
-  radio.startReceive();
-}
-
 void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println("\n[AOJ] Bomb Vest — " DEVICE_ID);
 
+  loadSettings();
   remainingSeconds = configuredStartSeconds;
 
   setupPins();
   setupDisplay();
   bootScreen();
   setupRadio();
+  setupWebServer();
 
   resetToSafe();
   sendStatus();
@@ -963,6 +966,8 @@ void setup() {
 // -------------------- MAIN LOOP --------------------
 
 void loop() {
+  server.handleClient();
+
   // ── LoRa receive ────────────────────────────────────────────────────────
   if (lora.available()) {
     String raw = lora.read();
