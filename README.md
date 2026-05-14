@@ -2,6 +2,41 @@
 
 AOJ Command OS is a local-first command system for airsoft field operations. It runs on a Raspberry Pi or Windows laptop as a command node, connects to a local router, and serves browser clients on tablets or phones. LoRa-connected field props communicate over RF.
 
+---
+
+## 🚀 **FASTEST WAY: ONE COMMAND**
+
+**On a fresh Raspberry Pi OS, just run this:**
+
+```bash
+curl -sL https://raw.githubusercontent.com/bravo-nineteen/AOJ-Server/main/scripts/quick-install.sh | bash
+```
+
+**Done!** The script does everything automatically (30-45 minutes). See: **[ULTRA_QUICK_START.md](ULTRA_QUICK_START.md)**
+
+---
+
+## 📚 **NEW TO LINUX? START HERE!**
+
+**If you prefer step-by-step guides or want to understand what's happening:**
+
+1. **[BEGINNER_RASPBERRY_PI_SETUP.md](BEGINNER_RASPBERRY_PI_SETUP.md)** ← **Read this first!**
+   - Complete step-by-step guide with zero assumptions
+   - Explains every Linux command
+   - Includes troubleshooting for beginners
+
+2. **[INSTALLATION_VISUAL_GUIDE.md](INSTALLATION_VISUAL_GUIDE.md)** ← **Visual flowcharts & diagrams**
+   - Pictures of each step
+   - Shows what you should see at each point
+
+3. **[INSTALLATION_CHEAT_SHEET.md](INSTALLATION_CHEAT_SHEET.md)** ← **Print this & keep it handy!**
+   - Just the commands (copy & paste)
+   - Minimal explanations
+
+**These guides assume you have ZERO Linux experience. They walk you through everything from plugging in the Pi to having it boot directly into AOJ.**
+
+---
+
 ## Stack
 
 | Component | Technology |
@@ -183,6 +218,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start_production_windows.ps1
 
 ## Quick Install — Linux / Raspberry Pi
 
+### 🔰 Beginner? Read These First!
+
+**If you're new to Linux and Raspberry Pi:**
+- **[BEGINNER_RASPBERRY_PI_SETUP.md](BEGINNER_RASPBERRY_PI_SETUP.md)** — Complete step-by-step (assumes zero Linux knowledge)
+- **[INSTALLATION_VISUAL_GUIDE.md](INSTALLATION_VISUAL_GUIDE.md)** — Visual guide with flowcharts
+- **[INSTALLATION_CHEAT_SHEET.md](INSTALLATION_CHEAT_SHEET.md)** — Quick command reference (print this!)
+- **[KIOSK_MODE_SETUP.md](KIOSK_MODE_SETUP.md)** — How to make it boot directly into AOJ (no login needed)
+
+### Quick Start (Experienced Users)
+
 ```bash
 # Clone
 git clone https://github.com/YOUR_ORG/AOJ-Server.git
@@ -201,6 +246,19 @@ chmod +x ./scripts/*.sh
 ```
 
 Open **http://MACHINE_IP:8000** on any device on your LAN.
+
+### Kiosk Mode (Auto-Start on Boot, No Login)
+
+To make your Pi boot directly into AOJ without any login or manual startup:
+
+```bash
+chmod +x scripts/setup-kiosk-pi.sh
+./scripts/setup-kiosk-pi.sh
+sudo systemctl enable aoj-production.service aoj-kiosk.service
+sudo reboot
+```
+
+Or follow [KIOSK_MODE_SETUP.md](KIOSK_MODE_SETUP.md) for detailed configuration.
 
 ---
 

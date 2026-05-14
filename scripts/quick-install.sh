@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AOJ Command OS - Quick Install (All-in-One for Fresh Raspberry Pi OS)
+# 
+# This script does EVERYTHING after you boot a fresh Raspberry Pi OS:
+# - Downloads the AOJ project
+# - Installs all dependencies
+# - Sets up kiosk mode
+# - Enables auto-startup
+# 
+# Run this ONCE on a fresh Raspberry Pi OS and you're done!
+#
+# Usage:
+#   curl -sL https://github.com/your-org/AOJ-Server/raw/main/scripts/quick-install.sh | bash
+#   
+# Or download and run locally:
+#   chmod +x scripts/quick-install.sh
+#   ./scripts/quick-install.sh
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[AOJ]${NC} $1"; }
+log_success() { echo -e "${GREEN}[AOJ]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[AOJ]${NC} $1"; }
+log_error() { echo -e "${RED}[AOJ]${NC} $1"; }
+
+banner() {
+  echo ""
+  echo "╔════════════════════════════════════════════╗"
+  echo "║   AOJ Command OS - Quick Install           ║"
+  echo "║   Everything in one command!               ║"
+  echo "╚════════════════════════════════════════════╝"
+  echo ""
+}
+
+check_os() {
+  log_info "Checking if this is Raspberry Pi OS..."
+  
+  if ! grep -qi "raspbian\|raspberry" /etc/os-release 2>/dev/null; then
+    log_warn "This might not be Raspberry Pi OS"
+    log_warn "Continuing anyway... (things might not work)"
+  else
+    log_success "Raspberry Pi OS detected!"
+  fi
+}
+
+check_internet() {
+  log_info "Checking internet connection..."
+  
+  if ! ping -c 1 8.8.8.8 &> /dev/null; then
+    log_error "No internet connection detected"
+    log_error "Please connect to Wi-Fi and try again"
+    exit 1
+  fi
+  
+  log_success "Internet connection OK"
+}
+
+check_storage() {
+  log_info "Checking available storage..."
+  
+  available=$(df ~ | tail -1 | awk '{print $4}')
+  required=$((2000000)) # 2GB in KB
+  
+  if [[ $available -lt $required ]]; then
+    log_warn "Low storage space available ($(($available / 1024 / 1024))GB)"
+    log_warn "Continuing anyway..."
+  else
+    log_success "Storage space OK ($(($available / 1024 / 1024))GB available)"
+  fi
+}
+
+welcome() {
+  banner
+  
+  echo "This script will:"
+  echo "  1. Update system packages"
+  echo "  2. Download AOJ project from GitHub"
+  echo "  3. Install Python dependencies"
+  echo "  4. Build the frontend"
+  echo "  5. Setup Ollama AI (optional)"
+  echo "  6. Configure automatic startup (kiosk mode)"
+  echo "  7. Reboot your Pi"
+  echo ""
+  echo "After reboot, your AOJ system will be ready!"
+  echo ""
+  
+  read -p "Continue? (y/n) " -n 1 -r
+  echo ""
+  
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    log_warn "Installation cancelled"
+    exit 0
+  fi
+}
+
+update_system() {
+  log_info "Updating system packages..."
+  echo "  (this may take a few minutes)"
+  
+  sudo apt-get update &> /dev/null
+  sudo apt-get upgrade -y &> /dev/null
+  
+  log_success "System updated"
+}
+
+install_dependencies() {
+  log_info "Installing required packages..."
+  echo "  Python, Node.js, Chromium, X11, etc."
+  
+  sudo apt-get install -y \
+    python3 python3-venv python3-pip \
+    nodejs npm \
+    chromium-browser \
+    xserver-xorg xinit lightdm lightdm-gtk-greeter \
+    unclutter curl \
+    &> /dev/null
+  
+  log_success "Dependencies installed"
+}
+
+download_project() {
+  log_info "Downloading AOJ project from GitHub..."
+  
+  if [[ -d ~/AOJ-Server ]]; then
+    log_warn "AOJ-Server already exists at ~/AOJ-Server"
+    read -p "Use existing? (y/n) " -n 1 -r
+    echo ""
+    
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      rm -rf ~/AOJ-Server
+      git clone https://github.com/bravo-nineteen/AOJ-Server.git ~/AOJ-Server &> /dev/null
+    fi
+  else
+    git clone https://github.com/bravo-nineteen/AOJ-Server.git ~/AOJ-Server &> /dev/null
+  fi
+  
+  cd ~/AOJ-Server
+  log_success "AOJ project ready at ~/AOJ-Server"
+}
+
+install_aoj() {
+  log_info "Installing AOJ system..."
+  echo "  This will take 10-20 minutes"
+  
+  chmod +x scripts/install_pi.sh
+  ./scripts/install_pi.sh &> /dev/null
+  
+  log_success "AOJ installation complete"
+}
+
+setup_ollama() {
+  log_info "Setting up Ollama AI (optional offline AI)..."
+  read -p "Install Ollama? (y/n) " -n 1 -r
+  echo ""
+  
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    chmod +x scripts/setup_pi_ollama.sh
+    ./scripts/setup_pi_ollama.sh &> /dev/null
+    log_success "Ollama installed"
+  else
+    log_warn "Skipping Ollama installation"
+  fi
+}
+
+setup_kiosk() {
+  log_info "Setting up kiosk mode (auto-startup)..."
+  
+  chmod +x scripts/setup-kiosk-pi.sh
+  
+  # Run the kiosk setup script but suppress some output
+  {
+    bash -c '
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    SYSTEMD_DIR="${SCRIPT_DIR}/systemd"
+    
+    mkdir -p "${SYSTEMD_DIR}"
+    
+    sudo cp "${SYSTEMD_DIR}/aoj-production.service" /etc/systemd/system/
+    sudo cp "${SYSTEMD_DIR}/aoj-kiosk.service" /etc/systemd/system/
+    sudo systemctl daemon-reload
+    
+    sudo mkdir -p /etc/lightdm/lightdm.conf.d
+    sudo tee /etc/lightdm/lightdm.conf.d/99-autologin.conf > /dev/null <<EOF
+[Seat:*]
+autologin-user=pi
+autologin-user-session=LXDE
+user-session=LXDE
+EOF
+    
+    mkdir -p ~/.config/autostart
+    cat > ~/.xinitrc <<'\''XINITRC'\''
+#!/bin/bash
+unclutter -idle 0 &
+exec chromium-browser \
+  --noerrdialogs \
+  --disable-session-crashed-bubble \
+  --disable-infobars \
+  --disable-extensions \
+  --disable-sync \
+  --app=http://localhost:8000 \
+  --kiosk
+XINITRC
+    chmod +x ~/.xinitrc
+    
+    sudo systemctl enable aoj-production.service aoj-kiosk.service
+    ' 2> /dev/null
+  }
+  
+  log_success "Kiosk mode configured"
+}
+
+final_status() {
+  echo ""
+  echo "╔════════════════════════════════════════════╗"
+  echo "║     Installation Complete!                ║"
+  echo "╚════════════════════════════════════════════╝"
+  echo ""
+  echo "Your AOJ system is ready!"
+  echo ""
+  echo "Next step: REBOOT YOUR PI"
+  echo "  sudo reboot"
+  echo ""
+  echo "After reboot:"
+  echo "  ✓ System boots directly to AOJ"
+  echo "  ✓ No login required"
+  echo "  ✓ Fullscreen interface"
+  echo "  ✓ Access from tablets: http://raspberrypi.local:8000"
+  echo ""
+  echo "Need help?"
+  echo "  - Check logs: sudo journalctl -u aoj-production -f"
+  echo "  - Read guide: ~/AOJ-Server/BEGINNER_RASPBERRY_PI_SETUP.md"
+  echo "  - Quick ref: ~/AOJ-Server/KIOSK_MODE_QUICK_REFERENCE.md"
+  echo ""
+}
+
+reboot_prompt() {
+  echo "Ready to reboot? (y/n) "
+  read -n 1 -r
+  echo ""
+  
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    log_info "Rebooting in 10 seconds..."
+    sleep 10
+    sudo reboot
+  else
+    log_info "Reboot skipped. Run 'sudo reboot' when ready."
+  fi
+}
+
+main() {
+  welcome
+  check_os
+  check_internet
+  check_storage
+  update_system
+  install_dependencies
+  download_project
+  install_aoj
+  setup_ollama
+  setup_kiosk
+  final_status
+  reboot_prompt
+}
+
+main "$@"
