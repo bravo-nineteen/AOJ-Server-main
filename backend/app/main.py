@@ -28,6 +28,7 @@ from app.routes import (
     firmware_rollouts,
     game_events,
     game_modes,
+    game_sessions,
     health,
     logs,
     members,
@@ -47,6 +48,7 @@ from app.routes import (
 )
 from app.services.christy_service import christy_service
 from app.services.device_init_service import initialize_devices
+from app.services.game_mode_init_service import initialize_game_modes
 from app.services.log_service import log_action
 from app.services.mission_control_service import mission_control_service
 from app.services.scheduled_announcements_service import scheduled_announcements_service
@@ -176,6 +178,7 @@ app.include_router(announcement_rules.router)
 app.include_router(announcements.router)
 app.include_router(game_events.router)
 app.include_router(game_modes.router)
+app.include_router(game_sessions.router)
 app.include_router(missions.router)
 app.include_router(scores.router)
 app.include_router(system_logs.router)
@@ -201,6 +204,20 @@ async def lifespan(app: FastAPI):
         )
     except Exception as e:
         logger.exception("Device initialization failed: %s", str(e))
+    finally:
+        db.close()
+
+    # Initialize game modes
+    db = SessionLocal()
+    try:
+        game_mode_stats = initialize_game_modes(db)
+        logger.info(
+            "Game mode initialization complete: %d created, %d existing",
+            game_mode_stats["created"],
+            game_mode_stats["existing"],
+        )
+    except Exception as e:
+        logger.exception("Game mode initialization failed: %s", str(e))
     finally:
         db.close()
 
