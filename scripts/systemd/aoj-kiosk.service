@@ -1,0 +1,60 @@
+[Unit]
+Description=AOJ Command OS - Kiosk Browser Display
+After=graphical.target display-manager.service aoj-production.service
+Wants=aoj-production.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/pi/.Xauthority"
+
+# Wait for backend to be ready before launching browser
+ExecStartPre=/bin/bash -c 'until curl -s http://localhost:8000/api/health; do sleep 2; done'
+
+# Launch Chromium in fullscreen kiosk mode
+ExecStart=/usr/bin/chromium-browser \
+  --noerrdialogs \
+  --disable-session-crashed-bubble \
+  --disable-infobars \
+  --disable-breakpad \
+  --disable-component-update \
+  --no-default-browser-check \
+  --disable-default-apps \
+  --disable-extensions \
+  --disable-translate \
+  --disable-sync \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-breakpad \
+  --disable-client-side-phishing-detection \
+  --disable-component-extensions-with-background-pages \
+  --disable-default-apps \
+  --disable-extensions \
+  --disable-features=TranslateUI \
+  --disable-hang-monitor \
+  --disable-ipc-flooding-protection \
+  --disable-popup-blocking \
+  --disable-prompt-on-repost \
+  --disable-renderer-backgrounding \
+  --enable-automation \
+  --enable-features=NetworkService,NetworkServiceInProcess \
+  --metrics-recording-only \
+  --mute-audio \
+  --no-default-browser-check \
+  --no-first-run \
+  --no-pings \
+  --password-store=basic \
+  --use-fake-ui-for-media-stream \
+  --app=http://localhost:8000 \
+  --kiosk
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aoj-kiosk
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,31 @@
+[Unit]
+Description=AOJ Command OS - Wallscreen / External Monitor Display
+After=graphical.target display-manager.service aoj-production.service
+Wants=aoj-production.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+Environment="DISPLAY=:0"
+Environment="XAUTHORITY=/home/pi/.Xauthority"
+
+# Wait for backend to be ready
+ExecStartPre=/bin/bash -c 'until curl -s http://localhost:8000/api/health; do sleep 2; done'
+
+# Firefox in kiosk mode for wallscreen displays (better landscape support)
+ExecStart=/usr/bin/firefox \
+  --new-window \
+  --width=1920 \
+  --height=1080 \
+  --kiosk \
+  http://localhost:8000
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aoj-wallscreen
+
+[Install]
+WantedBy=graphical.target
