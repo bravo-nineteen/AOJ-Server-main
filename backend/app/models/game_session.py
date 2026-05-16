@@ -1,9 +1,17 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+# Association table for many-to-many relationship between GameSession and Prop
+game_session_props_association = Table(
+    "game_session_props",
+    Base.metadata,
+    Column("game_session_id", Integer, ForeignKey("game_sessions.id"), primary_key=True),
+    Column("prop_id", Integer, ForeignKey("props.id"), primary_key=True),
+)
 
 
 class GameSession(Base):
@@ -33,3 +41,8 @@ class GameSession(Base):
     schedule_items: Mapped[list["ScheduleItem"]] = relationship(back_populates="game_session")
     game_results: Mapped[list["GameResult"]] = relationship(back_populates="game_session")
     logs: Mapped[list["SystemLog"]] = relationship(back_populates="game_session")
+    props: Mapped[list["Prop"]] = relationship(
+        "Prop",
+        secondary=game_session_props_association,
+        back_populates="game_sessions",
+    )

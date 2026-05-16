@@ -1,0 +1,25 @@
+[Unit]
+Description=AOJ Command OS - Production Backend & Frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/AOJ-Server
+# Run the combined production server (backend serves frontend build)
+ExecStart=/home/pi/AOJ-Server/scripts/start_production.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aoj-prod
+
+# Environment variables for production kiosk mode
+Environment="LORA_MODE=rpi_spi"
+Environment="OLLAMA_STRICT=true"
+Environment="AOJ_KIOSK_MODE=true"
+
+[Install]
+WantedBy=multi-user.target
