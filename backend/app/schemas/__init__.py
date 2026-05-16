@@ -57,7 +57,7 @@ from app.schemas.game_result import (
     ResultsResetDayResponse,
     ResultsSummaryResponse,
 )
-from app.schemas.game_session import GameSessionBase, GameSessionCreate, GameSessionRead
+from app.schemas.game_session import GameSessionBase, GameSessionCreate, GameSessionRead, GameSessionUpdate
 from app.schemas.mission import MissionBase, MissionCreate, MissionRead, MissionUpdate
 from app.schemas.health import HealthResponse
 from app.schemas.mission import MissionBase, MissionCreate, MissionRead
@@ -170,6 +170,7 @@ __all__ = [
     "GameSessionBase",
     "GameSessionCreate",
     "GameSessionRead",
+    "GameSessionUpdate",
     "HealthResponse",
     "MissionBase",
     "MissionCreate",
