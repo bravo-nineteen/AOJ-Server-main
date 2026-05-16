@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -euo
 
 # AOJ Command OS - Quick Install (All-in-One for Fresh Raspberry Pi OS)
 # 
