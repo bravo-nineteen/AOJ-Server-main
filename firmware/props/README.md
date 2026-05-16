@@ -179,8 +179,8 @@ Override before flashing if your regional band differs:
 | Target | Heltec WiFi LoRa 32 V3 with buzzer + relay-controlled horn |
 | Primary Triggers | `GAME_START` and `GAME_END` run 10-second buzzer countdown then 3-second horn pulse |
 | Alarm Trigger | `TRIGGER_ALARM`, `BOMB_EXPLODED`, `EXPLODED`, or `ALARM` runs immediate 3-second horn pulse |
-| Utility Commands | `STATUS_REQUEST`, `TEST`, `SIREN_TEST` |
-| WiFi Remote | Dedicated SSID/pass/token settings and HTTP endpoints for remote trigger/testing |
+| Utility Commands | `STATUS_REQUEST`, `TEST`, `SIREN_TEST` (`COUNTDOWN`, `HORN`, `RELAY`, `BUZZ`, `BUZZER`) |
+| WiFi Remote | Dedicated SSID/pass/token settings and HTTP test endpoints (`/test/wifi`, `/test/buzzer`, `/test/horn`, `/test/countdown`) |
 
 ## PC Simulation Tests
 

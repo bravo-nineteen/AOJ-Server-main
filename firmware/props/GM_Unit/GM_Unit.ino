@@ -65,6 +65,7 @@ bool hornActive = false;
 unsigned long countdownStartMs = 0;
 int lastCountdownSecond = -1;
 unsigned long hornStartMs = 0;
+unsigned long hornPulseDurationMs = HORN_PULSE_MS;
 unsigned long lastHeartbeatMs = 0;
 bool loraReady = false;
 bool remoteServerActive = false;
@@ -76,6 +77,10 @@ void beep(unsigned int durationMs) {
   digitalWrite(BUZZER_PIN, HIGH);
   delay(durationMs);
   digitalWrite(BUZZER_PIN, LOW);
+}
+
+bool isWifiConnected() {
+  return WiFi.status() == WL_CONNECTED || WiFi.getMode() == WIFI_MODE_AP || WiFi.getMode() == WIFI_MODE_APSTA;
 }
 
 void sendFrame(const String &command, const String &value, const String &messageId) {
@@ -110,13 +115,18 @@ void sendStatus() {
   aojWifi.reportStatus(DEVICE_ID, state.c_str(), battery, rssi, FW_VERSION);
 }
 
-void startHornPulse(const String &source) {
+void startHornPulse(const String &source, unsigned long durationMs) {
   hornActive = true;
   hornStartMs = millis();
+  hornPulseDurationMs = durationMs;
   digitalWrite(RELAY_PIN, HIGH);
   lastTriggerSource = source;
   lastAction = "horn";
-  sendEvent("SIREN", "HORN:" + source);
+  sendEvent("SIREN", "HORN:" + source + ":" + String(durationMs));
+}
+
+void startHornPulse(const String &source) {
+  startHornPulse(source, HORN_PULSE_MS);
 }
 
 void startCountdownThenHorn(const String &source) {
@@ -153,12 +163,74 @@ void processCountdown() {
 void processHorn() {
   if (!hornActive) return;
 
-  if (millis() - hornStartMs >= HORN_PULSE_MS) {
+  if (millis() - hornStartMs >= hornPulseDurationMs) {
     digitalWrite(RELAY_PIN, LOW);
     hornActive = false;
     lastAction = "online";
     sendEvent("SIREN", "OFF");
   }
+}
+
+void handleRemoteWifiTest() {
+  beep(100);
+
+  String mode = "unknown";
+  if (WiFi.getMode() == WIFI_MODE_STA) mode = "sta";
+  else if (WiFi.getMode() == WIFI_MODE_AP) mode = "ap";
+  else if (WiFi.getMode() == WIFI_MODE_APSTA) mode = "apsta";
+
+  String payload = "{\"ok\":true,\"wifi\":" + String(isWifiConnected() ? "true" : "false") +
+                   ",\"mode\":\"" + mode + "\",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
+  remoteServer.send(200, "application/json", payload);
+}
+
+void handleRemoteBuzzerTest() {
+  unsigned int durationMs = 150;
+  if (remoteServer.hasArg("ms")) {
+    int requested = remoteServer.arg("ms").toInt();
+    if (requested >= 20 && requested <= 2000) {
+      durationMs = (unsigned int)requested;
+    }
+  }
+
+  beep(durationMs);
+  lastAction = "buzzer-test";
+  sendEvent("SIREN", "BUZZER_TEST:" + String(durationMs));
+  remoteServer.send(200, "application/json", "{\"ok\":true,\"test\":\"buzzer\",\"ms\":" + String(durationMs) + "}");
+}
+
+void handleRemoteHornTest() {
+  unsigned long durationMs = HORN_PULSE_MS;
+  if (remoteServer.hasArg("ms")) {
+    int requested = remoteServer.arg("ms").toInt();
+    if (requested >= 100 && requested <= 10000) {
+      durationMs = (unsigned long)requested;
+    }
+  }
+
+  startHornPulse("wifi-test", durationMs);
+  remoteServer.send(200, "application/json", "{\"ok\":true,\"test\":\"horn\",\"ms\":" + String(durationMs) + "}");
+}
+
+void handleRemoteCountdownTest() {
+  startCountdownThenHorn("wifi-test");
+  remoteServer.send(200, "application/json", "{\"ok\":true,\"test\":\"countdown\"}");
+}
+
+void handleRemoteLoRaTest() {
+  if (!loraReady) {
+    beep(300);
+    remoteServer.send(503, "application/json", "{\"ok\":false,\"test\":\"lora\",\"error\":\"lora_not_ready\"}");
+    return;
+  }
+
+  // Send a status frame as a simple TX check and chirp to confirm request reached the unit.
+  sendStatus();
+  sendEvent("SIREN", "LORA_TEST");
+  beep(80);
+
+  String payload = "{\"ok\":true,\"test\":\"lora\",\"rssi_percent\":" + String(lora.rssiPercent()) + "}";
+  remoteServer.send(200, "application/json", payload);
 }
 
 void triggerIfAuthorized() {
@@ -194,13 +266,128 @@ void handleRemoteStatus() {
   remoteServer.send(200, "application/json", payload);
 }
 
+String remoteCss() {
+  return R"rawliteral(
+<style>
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #050505;
+  color: #ddd;
+  background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.wrap { max-width: 760px; margin: auto; padding: 18px; }
+.brand { color: #d71920; font-size: 24px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
+.title { font-size: 34px; font-weight: 900; color: white; margin: 6px 0 18px 0; letter-spacing: 2px; }
+.panel { background: #0b0b0b; border: 1px solid #2a2a2a; margin: 14px 0; padding: 14px; box-shadow: 0 0 14px rgba(215,25,32,.16); }
+h2 { font-size: 16px; color: #fff; margin: 0 0 12px 0; letter-spacing: 1px; text-transform: uppercase; border-bottom: 1px solid #333; padding-bottom: 8px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.stat { background: #121212; border: 1px solid #333; padding: 10px; flex: 1; min-width: 130px; }
+.label { color: #999; font-size: 11px; text-transform: uppercase; }
+.value { color: #fff; font-size: 18px; font-weight: 800; margin-top: 4px; }
+button {
+  background: #d71920;
+  color: white;
+  border: 0;
+  padding: 12px 14px;
+  margin: 5px 4px 5px 0;
+  font-weight: 900;
+  border-radius: 3px;
+  letter-spacing: .4px;
+  cursor: pointer;
+}
+button.secondary { background: #222; border: 1px solid #555; }
+button.warn { background: #ff9d00; color: #111; }
+input[type=number] { background: #111; color: white; border: 1px solid #555; padding: 10px; width: 110px; font-size: 15px; }
+.small { font-size: 12px; color: #aaa; }
+.ok { color: #67d667; }
+.bad { color: #ff6666; }
+</style>
+)rawliteral";
+}
+
+String remotePage() {
+  String page = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
+  page += remoteCss();
+  page += "</head><body><div class='wrap'>";
+
+  page += "<div class='brand'>Airsoft Online Japan</div>";
+  page += "<div class='title'>GM UNIT CONTROL</div>";
+
+  page += "<div class='panel'><h2>Status</h2><div class='row'>";
+  page += "<div class='stat'><div class='label'>Device</div><div class='value' id='deviceId'>" + String(DEVICE_ID) + "</div></div>";
+  page += "<div class='stat'><div class='label'>Countdown</div><div class='value' id='countdownState'>-</div></div>";
+  page += "<div class='stat'><div class='label'>Horn Relay</div><div class='value' id='hornState'>-</div></div>";
+  page += "<div class='stat'><div class='label'>Last Trigger</div><div class='value' id='lastTrigger'>-</div></div>";
+  page += "</div>";
+  page += "<div class='small'>Tip: open this page from phone/laptop connected to GM WiFi and run tests below.</div></div>";
+
+  page += "<div class='panel'><h2>Quick Tests</h2>";
+  page += "<button class='secondary' onclick='runTest(\"/test/wifi\")'>WiFi Test</button>";
+  page += "<button onclick='runTest(\"/test/buzzer?ms=150\")'>Buzzer 150 ms</button>";
+  page += "<button onclick='runTest(\"/test/relay?ms=3000\")'>Relay/Horn 3 s</button>";
+  page += "<button class='warn' onclick='runTest(\"/test/countdown\")'>Countdown then Horn</button>";
+  page += "<button class='secondary' onclick='runTest(\"/test/lora\")'>LoRa TX Test</button>";
+  page += "</div>";
+
+  page += "<div class='panel'><h2>Custom Duration Tests</h2>";
+  page += "<div class='row'>";
+  page += "<div class='stat'><div class='label'>Buzzer ms</div><input id='buzzerMs' type='number' min='20' max='2000' value='250'><br><button onclick='runBuzzerCustom()'>Run Buzzer</button></div>";
+  page += "<div class='stat'><div class='label'>Horn/Relay ms</div><input id='hornMs' type='number' min='100' max='10000' value='3000'><br><button onclick='runHornCustom()'>Run Horn Relay</button></div>";
+  page += "</div></div>";
+
+  page += "<div class='panel'><h2>Response</h2><div id='result' class='small'>Waiting...</div></div>";
+
+  page += R"rawliteral(
+<script>
+async function runTest(path) {
+  const out = document.getElementById('result');
+  out.textContent = 'Requesting ' + path + ' ...';
+  try {
+    const res = await fetch(path, { method: 'GET' });
+    const text = await res.text();
+    out.innerHTML = '<span class="' + (res.ok ? 'ok' : 'bad') + '">' + res.status + '</span> ' + text;
+    setTimeout(refreshStatus, 120);
+  } catch (err) {
+    out.innerHTML = '<span class="bad">ERROR</span> ' + err;
+  }
+}
+
+function runBuzzerCustom() {
+  const ms = document.getElementById('buzzerMs').value || '150';
+  runTest('/test/buzzer?ms=' + encodeURIComponent(ms));
+}
+
+function runHornCustom() {
+  const ms = document.getElementById('hornMs').value || '3000';
+  runTest('/test/relay?ms=' + encodeURIComponent(ms));
+}
+
+async function refreshStatus() {
+  try {
+    const res = await fetch('/status');
+    const data = await res.json();
+    document.getElementById('deviceId').textContent = data.device_id || '-';
+    document.getElementById('countdownState').textContent = data.countdown ? 'ACTIVE' : 'IDLE';
+    document.getElementById('hornState').textContent = data.horn ? 'ON' : 'OFF';
+    document.getElementById('lastTrigger').textContent = data.last_trigger || '-';
+  } catch (err) {
+    document.getElementById('result').innerHTML = '<span class="bad">STATUS ERROR</span> ' + err;
+  }
+}
+
+refreshStatus();
+setInterval(refreshStatus, 2000);
+</script>
+)rawliteral";
+
+  page += "</div></body></html>";
+  return page;
+}
+
 void handleRemoteRoot() {
-  String body = "GM_Unit remote endpoints:\n"
-                "GET /status\n"
-                "POST /trigger?mode=horn|countdown\n"
-                "POST /test/countdown\n"
-                "POST /test/horn\n";
-  remoteServer.send(200, "text/plain", body);
+  remoteServer.send(200, "text/html", remotePage());
 }
 
 void setupRemoteServer() {
@@ -221,14 +408,17 @@ void setupRemoteServer() {
     remoteServer.on("/", HTTP_GET, handleRemoteRoot);
     remoteServer.on("/status", HTTP_GET, handleRemoteStatus);
     remoteServer.on("/trigger", HTTP_POST, triggerIfAuthorized);
-    remoteServer.on("/test/countdown", HTTP_POST, []() {
-      startCountdownThenHorn("wifi-test");
-      remoteServer.send(200, "application/json", "{\"ok\":true}");
-    });
-    remoteServer.on("/test/horn", HTTP_POST, []() {
-      startHornPulse("wifi-test");
-      remoteServer.send(200, "application/json", "{\"ok\":true}");
-    });
+    remoteServer.on("/test/wifi", HTTP_GET, handleRemoteWifiTest);
+    remoteServer.on("/test/buzzer", HTTP_GET, handleRemoteBuzzerTest);
+    remoteServer.on("/test/buzzer", HTTP_POST, handleRemoteBuzzerTest);
+    remoteServer.on("/test/countdown", HTTP_GET, handleRemoteCountdownTest);
+    remoteServer.on("/test/countdown", HTTP_POST, handleRemoteCountdownTest);
+    remoteServer.on("/test/horn", HTTP_GET, handleRemoteHornTest);
+    remoteServer.on("/test/horn", HTTP_POST, handleRemoteHornTest);
+    remoteServer.on("/test/relay", HTTP_GET, handleRemoteHornTest);
+    remoteServer.on("/test/relay", HTTP_POST, handleRemoteHornTest);
+    remoteServer.on("/test/lora", HTTP_GET, handleRemoteLoRaTest);
+    remoteServer.on("/test/lora", HTTP_POST, handleRemoteLoRaTest);
     remoteServer.begin();
     remoteServerActive = true;
     Serial.print("[REMOTE HTTP] listening on ");
@@ -247,14 +437,17 @@ void setupRemoteServer() {
       remoteServer.on("/", HTTP_GET, handleRemoteRoot);
       remoteServer.on("/status", HTTP_GET, handleRemoteStatus);
       remoteServer.on("/trigger", HTTP_POST, triggerIfAuthorized);
-      remoteServer.on("/test/countdown", HTTP_POST, []() {
-        startCountdownThenHorn("wifi-test");
-        remoteServer.send(200, "application/json", "{\"ok\":true}");
-      });
-      remoteServer.on("/test/horn", HTTP_POST, []() {
-        startHornPulse("wifi-test");
-        remoteServer.send(200, "application/json", "{\"ok\":true}");
-      });
+      remoteServer.on("/test/wifi", HTTP_GET, handleRemoteWifiTest);
+      remoteServer.on("/test/buzzer", HTTP_GET, handleRemoteBuzzerTest);
+      remoteServer.on("/test/buzzer", HTTP_POST, handleRemoteBuzzerTest);
+      remoteServer.on("/test/countdown", HTTP_GET, handleRemoteCountdownTest);
+      remoteServer.on("/test/countdown", HTTP_POST, handleRemoteCountdownTest);
+      remoteServer.on("/test/horn", HTTP_GET, handleRemoteHornTest);
+      remoteServer.on("/test/horn", HTTP_POST, handleRemoteHornTest);
+      remoteServer.on("/test/relay", HTTP_GET, handleRemoteHornTest);
+      remoteServer.on("/test/relay", HTTP_POST, handleRemoteHornTest);
+      remoteServer.on("/test/lora", HTTP_GET, handleRemoteLoRaTest);
+      remoteServer.on("/test/lora", HTTP_POST, handleRemoteLoRaTest);
       remoteServer.begin();
       remoteServerActive = true;
       Serial.print("[REMOTE HTTP] fallback listening on ");
@@ -285,7 +478,7 @@ void handleLoRaCommand(const AOJFrame &frame) {
     return;
   }
 
-  if (command == "GAME_END" || command == "END" || command == "GAMEOVER") {
+  if (command == "GAME_END" || command == "GAME_OVER" || command == "END" || command == "GAMEOVER") {
     sendAck(frame.messageId);
     startCountdownThenHorn("lora-game-end");
     return;
@@ -299,8 +492,17 @@ void handleLoRaCommand(const AOJFrame &frame) {
 
   if (command == "TEST" || command == "SIREN_TEST") {
     sendAck(frame.messageId);
-    if (frame.value == "COUNTDOWN") {
+    String testValue = frame.value;
+    testValue.toUpperCase();
+
+    if (testValue == "COUNTDOWN") {
       startCountdownThenHorn("lora-test");
+    } else if (testValue == "BUZZ" || testValue == "BUZZER" || testValue == "BUZZER_TEST") {
+      beep(150);
+      lastAction = "buzzer-test";
+      sendEvent("SIREN", "BUZZER_TEST:150");
+    } else if (testValue == "HORN" || testValue == "RELAY" || testValue == "HORN_TEST") {
+      startHornPulse("lora-test", HORN_PULSE_MS);
     } else {
       startHornPulse("lora-test");
     }

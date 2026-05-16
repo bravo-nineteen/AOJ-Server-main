@@ -99,7 +99,7 @@ class GmUnitModel:
         elif cmd in ("GAME_START", "START", "ROUND_START"):
             self._ack(frame["message_id"])
             self.start_countdown()
-        elif cmd in ("GAME_END", "END", "GAMEOVER"):
+        elif cmd in ("GAME_END", "GAME_OVER", "END", "GAMEOVER"):
             self._ack(frame["message_id"])
             self.start_countdown()
         elif cmd in ("TRIGGER_ALARM", "BOMB_EXPLODED", "EXPLODED", "ALARM"):
@@ -109,6 +109,10 @@ class GmUnitModel:
             self._ack(frame["message_id"])
             if val == "COUNTDOWN":
                 self.start_countdown()
+            elif val in ("BUZZ", "BUZZER", "BUZZER_TEST"):
+                self._event("BUZZER_TEST")
+            elif val in ("HORN", "RELAY", "HORN_TEST"):
+                self.start_horn()
             else:
                 self.start_horn()
         else:
