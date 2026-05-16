@@ -233,9 +233,13 @@ download_project() {
 install_aoj() {
   log_info "Installing AOJ system..."
   echo "  This will take 10-20 minutes"
-  
+
+  local install_log="${HOME}/aoj-install.log"
   chmod +x scripts/install_pi.sh
-  ./scripts/install_pi.sh &> /dev/null
+  if ! bash scripts/install_pi.sh 2>&1 | tee "$install_log"; then
+    log_error "AOJ installation failed. See log: $install_log"
+    exit 1
+  fi
   
   log_success "AOJ installation complete"
 }
