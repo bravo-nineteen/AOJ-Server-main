@@ -41,6 +41,18 @@ log_success() { echo -e "${GREEN}[AOJ]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[AOJ]${NC} $1"; }
 log_error() { echo -e "${RED}[AOJ]${NC} $1"; }
 
+normalize_shell_scripts() {
+  log_info "Normalizing shell scripts to Unix line endings..."
+
+  if [[ -d "${LOCAL_PROJECT_ROOT}/scripts" ]]; then
+    find "${LOCAL_PROJECT_ROOT}/scripts" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+  fi
+
+  if [[ -d "${TARGET_PROJECT_ROOT}/scripts" ]]; then
+    find "${TARGET_PROJECT_ROOT}/scripts" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+  fi
+}
+
 relaunch_in_terminal() {
   if [[ -n "${AOJ_LAUNCHED_IN_TERMINAL:-}" ]]; then
     return
@@ -233,9 +245,13 @@ download_project() {
 install_aoj() {
   log_info "Installing AOJ system..."
   echo "  This will take 10-20 minutes"
-  
+
+  local install_log="${HOME}/aoj-install.log"
   chmod +x scripts/install_pi.sh
-  ./scripts/install_pi.sh &> /dev/null
+  if ! bash scripts/install_pi.sh 2>&1 | tee "$install_log"; then
+    log_error "AOJ installation failed. See log: $install_log"
+    exit 1
+  fi
   
   log_success "AOJ installation complete"
 }
@@ -342,6 +358,7 @@ main() {
   update_system
   install_dependencies
   download_project
+  normalize_shell_scripts
   install_aoj
   setup_ollama
   setup_kiosk
