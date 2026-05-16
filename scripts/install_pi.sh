@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
+# Enable pipefail when supported by the current shell.
+if (set -o pipefail) 2>/dev/null; then
+  set -o pipefail
+fi
 
 # AOJ Command OS Raspberry Pi install script.
 #
