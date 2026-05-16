@@ -11,7 +11,7 @@
 **On your fresh Raspberry Pi OS, just run:**
 
 ```bash
-curl -sL https://raw.githubusercontent.com/bravo-nineteen/AOJ-Server/main/scripts/quick-install.sh | bash
+curl -sL https://raw.githubusercontent.com/bravo-nineteen/AOJ-Server-main/main/scripts/quick-install.sh | bash
 ```
 
 **That's it!** The script will:
@@ -306,7 +306,7 @@ sudo systemctl stop aoj-kiosk
 **The entire installation is just:**
 
 ```bash
-curl -sL https://raw.githubusercontent.com/bravo-nineteen/AOJ-Server/main/scripts/quick-install.sh | bash
+curl -sL https://raw.githubusercontent.com/bravo-nineteen/AOJ-Server-main/main/scripts/quick-install.sh | bash
 ```
 
 Then wait 30-45 minutes and reboot. Your AOJ system will be ready! 🎉
