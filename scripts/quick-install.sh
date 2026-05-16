@@ -42,14 +42,26 @@ log_warn() { echo -e "${YELLOW}[AOJ]${NC} $1"; }
 log_error() { echo -e "${RED}[AOJ]${NC} $1"; }
 
 normalize_shell_scripts() {
-  log_info "Normalizing shell scripts to Unix line endings..."
+  log_info "Normalizing shell scripts to Unix line endings and shell syntax..."
+
+  local fix_script='
+    s/\r$//
+    /^set -euo pipefail$/{
+      c\
+set -eu\
+# Enable pipefail when supported by the current shell.\
+if (set -o pipefail) 2>/dev/null; then\
+  set -o pipefail\
+fi
+    }
+  '
 
   if [[ -d "${LOCAL_PROJECT_ROOT}/scripts" ]]; then
-    find "${LOCAL_PROJECT_ROOT}/scripts" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+    find "${LOCAL_PROJECT_ROOT}/scripts" -type f -name "*.sh" -exec sed -i "$fix_script" {} +
   fi
 
   if [[ -d "${TARGET_PROJECT_ROOT}/scripts" ]]; then
-    find "${TARGET_PROJECT_ROOT}/scripts" -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+    find "${TARGET_PROJECT_ROOT}/scripts" -type f -name "*.sh" -exec sed -i "$fix_script" {} +
   fi
 }
 
