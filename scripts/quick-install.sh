@@ -18,6 +18,11 @@ set -euo pipefail
 #   chmod +x scripts/quick-install.sh
 #   ./scripts/quick-install.sh
 
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+LOCAL_PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TARGET_PROJECT_ROOT="${HOME}/AOJ-Server"
+
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,6 +34,35 @@ log_info() { echo -e "${BLUE}[AOJ]${NC} $1"; }
 log_success() { echo -e "${GREEN}[AOJ]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[AOJ]${NC} $1"; }
 log_error() { echo -e "${RED}[AOJ]${NC} $1"; }
+
+relaunch_in_terminal() {
+  if [[ -n "${AOJ_LAUNCHED_IN_TERMINAL:-}" ]]; then
+    return
+  fi
+
+  if [[ -t 0 && -t 1 && -n "${TERM:-}" ]]; then
+    return
+  fi
+
+  local launch_cmd
+  printf -v launch_cmd 'cd %q; AOJ_LAUNCHED_IN_TERMINAL=1 %q' "$LOCAL_PROJECT_ROOT" "$SCRIPT_PATH"
+
+  if command -v x-terminal-emulator &> /dev/null; then
+    exec x-terminal-emulator -e bash -lc "$launch_cmd"
+  elif command -v lxterminal &> /dev/null; then
+    exec lxterminal -e bash -lc "$launch_cmd"
+  elif command -v xterm &> /dev/null; then
+    exec xterm -e bash -lc "$launch_cmd"
+  fi
+
+  log_error "No terminal launcher found for double-click execution"
+  log_error "Run this script from Terminal instead"
+  exit 1
+}
+
+is_local_project_copy() {
+  [[ -f "${LOCAL_PROJECT_ROOT}/scripts/install_pi.sh" ]]
+}
 
 banner() {
   echo ""
@@ -126,22 +160,51 @@ install_dependencies() {
 }
 
 download_project() {
+  if is_local_project_copy; then
+    log_info "Using local AOJ project files..."
+
+    if [[ "$LOCAL_PROJECT_ROOT" == "$TARGET_PROJECT_ROOT" ]]; then
+      cd "$TARGET_PROJECT_ROOT"
+      log_success "AOJ project ready at ~/AOJ-Server"
+      return
+    fi
+
+    if [[ -d "$TARGET_PROJECT_ROOT" ]]; then
+      log_warn "AOJ-Server already exists at ~/AOJ-Server"
+      read -p "Replace it with this local copy? (y/n) " -n 1 -r
+      echo ""
+
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        cd "$TARGET_PROJECT_ROOT"
+        log_success "Using existing AOJ project at ~/AOJ-Server"
+        return
+      fi
+
+      rm -rf "$TARGET_PROJECT_ROOT"
+    fi
+
+    cp -a "$LOCAL_PROJECT_ROOT" "$TARGET_PROJECT_ROOT"
+    cd "$TARGET_PROJECT_ROOT"
+    log_success "AOJ project copied to ~/AOJ-Server"
+    return
+  fi
+
   log_info "Downloading AOJ project from GitHub..."
-  
-  if [[ -d ~/AOJ-Server ]]; then
+
+  if [[ -d "$TARGET_PROJECT_ROOT" ]]; then
     log_warn "AOJ-Server already exists at ~/AOJ-Server"
     read -p "Use existing? (y/n) " -n 1 -r
     echo ""
-    
+
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      rm -rf ~/AOJ-Server
-      git clone https://github.com/bravo-nineteen/AOJ-Server.git ~/AOJ-Server &> /dev/null
+      rm -rf "$TARGET_PROJECT_ROOT"
+      git clone https://github.com/bravo-nineteen/AOJ-Server-main.git "$TARGET_PROJECT_ROOT" &> /dev/null
     fi
   else
-    git clone https://github.com/bravo-nineteen/AOJ-Server.git ~/AOJ-Server &> /dev/null
+    git clone https://github.com/bravo-nineteen/AOJ-Server-main.git "$TARGET_PROJECT_ROOT" &> /dev/null
   fi
-  
-  cd ~/AOJ-Server
+
+  cd "$TARGET_PROJECT_ROOT"
   log_success "AOJ project ready at ~/AOJ-Server"
 }
 
@@ -256,6 +319,7 @@ reboot_prompt() {
 }
 
 main() {
+  relaunch_in_terminal
   welcome
   check_os
   check_internet
