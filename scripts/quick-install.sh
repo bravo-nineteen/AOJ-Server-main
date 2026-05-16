@@ -1,5 +1,9 @@
 #!/bin/bash
-set -euo
+set -eu
+# Enable pipefail when supported by the current shell.
+if (set -o pipefail) 2>/dev/null; then
+  set -o pipefail
+fi
 
 # AOJ Command OS - Quick Install (All-in-One for Fresh Raspberry Pi OS)
 # 
@@ -77,8 +81,16 @@ banner() {
 
 check_os() {
   log_info "Checking if this is Raspberry Pi OS..."
-  
-  if ! grep -qi "raspbian\|raspberry" /etc/os-release 2>/dev/null; then
+
+  local is_pi="false"
+  if grep -qi "raspbian\|raspberry\|debian" /etc/os-release 2>/dev/null; then
+    is_pi="true"
+  fi
+  if grep -qi "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
+    is_pi="true"
+  fi
+
+  if [[ "$is_pi" != "true" ]]; then
     log_warn "This might not be Raspberry Pi OS"
     log_warn "Continuing anyway... (things might not work)"
   else
@@ -155,15 +167,25 @@ update_system() {
 install_dependencies() {
   log_info "Installing required packages..."
   echo "  Python, Node.js, Git, Chromium, X11, etc."
-  
-  sudo apt-get install -y \
+
+  # Newer Raspberry Pi OS releases often provide 'chromium' instead of 'chromium-browser'.
+  if ! sudo apt-get install -y \
     python3 python3-venv python3-pip \
     nodejs npm \
     git \
     chromium-browser \
     xserver-xorg xinit lightdm lightdm-gtk-greeter \
     unclutter curl \
-    &> /dev/null
+    &> /dev/null; then
+    log_warn "Primary package list failed, retrying with 'chromium' package name..."
+    sudo apt-get install -y \
+      python3 python3-venv python3-pip \
+      nodejs npm \
+      git \
+      chromium \
+      xserver-xorg xinit lightdm lightdm-gtk-greeter \
+      unclutter curl
+  fi
   
   log_success "Dependencies installed"
 }
