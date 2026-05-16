@@ -154,11 +154,12 @@ update_system() {
 
 install_dependencies() {
   log_info "Installing required packages..."
-  echo "  Python, Node.js, Chromium, X11, etc."
+  echo "  Python, Node.js, Git, Chromium, X11, etc."
   
   sudo apt-get install -y \
     python3 python3-venv python3-pip \
     nodejs npm \
+    git \
     chromium-browser \
     xserver-xorg xinit lightdm lightdm-gtk-greeter \
     unclutter curl \
@@ -196,7 +197,11 @@ download_project() {
     log_warn "AOJ-Server already exists at ~/AOJ-Server"
     log_info "Using existing AOJ project at ~/AOJ-Server"
   else
-    git clone https://github.com/bravo-nineteen/AOJ-Server-main.git "$TARGET_PROJECT_ROOT" &> /dev/null
+    if ! git clone https://github.com/bravo-nineteen/AOJ-Server-main.git "$TARGET_PROJECT_ROOT"; then
+      log_error "Failed to download AOJ project from GitHub"
+      log_error "Check internet connectivity and GitHub access, then retry"
+      exit 1
+    fi
   fi
 
   cd "$TARGET_PROJECT_ROOT"
