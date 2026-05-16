@@ -22,6 +22,8 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 LOCAL_PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TARGET_PROJECT_ROOT="${HOME}/AOJ-Server"
+INSTALL_OLLAMA="false"
+AUTO_REBOOT="false"
 
 # Color codes
 RED='\033[0;31m'
@@ -125,7 +127,13 @@ welcome() {
   echo "After reboot, your AOJ system will be ready!"
   echo ""
   
-  read -p "Continue? (y/n) " -n 1 -r
+  echo "Defaults for this run:"
+  echo "  - Reuse existing ~/AOJ-Server if present"
+  echo "  - Skip Ollama install"
+  echo "  - Do not auto-reboot"
+  echo ""
+
+  read -p "Continue with these defaults? (y/n) " -n 1 -r
   echo ""
   
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -171,16 +179,9 @@ download_project() {
 
     if [[ -d "$TARGET_PROJECT_ROOT" ]]; then
       log_warn "AOJ-Server already exists at ~/AOJ-Server"
-      read -p "Replace it with this local copy? (y/n) " -n 1 -r
-      echo ""
-
-      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        cd "$TARGET_PROJECT_ROOT"
-        log_success "Using existing AOJ project at ~/AOJ-Server"
-        return
-      fi
-
-      rm -rf "$TARGET_PROJECT_ROOT"
+      log_info "Using existing AOJ project at ~/AOJ-Server"
+      cd "$TARGET_PROJECT_ROOT"
+      return
     fi
 
     cp -a "$LOCAL_PROJECT_ROOT" "$TARGET_PROJECT_ROOT"
@@ -193,13 +194,7 @@ download_project() {
 
   if [[ -d "$TARGET_PROJECT_ROOT" ]]; then
     log_warn "AOJ-Server already exists at ~/AOJ-Server"
-    read -p "Use existing? (y/n) " -n 1 -r
-    echo ""
-
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      rm -rf "$TARGET_PROJECT_ROOT"
-      git clone https://github.com/bravo-nineteen/AOJ-Server-main.git "$TARGET_PROJECT_ROOT" &> /dev/null
-    fi
+    log_info "Using existing AOJ project at ~/AOJ-Server"
   else
     git clone https://github.com/bravo-nineteen/AOJ-Server-main.git "$TARGET_PROJECT_ROOT" &> /dev/null
   fi
@@ -220,10 +215,7 @@ install_aoj() {
 
 setup_ollama() {
   log_info "Setting up Ollama AI (optional offline AI)..."
-  read -p "Install Ollama? (y/n) " -n 1 -r
-  echo ""
-  
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
+  if [[ "$INSTALL_OLLAMA" == "true" ]]; then
     chmod +x scripts/setup_pi_ollama.sh
     ./scripts/setup_pi_ollama.sh &> /dev/null
     log_success "Ollama installed"
@@ -305,11 +297,7 @@ final_status() {
 }
 
 reboot_prompt() {
-  echo "Ready to reboot? (y/n) "
-  read -n 1 -r
-  echo ""
-  
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
+  if [[ "$AUTO_REBOOT" == "true" ]]; then
     log_info "Rebooting in 10 seconds..."
     sleep 10
     sudo reboot
