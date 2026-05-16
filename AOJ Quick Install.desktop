@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AOJ Quick Install
+Comment=Run the AOJ Raspberry Pi installer
+Exec=bash -c 'cd "$(dirname "$1")" && ./scripts/quick-install.sh; status=$?; echo; if [ $status -ne 0 ]; then echo "Installer exited with status $status"; fi; printf "Press Enter to close..."; read _; exit $status' bash %k
+Icon=utilities-terminal
+Terminal=true
+Categories=Utility;
