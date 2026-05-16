@@ -58,6 +58,11 @@ relaunch_in_terminal() {
     return
   fi
 
+  # Skip relaunching if running over SSH
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    return
+  fi
+
   if [[ -t 0 && -t 1 && -n "${TERM:-}" ]]; then
     return
   fi
