@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AOJ Quick Install
+Comment=Run the AOJ Raspberry Pi installer
+Exec=bash -c 'LAUNCHER_DIR="$(cd "$(dirname "$1")" && pwd)"; PROJECT_DIR=""; if [ -x "$LAUNCHER_DIR/scripts/quick-install.sh" ]; then PROJECT_DIR="$LAUNCHER_DIR"; elif [ -x "$LAUNCHER_DIR/AOJ-Server-main/scripts/quick-install.sh" ]; then PROJECT_DIR="$LAUNCHER_DIR/AOJ-Server-main"; elif [ -x "$HOME/Desktop/AOJ-Server-main/scripts/quick-install.sh" ]; then PROJECT_DIR="$HOME/Desktop/AOJ-Server-main"; elif [ -x "$HOME/AOJ-Server/scripts/quick-install.sh" ]; then PROJECT_DIR="$HOME/AOJ-Server"; fi; if [ -z "$PROJECT_DIR" ]; then echo "Could not find scripts/quick-install.sh"; echo "Put this launcher inside AOJ-Server-main or keep AOJ-Server-main on Desktop."; status=127; else cd "$PROJECT_DIR"; ./scripts/quick-install.sh; status=$?; fi; echo; if [ $status -ne 0 ]; then echo "Installer exited with status $status"; fi; printf "Press Enter to close..."; read _; exit $status' bash %k
+Icon=utilities-terminal
+Terminal=true
+Categories=Utility;
