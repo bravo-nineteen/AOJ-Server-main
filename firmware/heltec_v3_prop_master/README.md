@@ -17,6 +17,18 @@ Default target list starts with `*` (broadcast), so you can control all props.
 ## Required Library
 
 - RadioLib
+- U8g2
+
+## Built-in OLED
+
+The Heltec V3 built-in screen is used as a live status panel.
+
+It displays:
+
+- Current target device ID
+- Current selected command
+- Last TX status
+- Last RX frame/error
 
 ## Wiring
 
