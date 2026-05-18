@@ -155,6 +155,8 @@ const DEFAULT_MISSION_STATE = {
   red_team_score: 0,
   blue_team_score: 0,
   objectives: [],
+  props_needed: [],
+  prop_settings: {},
   event_feed: [],
   updated_at: '',
 };
@@ -190,7 +192,7 @@ const FIRMWARE_PROP_TYPE_TO_NAME = {
   'Game Master Unit': 'GM_Unit',
   'Control Panel Unit': 'CP_Unit',
 };
-const ALWAYS_INCLUDED_CP_NAMES = new Set(['CP_Unit_TF', 'CP_Unit_BF']);
+const ALWAYS_INCLUDED_PROP_NAMES = new Set(['CP_Unit_TF', 'CP_Unit_BF', 'GM_Unit']);
 const LOG_LEVELS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const LOG_CATEGORIES = ['ALL', 'SYSTEM', 'MISSION', 'PROP', 'LORA', 'WIFI', 'AI', 'UPDATE'];
 const AI_QUICK_PROMPTS = [
@@ -417,6 +419,8 @@ function App() {
     main_timer_minutes: 30,
     phase_timer_minutes: 5,
     objectivesText: 'Capture Relay,Hold HQ,Extract VIP',
+    props_needed: [],
+    prop_settings: {},
   });
   const [scheduleItems, setScheduleItems] = useState([]);
   const [scheduleOverview, setScheduleOverview] = useState({
@@ -431,6 +435,7 @@ function App() {
     details: 'Operator brief and radio checks.',
     activity_type: 'Safety Brief',
     game_mode: '',
+    props_needed: [],
     start_time: '',
     is_complete: false,
   });
