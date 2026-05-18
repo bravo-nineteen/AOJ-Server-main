@@ -14,6 +14,31 @@ from app.services.log_service import log_action
 
 router = APIRouter(prefix="/api/props", tags=["Prop Network"])
 
+FIRMWARE_PROP_TYPE_TO_NAME = {
+    "Bomb": "prop_bomb",
+    "Bomb Vest": "Bomb_Vest",
+    "Briefcase Bomb": "Briefcase_Bomb",
+    "Domination Point": "domination_point",
+    "Respawn Station": "respawn_station",
+    "Game Master Unit": "GM_Unit",
+    "Control Panel Unit": "CP_Unit",
+}
+
+
+def _canonical_firmware_name(prop_type: str, name: str, device_id: str) -> str | None:
+    base = FIRMWARE_PROP_TYPE_TO_NAME.get(prop_type)
+    if not base:
+        return None
+    if base != "CP_Unit":
+        return base
+
+    lookup = f"{name} {device_id}".lower()
+    if "tf" in lookup:
+        return "CP_Unit_TF"
+    if "bf" in lookup or "bt" in lookup:
+        return "CP_Unit_BF"
+    return "CP_Unit"
+
 
 def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
@@ -21,7 +46,27 @@ def _hash_token(raw_token: str) -> str:
 
 @router.get("", response_model=list[schemas.PropRead])
 def list_props(db: Session = Depends(get_db)):
-    return db.query(models.Prop).order_by(models.Prop.id.desc()).all()
+    items = db.query(models.Prop).order_by(models.Prop.id.desc()).all()
+    output = []
+    changed = False
+
+    for item in items:
+        canonical_name = _canonical_firmware_name(
+            str(item.prop_type.value),
+            item.name,
+            item.device_id,
+        )
+        if not canonical_name:
+            continue
+        if item.name != canonical_name:
+            item.name = canonical_name
+            changed = True
+        output.append(item)
+
+    if changed:
+        db.commit()
+
+    return output
 
 
 @router.post("", response_model=schemas.PropRead)
