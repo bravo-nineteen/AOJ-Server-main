@@ -1901,9 +1901,11 @@ function App() {
 
   return (
     <div className="desktop-shell">
-      <header className="top-bar">
+      <header className="top-bar desktop-panel">
         <div className="brand-block">
-          <span className="brand-mark">AOJ</span>
+          <button type="button" className="brand-mark desktop-activities" onClick={() => openDesktopWindow('overview')}>
+            Activities
+          </button>
           <div>
             <h1>Command OS</h1>
             <p>AOJ Tactical Field Console</p>
@@ -1924,11 +1926,28 @@ function App() {
         </div>
       </header>
 
-      <main className="desktop-grid">
-        <aside className="launcher tactical-desktop">
-          <div className="launcher-head">
-            <h2>Tactical Desktop</h2>
-            <p>Drag icons to new cells. Click any module to open it in the workspace.</p>
+      <main className="desktop-grid linux-desktop-grid">
+        <aside className="desktop-dock" aria-label="Application Dock">
+          {APPS.map((app) => (
+            <button
+              key={`dock-${app.id}`}
+              type="button"
+              className={`dock-item${selectedApp === app.id ? ' active' : ''}`}
+              onClick={() => {
+                setSelectedApp(app.id);
+                openDesktopWindow(app.id);
+              }}
+              title={app.title}
+            >
+              <span>{app.badge}</span>
+            </button>
+          ))}
+        </aside>
+
+        <aside className="launcher tactical-desktop desktop-canvas">
+          <div className="launcher-head desktop-hint">
+            <h2>Desktop</h2>
+            <p>Drag to rearrange shortcuts. Double tap style: open from dock for quick launch.</p>
           </div>
 
           <div className="desktop-grid-surface" ref={desktopSurfaceRef}>
@@ -1948,13 +1967,16 @@ function App() {
                   onClick={(event) => handleDesktopIconClick(event, app.id)}
                 >
                   <span className="desktop-icon-badge">{app.badge}</span>
-                  <span className="desktop-icon-title">{app.title}</span>
+                  <span className="desktop-icon-labels">
+                    <span className="desktop-icon-title">{app.title}</span>
+                    <small>{app.subtitle}</small>
+                  </span>
                 </button>
               );
             })}
           </div>
 
-          <div className="desktop-widgets">
+          <div className="desktop-widgets floating-widgets">
             <section className="desktop-widget-card">
               <h3>Props In Use</h3>
               {usedPropsToday.length === 0 ? <p className="muted">No props active.</p> : null}
@@ -1980,7 +2002,7 @@ function App() {
 
           <div className="launcher-footer">
             <button type="button" className="launch-btn reset-layout" onClick={resetDesktopLayout}>
-              Reset Cell Layout
+              Reset Icon Layout
             </button>
           </div>
         </aside>

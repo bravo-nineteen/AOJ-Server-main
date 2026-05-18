@@ -70,6 +70,12 @@ body {
   backdrop-filter: blur(3px);
 }
 
+.desktop-panel {
+  border-bottom: 1px solid rgba(118, 153, 124, 0.45);
+  background: linear-gradient(180deg, rgba(16, 23, 19, 0.9), rgba(8, 12, 10, 0.82));
+  backdrop-filter: blur(8px);
+}
+
 .brand-block {
   display: flex;
   align-items: center;
@@ -100,6 +106,15 @@ body {
   color: var(--hud);
   font-family: 'Orbitron', sans-serif;
   font-size: 0.82rem;
+}
+
+.desktop-activities {
+  cursor: pointer;
+  background: rgba(16, 31, 20, 0.9);
+}
+
+.desktop-activities:hover {
+  border-color: var(--line-bright);
 }
 
 .status-cluster {
@@ -155,6 +170,42 @@ button.indicator {
   overflow: hidden;
 }
 
+.linux-desktop-grid {
+  grid-template-columns: 64px minmax(320px, 0.9fr) minmax(0, 1.6fr);
+  align-items: stretch;
+}
+
+.desktop-dock {
+  border: 1px solid rgba(118, 153, 124, 0.4);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(13, 20, 15, 0.88), rgba(8, 13, 10, 0.75));
+  padding: 0.5rem 0.35rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 0;
+}
+
+.dock-item {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(142, 198, 151, 0.26);
+  background: rgba(18, 30, 22, 0.9);
+  color: var(--hud);
+  cursor: pointer;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.66rem;
+}
+
+.dock-item.active,
+.dock-item:hover {
+  border-color: var(--line-bright);
+  transform: translateY(-1px);
+  background: linear-gradient(160deg, rgba(182, 247, 132, 0.24), rgba(12, 23, 15, 0.92));
+}
+
 .launcher {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -167,6 +218,18 @@ button.indicator {
   flex-direction: column;
   gap: 0.75rem;
   min-height: 0;
+}
+
+.desktop-canvas {
+  position: relative;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(182, 247, 132, 0.1), transparent 34%),
+    radial-gradient(circle at 84% 68%, rgba(123, 171, 134, 0.12), transparent 38%),
+    linear-gradient(145deg, rgba(7, 16, 10, 0.94), rgba(5, 10, 7, 0.96));
+}
+
+.desktop-hint p {
+  font-size: 0.72rem;
 }
 
 .launcher h2 {
@@ -193,18 +256,18 @@ button.indicator {
 
 .desktop-grid-surface {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-rows: minmax(74px, 1fr);
-  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(92px, 1fr));
+  grid-auto-rows: minmax(56px, 1fr);
+  gap: 0.42rem;
   padding: 0.35rem;
   border: 1px solid rgba(124, 190, 137, 0.25);
-  border-radius: 12px;
+  border-radius: 10px;
   background:
     linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
     rgba(7, 16, 9, 0.9);
   background-size: 33.333% 33.333%, 33.333% 33.333%, auto;
-  min-height: 250px;
+  min-height: 220px;
 }
 
 .desktop-icon {
@@ -215,11 +278,11 @@ button.indicator {
   gap: 0.45rem;
   min-width: 0;
   border: 1px solid rgba(142, 198, 151, 0.32);
-  border-radius: 10px;
+  border-radius: 8px;
   background:
     linear-gradient(180deg, rgba(22, 42, 26, 0.94), rgba(11, 24, 14, 0.94));
   color: var(--text-main);
-  padding: 0.45rem 0.5rem;
+  padding: 0.28rem 0.34rem;
   cursor: pointer;
   user-select: none;
   touch-action: none;
@@ -255,23 +318,38 @@ button.indicator {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  min-height: 28px;
-  padding: 0.18rem 0.32rem;
-  border-radius: 6px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0.12rem 0.22rem;
+  border-radius: 5px;
   background: rgba(182, 247, 132, 0.12);
   border: 1px solid rgba(182, 247, 132, 0.4);
   color: var(--hud);
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.65rem;
+  font-size: 0.56rem;
   letter-spacing: 0.08em;
+}
+
+.desktop-icon-labels {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.08rem;
 }
 
 .desktop-icon-title {
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.75rem;
+  font-size: 0.63rem;
   letter-spacing: 0.05em;
   line-height: 1.15;
+}
+
+.desktop-icon-labels small {
+  color: var(--text-soft);
+  font-size: 0.58rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .desktop-widgets {
@@ -280,10 +358,18 @@ button.indicator {
   gap: 0.55rem;
 }
 
+.floating-widgets {
+  position: absolute;
+  right: 0.85rem;
+  top: 3.4rem;
+  width: min(240px, 42%);
+}
+
 .desktop-widget-card {
   border: 1px solid rgba(76, 125, 92, 0.45);
-  border-radius: 10px;
-  background: rgba(11, 23, 14, 0.9);
+  border-radius: 9px;
+  background: rgba(10, 20, 13, 0.76);
+  backdrop-filter: blur(6px);
   padding: 0.55rem;
 }
 
@@ -330,6 +416,7 @@ button.indicator {
 .launcher-footer {
   display: flex;
   gap: 0.6rem;
+  margin-top: auto;
 }
 
 .reset-layout {
@@ -370,6 +457,10 @@ button.indicator {
   gap: 0.9rem;
   min-height: 0;
   overflow: hidden;
+  border: 1px solid rgba(103, 141, 111, 0.35);
+  border-radius: 12px;
+  background: rgba(8, 14, 10, 0.35);
+  padding: 0.4rem;
 }
 
 .window-stack.with-feed {
@@ -1439,8 +1530,17 @@ button.indicator {
 }
 
 @media (max-width: 1080px) {
-  .desktop-grid {
+  .desktop-grid,
+  .linux-desktop-grid {
     grid-template-columns: 1fr;
+  }
+
+  .desktop-dock {
+    flex-direction: row;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-height: 0;
   }
 
   .window-stack {
@@ -1481,6 +1581,12 @@ button.indicator {
 
   .desktop-widget-chips {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .floating-widgets {
+    position: static;
+    width: 100%;
+    margin-top: 0.4rem;
   }
 
   .aux-window,
