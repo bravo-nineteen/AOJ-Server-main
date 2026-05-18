@@ -1798,9 +1798,7 @@ function App() {
 
   const usedPropsToday = useMemo(() => {
     // Always include CP_Unit_TF and CP_Unit_BF when present.
-    const cpUnits = propsList.filter(
-      (item) => ALWAYS_INCLUDED_CP_NAMES.has(item.name) || item.name === 'CP_Unit'
-    );
+    const cpUnits = propsList.filter((item) => ALWAYS_INCLUDED_CP_NAMES.has(item.name));
 
     // Collect props from schedule items (if they have props_needed field) and planned games
     const plannedNeedles = todayScheduleItems

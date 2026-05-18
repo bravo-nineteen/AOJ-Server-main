@@ -37,7 +37,7 @@ def _canonical_firmware_name(prop_type: str, name: str, device_id: str) -> str |
         return "CP_Unit_TF"
     if "bf" in lookup or "bt" in lookup:
         return "CP_Unit_BF"
-    return "CP_Unit"
+    return None
 
 
 def _hash_token(raw_token: str) -> str:
