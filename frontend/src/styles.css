@@ -370,10 +370,50 @@ button.indicator {
   color: var(--text-soft);
 }
 
+.window-titlebar-desktop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.window-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.window-actions button {
+  min-width: 30px;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid rgba(182, 247, 132, 0.35);
+  border-radius: 5px;
+  background: rgba(14, 29, 17, 0.95);
+  color: var(--text-main);
+  cursor: pointer;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.72rem;
+}
+
+.window-actions button:hover {
+  border-color: var(--line-bright);
+  background: rgba(30, 58, 35, 0.95);
+}
+
 .window-content {
   padding: 1rem;
   overflow: auto;
   min-height: 0;
+}
+
+.desktop-empty-window .window-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.desktop-empty-window p {
+  margin: 0;
+  text-align: center;
 }
 
 .window-content ul {
@@ -403,6 +443,30 @@ button.indicator {
 .live-feed-list li {
   font-size: 0.72rem;
   padding: 0.4rem 0.5rem;
+}
+
+.desktop-taskbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border-top: 1px solid var(--line);
+  background: rgba(8, 17, 10, 0.9);
+}
+
+.taskbar-window {
+  border: 1px solid rgba(92, 136, 101, 0.65);
+  border-radius: 7px;
+  background: rgba(20, 36, 24, 0.92);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  padding: 0.32rem 0.65rem;
+  cursor: pointer;
+}
+
+.taskbar-window.active {
+  border-color: var(--line-bright);
+  background: linear-gradient(90deg, rgba(182, 247, 132, 0.2), rgba(22, 41, 26, 0.95));
 }
 
 .settings-general-grid {
@@ -1372,6 +1436,12 @@ button.indicator {
   .primary-window {
     max-height: none;
     min-height: 0;
+  }
+
+  .desktop-taskbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
   }
 }
 

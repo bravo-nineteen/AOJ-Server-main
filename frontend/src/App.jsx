@@ -347,6 +347,8 @@ function App() {
   const [networkStatus, setNetworkStatus] = useState('CONNECTING');
   const [events, setEvents] = useState([]);
   const [selectedApp, setSelectedApp] = useState(APPS[0].id);
+  const [windowOpen, setWindowOpen] = useState(true);
+  const [windowMinimized, setWindowMinimized] = useState(false);
   const [desktopLayout, setDesktopLayout] = useState(() => loadDesktopLayout());
   const [draggedAppId, setDraggedAppId] = useState(null);
   const [hoverCell, setHoverCell] = useState(null);
@@ -579,10 +581,35 @@ function App() {
       return;
     }
     setSelectedApp(appId);
+    setWindowOpen(true);
+    setWindowMinimized(false);
   }
 
   function resetDesktopLayout() {
     setDesktopLayout(createDefaultDesktopLayout());
+  }
+
+  function openDesktopWindow(appId) {
+    setSelectedApp(appId);
+    setWindowOpen(true);
+    setWindowMinimized(false);
+  }
+
+  function closeDesktopWindow() {
+    setWindowOpen(false);
+    setWindowMinimized(false);
+  }
+
+  function minimizeDesktopWindow() {
+    if (!windowOpen) {
+      return;
+    }
+    setWindowMinimized(true);
+  }
+
+  function restoreDesktopWindow() {
+    setWindowOpen(true);
+    setWindowMinimized(false);
   }
 
   const redTeamLabel = customTeams[0]?.name || 'Red Team';
@@ -1865,10 +1892,10 @@ function App() {
           <div className={`indicator net-${networkStatus.toLowerCase()}`}>
             Network {networkStatus}
           </div>
-          <button type="button" className="indicator" onClick={() => setSelectedApp('logs')}>
+          <button type="button" className="indicator" onClick={() => openDesktopWindow('logs')}>
             Alerts {alertCount}
           </button>
-          <button type="button" className="indicator" onClick={() => setSelectedApp('prop-network')}>
+          <button type="button" className="indicator" onClick={() => openDesktopWindow('prop-network')}>
             Devices {connectedDeviceCount}
           </button>
           <div className="clock">{militaryTime(clock)}</div>
@@ -1914,12 +1941,19 @@ function App() {
         </aside>
 
         <section className={`window-stack${showLiveFeed ? ' with-feed' : ''}`}>
-          <article className="window primary-window">
-            <div className="window-titlebar">
-              <span>{activeApp.title}</span>
-              <small>{activeApp.subtitle}</small>
-            </div>
-            <div className="window-content">
+          {windowOpen && !windowMinimized ? (
+            <article className="window primary-window">
+              <div className="window-titlebar window-titlebar-desktop">
+                <div>
+                  <span>{activeApp.title}</span>
+                  <small>{activeApp.subtitle}</small>
+                </div>
+                <div className="window-actions">
+                  <button type="button" onClick={minimizeDesktopWindow} title="Minimize">_</button>
+                  <button type="button" onClick={closeDesktopWindow} title="Close">X</button>
+                </div>
+              </div>
+              <div className="window-content">
               {isOverview ? (
                 <section className="overview-module">
                   <div className="overview-grid">
@@ -3420,8 +3454,19 @@ function App() {
                   ))}
                 </ul>
               )}
-            </div>
-          </article>
+              </div>
+            </article>
+          ) : (
+            <article className="window primary-window desktop-empty-window">
+              <div className="window-titlebar">
+                <span>Desktop Workspace</span>
+                <small>Open a module icon to launch a window</small>
+              </div>
+              <div className="window-content">
+                <p className="muted">No active window. Select any icon from Tactical Desktop.</p>
+              </div>
+            </article>
+          )}
 
           {showLiveFeed ? (
             <article className="window aux-window">
@@ -3441,6 +3486,16 @@ function App() {
           ) : null}
         </section>
       </main>
+
+      <footer className="desktop-taskbar">
+        <button
+          type="button"
+          className={`taskbar-window${windowOpen && !windowMinimized ? ' active' : ''}`}
+          onClick={restoreDesktopWindow}
+        >
+          {activeApp.title}
+        </button>
+      </footer>
     </div>
   );
 }
