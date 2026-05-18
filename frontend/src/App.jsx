@@ -6,16 +6,134 @@ import { AdminThemeEditor } from './components/AdminThemeEditor';
 import { AdminAISettings } from './components/AdminAISettings';
 
 const APPS = [
-  { id: 'overview', title: 'Overview', subtitle: 'Today plan, team posture, and IoT readiness' },
-  { id: 'mission-control', title: 'Mission Control', subtitle: 'Live objectives, results, and squad directives' },
-  { id: 'prop-network', title: 'Prop Network', subtitle: 'Field devices, relays, and trigger nodes' },
-  { id: 'schedule', title: 'Schedule', subtitle: 'Operations timeline and event sequencing' },
-  { id: 'system-monitor', title: 'System Monitor', subtitle: 'Runtime health and resource telemetry' },
-  { id: 'ai-assistant', title: 'AI Assistant', subtitle: 'Command aide for planning and analysis' },
-  { id: 'update-center', title: 'Update Center', subtitle: 'Node sync, package state, firmware rollout' },
-  { id: 'logs', title: 'Logs', subtitle: 'Audit stream and anomaly events' },
-  { id: 'settings', title: 'Settings', subtitle: 'Teams, game modes, themes, AI, and system controls' },
+  { id: 'overview', title: 'Overview', subtitle: 'Today plan, team posture, and IoT readiness', badge: 'OV' },
+  { id: 'mission-control', title: 'Mission Control', subtitle: 'Live objectives, results, and squad directives', badge: 'MC' },
+  { id: 'prop-network', title: 'Prop Network', subtitle: 'Field devices, relays, and trigger nodes', badge: 'PN' },
+  { id: 'schedule', title: 'Schedule', subtitle: 'Operations timeline and event sequencing', badge: 'SC' },
+  { id: 'system-monitor', title: 'System Monitor', subtitle: 'Runtime health and resource telemetry', badge: 'SM' },
+  { id: 'ai-assistant', title: 'AI Assistant', subtitle: 'Command aide for planning and analysis', badge: 'AI' },
+  { id: 'update-center', title: 'Update Center', subtitle: 'Node sync, package state, firmware rollout', badge: 'UP' },
+  { id: 'logs', title: 'Logs', subtitle: 'Audit stream and anomaly events', badge: 'LG' },
+  { id: 'settings', title: 'Settings', subtitle: 'Teams, game modes, themes, AI, and system controls', badge: 'ST' },
 ];
+
+const DESKTOP_LAYOUT_COLUMNS = 3;
+const DESKTOP_LAYOUT_ROWS = 3;
+const DESKTOP_LAYOUT_STORAGE_KEY = 'aoj-command-os.desktop-layout.v1';
+const UI_PREFS_STORAGE_KEY = 'aoj-command-os.ui-prefs.v1';
+
+const DEFAULT_UI_PREFS = {
+  showLiveFeed: false,
+};
+
+function createDefaultDesktopLayout() {
+  return APPS.reduce((layout, app, index) => {
+    layout[app.id] = {
+      col: index % DESKTOP_LAYOUT_COLUMNS,
+      row: Math.floor(index / DESKTOP_LAYOUT_COLUMNS),
+    };
+    return layout;
+  }, {});
+}
+
+function clampCell(value, max) {
+  return Math.max(0, Math.min(max, value));
+}
+
+function normalizeDesktopLayout(layout) {
+  const fallback = createDefaultDesktopLayout();
+  if (!layout || typeof layout !== 'object') {
+    return fallback;
+  }
+
+  const normalized = { ...fallback };
+  const taken = new Set();
+
+  APPS.forEach((app) => {
+    const item = layout[app.id];
+    const col = clampCell(Number(item?.col ?? fallback[app.id].col), DESKTOP_LAYOUT_COLUMNS - 1);
+    const row = clampCell(Number(item?.row ?? fallback[app.id].row), DESKTOP_LAYOUT_ROWS - 1);
+    const key = `${col}:${row}`;
+    if (!taken.has(key)) {
+      normalized[app.id] = { col, row };
+      taken.add(key);
+    }
+  });
+
+  APPS.forEach((app) => {
+    const current = normalized[app.id];
+    let key = `${current.col}:${current.row}`;
+    if (taken.has(key)) {
+      return;
+    }
+    for (let row = 0; row < DESKTOP_LAYOUT_ROWS; row += 1) {
+      for (let col = 0; col < DESKTOP_LAYOUT_COLUMNS; col += 1) {
+        key = `${col}:${row}`;
+        if (!taken.has(key)) {
+          normalized[app.id] = { col, row };
+          taken.add(key);
+          return;
+        }
+      }
+    }
+  });
+
+  return normalized;
+}
+
+function loadDesktopLayout() {
+  if (typeof window === 'undefined') {
+    return createDefaultDesktopLayout();
+  }
+
+  try {
+    const raw = window.localStorage.getItem(DESKTOP_LAYOUT_STORAGE_KEY);
+    if (!raw) {
+      return createDefaultDesktopLayout();
+    }
+    return normalizeDesktopLayout(JSON.parse(raw));
+  } catch {
+    return createDefaultDesktopLayout();
+  }
+}
+
+function loadUiPrefs() {
+  if (typeof window === 'undefined') {
+    return { ...DEFAULT_UI_PREFS };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(UI_PREFS_STORAGE_KEY);
+    if (!raw) {
+      return { ...DEFAULT_UI_PREFS };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_UI_PREFS,
+      ...parsed,
+    };
+  } catch {
+    return { ...DEFAULT_UI_PREFS };
+  }
+}
+
+function swapDesktopCell(layout, movingAppId, targetCol, targetRow) {
+  const next = { ...layout };
+  const source = next[movingAppId] || { col: 0, row: 0 };
+  const targetKey = `${targetCol}:${targetRow}`;
+  const occupiedApp = APPS.find((app) => {
+    const slot = next[app.id];
+    return app.id !== movingAppId && slot && `${slot.col}:${slot.row}` === targetKey;
+  });
+
+  next[movingAppId] = { col: targetCol, row: targetRow };
+
+  if (occupiedApp) {
+    next[occupiedApp.id] = source;
+  }
+
+  return normalizeDesktopLayout(next);
+}
 
 const WINDOW_CONTENT = {
   'prop-network': ['12 props registered on subnet', '2 relays in maintenance state', 'Latency envelope: 18ms average'],
@@ -229,6 +347,10 @@ function App() {
   const [networkStatus, setNetworkStatus] = useState('CONNECTING');
   const [events, setEvents] = useState([]);
   const [selectedApp, setSelectedApp] = useState(APPS[0].id);
+  const [desktopLayout, setDesktopLayout] = useState(() => loadDesktopLayout());
+  const [draggedAppId, setDraggedAppId] = useState(null);
+  const [hoverCell, setHoverCell] = useState(null);
+  const [uiPrefs, setUiPrefs] = useState(() => loadUiPrefs());
   const [clock, setClock] = useState(new Date());
   const [currentTheme, setCurrentTheme] = useState(null);
   const [customTeams, setCustomTeams] = useState([]);
@@ -334,6 +456,10 @@ function App() {
   const recognitionRef = useRef(null);
   const currentAudioRef = useRef(null);
   const currentAudioUrlRef = useRef(null);
+  const desktopSurfaceRef = useRef(null);
+  const desktopLayoutRef = useRef(desktopLayout);
+  const desktopDragRef = useRef(null);
+  const suppressDesktopClickRef = useRef(false);
 
   const speechRecognitionCtor = useMemo(() => {
     return window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -343,6 +469,121 @@ function App() {
   const speechOutputSupported = typeof window.Audio !== 'undefined';
   const aiVoiceInputEnabled = aiAudioSettings.voice_enabled && aiAudioSettings.speech_to_text_enabled;
   const aiVoiceOutputEnabled = aiAudioSettings.voice_enabled && aiAudioSettings.text_to_speech_enabled;
+
+  useEffect(() => {
+    desktopLayoutRef.current = desktopLayout;
+    try {
+      window.localStorage.setItem(DESKTOP_LAYOUT_STORAGE_KEY, JSON.stringify(desktopLayout));
+    } catch {
+      // Ignore storage failures on restricted browsers.
+    }
+  }, [desktopLayout]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify(uiPrefs));
+    } catch {
+      // Ignore storage failures on restricted browsers.
+    }
+  }, [uiPrefs]);
+
+  useEffect(() => {
+    function handlePointerMove(event) {
+      const drag = desktopDragRef.current;
+      const surface = desktopSurfaceRef.current;
+      if (!drag || !surface) {
+        return;
+      }
+
+      const dx = Math.abs(event.clientX - drag.startX);
+      const dy = Math.abs(event.clientY - drag.startY);
+      if (Math.max(dx, dy) > 8) {
+        drag.moved = true;
+      }
+
+      const rect = surface.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return;
+      }
+
+      const cellWidth = rect.width / DESKTOP_LAYOUT_COLUMNS;
+      const cellHeight = rect.height / DESKTOP_LAYOUT_ROWS;
+      const targetCol = clampCell(Math.floor((event.clientX - rect.left) / cellWidth), DESKTOP_LAYOUT_COLUMNS - 1);
+      const targetRow = clampCell(Math.floor((event.clientY - rect.top) / cellHeight), DESKTOP_LAYOUT_ROWS - 1);
+      drag.target = { col: targetCol, row: targetRow };
+      setHoverCell(drag.target);
+    }
+
+    function handlePointerUp() {
+      const drag = desktopDragRef.current;
+      if (!drag) {
+        return;
+      }
+
+      if (drag.moved && drag.target) {
+        suppressDesktopClickRef.current = true;
+        setDesktopLayout((current) => swapDesktopCell(current, drag.appId, drag.target.col, drag.target.row));
+        window.setTimeout(() => {
+          suppressDesktopClickRef.current = false;
+        }, 0);
+      }
+
+      desktopDragRef.current = null;
+      setDraggedAppId(null);
+      setHoverCell(null);
+    }
+
+    if (!draggedAppId) {
+      return undefined;
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [draggedAppId]);
+
+  function handleDesktopPointerDown(event, appId) {
+    if (event.button !== 0 && event.pointerType !== 'touch') {
+      return;
+    }
+
+    const surface = desktopSurfaceRef.current;
+    if (!surface) {
+      return;
+    }
+
+    event.preventDefault();
+    const origin = desktopLayoutRef.current[appId] || { col: 0, row: 0 };
+    desktopDragRef.current = {
+      appId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      origin,
+      target: origin,
+    };
+    setDraggedAppId(appId);
+    setHoverCell(origin);
+  }
+
+  function handleDesktopIconClick(event, appId) {
+    if (suppressDesktopClickRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    setSelectedApp(appId);
+  }
+
+  function resetDesktopLayout() {
+    setDesktopLayout(createDefaultDesktopLayout());
+  }
 
   const redTeamLabel = customTeams[0]?.name || 'Red Team';
   const blueTeamLabel = customTeams[1]?.name || 'Blue Team';
@@ -1443,6 +1684,7 @@ function App() {
   const isAIAssistant = activeApp.id === 'ai-assistant';
   const isUpdateCenter = activeApp.id === 'update-center';
   const isSettings = activeApp.id === 'settings';
+  const showLiveFeed = Boolean(uiPrefs.showLiveFeed);
 
   const todayScheduleItems = useMemo(() => {
     const today = new Date().toDateString();
@@ -1634,23 +1876,44 @@ function App() {
       </header>
 
       <main className="desktop-grid">
-        <aside className="launcher">
-          <h2>Launcher</h2>
-          <nav>
-            {APPS.map((app) => (
-              <button
-                key={app.id}
-                className={app.id === selectedApp ? 'launch-btn active' : 'launch-btn'}
-                onClick={() => setSelectedApp(app.id)}
-                type="button"
-              >
-                {app.title}
-              </button>
-            ))}
-          </nav>
+        <aside className="launcher tactical-desktop">
+          <div className="launcher-head">
+            <h2>Tactical Desktop</h2>
+            <p>Drag icons to new cells. Click any module to open it in the workspace.</p>
+          </div>
+
+          <div className="desktop-grid-surface" ref={desktopSurfaceRef}>
+            {APPS.map((app) => {
+              const slot = desktopLayout[app.id] || { col: 0, row: 0 };
+              const isActive = app.id === selectedApp;
+              const isDragging = app.id === draggedAppId;
+              const isHoverTarget = hoverCell && hoverCell.col === slot.col && hoverCell.row === slot.row;
+
+              return (
+                <button
+                  key={app.id}
+                  type="button"
+                  className={`desktop-icon${isActive ? ' active' : ''}${isDragging ? ' dragging' : ''}${isHoverTarget ? ' hover-target' : ''}`}
+                  style={{ gridColumnStart: slot.col + 1, gridRowStart: slot.row + 1 }}
+                  onPointerDown={(event) => handleDesktopPointerDown(event, app.id)}
+                  onClick={(event) => handleDesktopIconClick(event, app.id)}
+                >
+                  <span className="desktop-icon-badge">{app.badge}</span>
+                  <span className="desktop-icon-title">{app.title}</span>
+                  <small>{app.subtitle}</small>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="launcher-footer">
+            <button type="button" className="launch-btn reset-layout" onClick={resetDesktopLayout}>
+              Reset Cell Layout
+            </button>
+          </div>
         </aside>
 
-        <section className="window-stack">
+        <section className={`window-stack${showLiveFeed ? ' with-feed' : ''}`}>
           <article className="window primary-window">
             <div className="window-titlebar">
               <span>{activeApp.title}</span>
@@ -3109,11 +3372,34 @@ function App() {
                   </nav>
                   <div className="settings-panel">
                     {settingsTab === 'general' ? (
-                      <ul>
-                        {WINDOW_CONTENT['settings'].map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
+                      <div className="settings-general-grid">
+                        <div className="settings-general-card">
+                          <h3>Workspace Layout</h3>
+                          <label className="settings-toggle-row">
+                            <input
+                              type="checkbox"
+                              checked={showLiveFeed}
+                              onChange={(event) =>
+                                setUiPrefs((current) => ({
+                                  ...current,
+                                  showLiveFeed: event.target.checked,
+                                }))
+                              }
+                            />
+                            <span>Show Live Feed panel</span>
+                          </label>
+                          <p className="muted">When off, the workspace uses a cleaner single-panel layout.</p>
+                        </div>
+
+                        <div className="settings-general-card">
+                          <h3>System Profile</h3>
+                          <ul>
+                            {WINDOW_CONTENT['settings'].map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
                     ) : settingsTab === 'teams' ? (
                       <AdminCustomTeams apiBase={apiBase} />
                     ) : settingsTab === 'game-modes' ? (
@@ -3137,20 +3423,22 @@ function App() {
             </div>
           </article>
 
-          <article className="window aux-window">
-            <div className="window-titlebar">
-              <span>Live Feed</span>
-              <small>WebSocket Stream</small>
-            </div>
-            <div className="window-content">
-              {events.length === 0 ? <p className="muted">Awaiting field telemetry...</p> : null}
-              <ul className="live-feed-list">
-                {events.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          </article>
+          {showLiveFeed ? (
+            <article className="window aux-window">
+              <div className="window-titlebar">
+                <span>Live Feed</span>
+                <small>WebSocket Stream</small>
+              </div>
+              <div className="window-content">
+                {events.length === 0 ? <p className="muted">Awaiting field telemetry...</p> : null}
+                <ul className="live-feed-list">
+                  {events.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            </article>
+          ) : null}
         </section>
       </main>
     </div>

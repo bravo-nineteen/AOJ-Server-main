@@ -122,7 +122,8 @@ enum GameMode {
   MODE_DEATHMATCH_COUNTER = 0,
   MODE_KILL_LIMIT         = 1,
   MODE_RESPAWN_LIMIT      = 2,
-  MODE_FLAG_CAPTURE       = 3
+  MODE_FLAG_CAPTURE       = 3,
+  MODE_GAME_TIME          = 4
 };
 
 enum GameState {
@@ -204,6 +205,9 @@ void handleServerCommand(const AOJFrame &frame);
 void saveSettings();
 void applyModeString(String selectedMode, bool broadcast);
 void applySyncMessage(String message);
+void applyCountdownSync(unsigned long syncValue);
+String buildSettingsSyncMessage();
+void queueSettingsSync();
 void resetGame(bool broadcast);
 void beginGameCountdown(bool broadcast);
 bool modeUsesLimit(GameMode mode);
@@ -243,6 +247,7 @@ String getGameModeName(GameMode mode) {
     case MODE_KILL_LIMIT:         return "KILL LIMIT";
     case MODE_RESPAWN_LIMIT:      return "LIMITED RESPAWNS";
     case MODE_FLAG_CAPTURE:       return "FLAG CAPTURE";
+    case MODE_GAME_TIME:          return "GAME TIME";
   }
   return "UNKNOWN";
 }
@@ -253,6 +258,7 @@ String getGameModeValue(GameMode mode) {
     case MODE_KILL_LIMIT:         return "killlimit";
     case MODE_RESPAWN_LIMIT:      return "respawnlimit";
     case MODE_FLAG_CAPTURE:       return "flag";
+    case MODE_GAME_TIME:          return "gametime";
   }
   return "deathmatch";
 }
@@ -303,6 +309,38 @@ bool modeUsesLimit(GameMode mode) {
 
 bool canShowOpponentScoreOnUnit() {
   return !hideOpponentScores || gameState == STATE_COUNTDOWN;
+}
+
+String buildSettingsSyncMessage() {
+  return "MODE:" + getGameModeValue(gameMode)
+       + ";LIMIT:" + String(limitValue)
+       + ";COUNTDOWN:" + String(GAME_START_COUNTDOWN_SECONDS)
+       + ";RESPAWN:" + String(respawnDelaySeconds)
+       + ";GAMETIMER:" + String(getGameTimerMinutesSafe())
+       + ";HIDEOPP:" + String(hideOpponentScores ? 1 : 0);
+}
+
+void queueSettingsSync() {
+  pendingLoraSync = true;
+  pendingSyncMessage = buildSettingsSyncMessage();
+}
+
+void applyCountdownSync(unsigned long syncValue) {
+  unsigned long startMs = syncValue;
+  if (startMs < 5000UL) {
+    startMs = millis() + syncValue;
+  }
+
+  if (startMs <= millis()) {
+    startMs = millis() + COUNTDOWN_SYNC_DELAY_MS;
+  }
+
+  countdownSeconds = GAME_START_COUNTDOWN_SECONDS;
+  gameState = STATE_COUNTDOWN;
+  countdownStartMs = startMs;
+  countdownEndMs = countdownStartMs + ((unsigned long)GAME_START_COUNTDOWN_SECONDS * 1000UL);
+  lastCountdownBeepSecond = -1;
+  countdownMaster = false;
 }
 
 void forceLedsOff() {
@@ -453,7 +491,7 @@ void beginGameCountdown(bool broadcast) {
   lastMessage = "COUNTDOWN SYNC";
 
   if (broadcast) {
-    sendLora("COUNTDOWN_SYNC", String(COUNTDOWN_SYNC_DELAY_MS));
+    sendLora("COUNTDOWN_SYNC", String(countdownStartMs));
   }
 }
 
@@ -488,7 +526,7 @@ void startGame(bool broadcast) {
   gameTimeExpired = false;
   gameTimeExpiredMs = 0;
   lastMessage = "GAME START";
-  buzz(750);
+  buzz(1500);
   signalGmUnitGameStart();
 
   if (broadcast) {
@@ -501,25 +539,21 @@ void applyModeString(String selectedMode, bool broadcast) {
   else if (selectedMode == "killlimit")   gameMode = MODE_KILL_LIMIT;
   else if (selectedMode == "respawnlimit") gameMode = MODE_RESPAWN_LIMIT;
   else if (selectedMode == "flag")        gameMode = MODE_FLAG_CAPTURE;
+  else if (selectedMode == "gametime")     gameMode = MODE_GAME_TIME;
   else                                    gameMode = MODE_DEATHMATCH_COUNTER;
 
   saveSettings();
   lastMessage = "MODE " + getGameModeName(gameMode);
 
   if (broadcast) {
-    pendingLoraSync   = true;
-    pendingSyncMessage = "MODE:" + selectedMode
-                       + ";LIMIT:" + String(limitValue)
-                       + ";COUNTDOWN:" + String(GAME_START_COUNTDOWN_SECONDS)
-                       + ";RESPAWN:" + String(respawnDelaySeconds)
-                       + ";GAMETIMER:" + String(getGameTimerMinutesSafe())
-                       + ";HIDEOPP:" + String(hideOpponentScores ? 1 : 0);
+    queueSettingsSync();
   }
 }
 
 void registerActionPress() {
   if (serverAdminDisabled) return;
   if (gameState != STATE_RUNNING) return;
+  if (gameMode == MODE_GAME_TIME) return;
 
   if (localTeam == TEAM_BLACK_TALON) {
     blackTalonCount++;
@@ -739,14 +773,7 @@ void handlePacket(const String &packet) {
 
   if      (command == "READY")    { markReady((Team)value.toInt(), false); }
   else if (command == "COUNTDOWN" || command == "COUNTDOWN_SYNC") {
-    unsigned long syncDelay = value.toInt();
-    if (syncDelay < 200 || syncDelay > 5000) syncDelay = COUNTDOWN_SYNC_DELAY_MS;
-    countdownSeconds = GAME_START_COUNTDOWN_SECONDS;
-    gameState        = STATE_COUNTDOWN;
-    countdownStartMs = millis() + syncDelay;
-    countdownEndMs   = countdownStartMs + ((unsigned long)GAME_START_COUNTDOWN_SECONDS * 1000UL);
-    lastCountdownBeepSecond = -1;
-    countdownMaster = false;
+    applyCountdownSync(value.toInt());
   }
   else if (command == "START")    { startGame(false); }
   else if (command == "RESET")    { resetGame(false); }
@@ -999,6 +1026,21 @@ void drawDisplay() {
     return;
   }
 
+  if (gameMode == MODE_GAME_TIME) {
+    drawCenteredText("GAME TIME", 28, u8g2_font_6x12_tf);
+
+    unsigned long elapsedMs = getElapsedGameMs();
+    unsigned long durationMs = getGameDurationMs();
+    unsigned long shownMs = (elapsedMs < durationMs) ? (durationMs - elapsedMs) : (elapsedMs - durationMs);
+    int mm = (int)((shownMs / 1000UL) / 60UL);
+    int ss = (int)((shownMs / 1000UL) % 60UL);
+    String timer = elapsedMs < durationMs ? "LEFT " : "OT ";
+    timer += String(mm) + ":" + (ss < 10 ? "0" : "") + String(ss);
+    drawCenteredText(timer, 50, u8g2_font_ncenB14_tr);
+    display.sendBuffer();
+    return;
+  }
+
   String modeLine = getGameModeName(gameMode);
   if (modeLine.length() > 20) modeLine = modeLine.substring(0, 20);
   drawCenteredText(modeLine, 28, u8g2_font_6x12_tf);
@@ -1108,31 +1150,53 @@ void handleActionButton() {
 }
 
 void handleAdminRevealButtons() {
-  static unsigned long holdStartMs = 0;
+  static unsigned long bothHoldStartMs = 0;
+  static unsigned long readyHoldStartMs = 0;
 
-  if (gameState != STATE_GAMEOVER || serverAdminDisabled || !hideOpponentScores || adminScoreReveal) {
-    holdStartMs = 0;
+  if (gameState != STATE_GAMEOVER || serverAdminDisabled) {
+    bothHoldStartMs = 0;
+    readyHoldStartMs = 0;
     return;
   }
 
-  bool bothPressed = isButtonPressed(READY_BUTTON_PIN) && isButtonPressed(ACTION_BUTTON_PIN);
-  if (!bothPressed) {
-    holdStartMs = 0;
+  bool readyPressed = isButtonPressed(READY_BUTTON_PIN);
+  bool actionPressed = isButtonPressed(ACTION_BUTTON_PIN);
+
+  if (readyPressed && actionPressed) {
+    readyHoldStartMs = 0;
+
+    if (bothHoldStartMs == 0) {
+      bothHoldStartMs = millis();
+      return;
+    }
+
+    if (millis() - bothHoldStartMs >= 3000) {
+      adminScoreReveal = true;
+      lastMessage = "ADMIN REVEAL SCORES";
+      sendLora("REVEAL", "SCORES");
+      beepShort();
+      bothHoldStartMs = 0;
+    }
     return;
   }
 
-  if (holdStartMs == 0) {
-    holdStartMs = millis();
+  readyHoldStartMs = 0;
+
+  if (readyPressed && !actionPressed) {
+    if (readyHoldStartMs == 0) {
+      readyHoldStartMs = millis();
+      return;
+    }
+
+    if (millis() - readyHoldStartMs >= 3000) {
+      lastMessage = "ADMIN RESET GAME";
+      resetGame(true);
+      readyHoldStartMs = 0;
+    }
     return;
   }
 
-  if (millis() - holdStartMs >= 3000) {
-    adminScoreReveal = true;
-    lastMessage = "ADMIN REVEAL SCORES";
-    sendLora("REVEAL", "SCORES");
-    beepShort();
-    holdStartMs = 0;
-  }
+  readyHoldStartMs = 0;
 }
 
 // =========================================================
@@ -1233,9 +1297,10 @@ String htmlPage() {
   page += "<label class='mode-option'><input type='radio' name='mode' value='killlimit'" + checkedIf(MODE_KILL_LIMIT) + "> Kill Limit</label>";
   page += "<label class='mode-option'><input type='radio' name='mode' value='respawnlimit'" + checkedIf(MODE_RESPAWN_LIMIT) + "> Limited Respawns</label>";
   page += "<label class='mode-option'><input type='radio' name='mode' value='flag'" + checkedIf(MODE_FLAG_CAPTURE) + "> Flag Capture</label>";
+  page += "<label class='mode-option'><input type='radio' name='mode' value='gametime'" + checkedIf(MODE_GAME_TIME) + "> Game Time</label>";
   page += "<button type='submit'>ACTIVATE MODE</button>";
   page += "</form>";
-  page += "<p class='small'>Mode applies locally first, then syncs to the second CP unit by LoRa.</p>";
+  page += "<p class='small'>Mode applies locally first, then can be pushed to the second CP unit by LoRa.</p>";
   page += "</div>";
 
   page += "<div class='panel'><h2>Team Assignment</h2>";
@@ -1338,12 +1403,7 @@ void setupWifi() {
     saveSettings();
 
     pendingLoraSync   = true;
-    pendingSyncMessage = "MODE:" + getGameModeValue(gameMode)
-                       + ";LIMIT:" + String(limitValue)
-                       + ";COUNTDOWN:" + String(GAME_START_COUNTDOWN_SECONDS)
-                       + ";RESPAWN:" + String(respawnDelaySeconds)
-                       + ";GAMETIMER:" + String(getGameTimerMinutesSafe())
-                       + ";HIDEOPP:" + String(hideOpponentScores ? 1 : 0);
+    queueSettingsSync();
 
     redirectHome();
   });
@@ -1359,12 +1419,12 @@ void setupWifi() {
     saveSettings();
 
     pendingLoraSync   = true;
-    pendingSyncMessage = "MODE:" + getGameModeValue(gameMode)
-                       + ";LIMIT:" + String(limitValue)
-                       + ";COUNTDOWN:" + String(GAME_START_COUNTDOWN_SECONDS)
-                       + ";RESPAWN:" + String(respawnDelaySeconds)
-                       + ";GAMETIMER:" + String(getGameTimerMinutesSafe())
-                       + ";HIDEOPP:" + String(hideOpponentScores ? 1 : 0);
+    queueSettingsSync();
+    redirectHome();
+  });
+
+  server.on("/pushsettings", HTTP_GET, []() {
+    queueSettingsSync();
     redirectHome();
   });
 
