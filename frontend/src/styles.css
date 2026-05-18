@@ -171,7 +171,7 @@ button.indicator {
 }
 
 .linux-desktop-grid {
-  grid-template-columns: 64px minmax(320px, 0.9fr) minmax(0, 1.6fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: stretch;
 }
 
@@ -247,13 +247,7 @@ button.indicator {
   min-height: 0;
 }
 
-.desktop-canvas {
-  position: relative;
-  background:
-    radial-gradient(circle at 18% 20%, rgba(182, 247, 132, 0.1), transparent 34%),
-    radial-gradient(circle at 84% 68%, rgba(123, 171, 134, 0.12), transparent 38%),
-    linear-gradient(145deg, rgba(7, 16, 10, 0.94), rgba(5, 10, 7, 0.96));
-}
+
 
 .launcher h2 {
   margin-top: 0;

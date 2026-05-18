@@ -1923,56 +1923,9 @@ function App() {
           ))}
         </aside>
 
-        <aside className="launcher tactical-desktop desktop-canvas">
-          <div className="launcher-head desktop-hint">
-            <h2>Desktop</h2>
-          </div>
-
-          <div className="desktop-grid-surface" ref={desktopSurfaceRef}>
-            {APPS.map((app) => {
-              const slot = desktopLayout[app.id] || { col: 0, row: 0 };
-              const isActive = app.id === selectedApp;
-              const isDragging = app.id === draggedAppId;
-              const isHoverTarget = hoverCell && hoverCell.col === slot.col && hoverCell.row === slot.row;
-
-              return (
-                <button
-                  key={app.id}
-                  type="button"
-                  className={`desktop-icon${isActive ? ' active' : ''}${isDragging ? ' dragging' : ''}${isHoverTarget ? ' hover-target' : ''}`}
-                  style={{ gridColumnStart: slot.col + 1, gridRowStart: slot.row + 1 }}
-                  onPointerDown={(event) => handleDesktopPointerDown(event, app.id)}
-                  onClick={(event) => handleDesktopIconClick(event, app.id)}
-                >
-                  <span className="desktop-icon-badge">{app.badge}</span>
-                  <span className="desktop-icon-labels">
-                    <span className="desktop-icon-title">{app.title}</span>
-                    <small>{app.subtitle}</small>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="launcher-footer">
-            <button type="button" className="launch-btn reset-layout" onClick={resetDesktopLayout}>
-              Reset Icon Layout
-            </button>
-          </div>
-        </aside>
-
         <section className={`window-stack${showLiveFeed ? ' with-feed' : ''}`}>
           {windowOpen && !windowMinimized ? (
             <article className="window primary-window">
-              <div className="window-titlebar window-titlebar-desktop">
-                <div>
-                  <span>{activeApp.title}</span>
-                </div>
-                <div className="window-actions">
-                  <button type="button" onClick={minimizeDesktopWindow} title="Minimize">_</button>
-                  <button type="button" onClick={closeDesktopWindow} title="Close">X</button>
-                </div>
-              </div>
               <div className="window-content">
               {isOverview ? (
                 <section className="overview-module">
