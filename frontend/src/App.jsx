@@ -174,12 +174,23 @@ const ACTIVITY_TYPES = [
 const WINNER_OPTIONS = ['Red', 'Blue', 'Draw', 'Cancelled'];
 const PROP_TYPES = [
   'Bomb',
+  'Bomb Vest',
+  'Briefcase Bomb',
   'Domination Point',
   'Respawn Station',
-  'Alarm',
-  'Sensor',
-  'Custom',
+  'Game Master Unit',
+  'Control Panel Unit',
 ];
+const FIRMWARE_PROP_TYPE_TO_NAME = {
+  Bomb: 'prop_bomb',
+  'Bomb Vest': 'Bomb_Vest',
+  'Briefcase Bomb': 'Briefcase_Bomb',
+  'Domination Point': 'domination_point',
+  'Respawn Station': 'respawn_station',
+  'Game Master Unit': 'GM_Unit',
+  'Control Panel Unit': 'CP_Unit',
+};
+const ALWAYS_INCLUDED_CP_NAMES = new Set(['CP_Unit_TF', 'CP_Unit_BF']);
 const LOG_LEVELS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const LOG_CATEGORIES = ['ALL', 'SYSTEM', 'MISSION', 'PROP', 'LORA', 'WIFI', 'AI', 'UPDATE'];
 const AI_QUICK_PROMPTS = [
@@ -303,6 +314,41 @@ function formatFeedTime(value = new Date()) {
     minute: '2-digit',
     hour12: false,
   });
+}
+
+function normalizeFirmwarePropName(item) {
+  const canonical = FIRMWARE_PROP_TYPE_TO_NAME[item.prop_type];
+  if (!canonical) {
+    return null;
+  }
+
+  if (canonical !== 'CP_Unit') {
+    return canonical;
+  }
+
+  const lookup = `${item.name || ''} ${item.device_id || ''}`.toLowerCase();
+  if (lookup.includes('tf')) {
+    return 'CP_Unit_TF';
+  }
+  if (lookup.includes('bf') || lookup.includes('bt')) {
+    return 'CP_Unit_BF';
+  }
+  return 'CP_Unit';
+}
+
+function normalizeFirmwareProps(list) {
+  return list
+    .map((item) => {
+      const normalizedName = normalizeFirmwarePropName(item);
+      if (!normalizedName) {
+        return null;
+      }
+      return {
+        ...item,
+        name: normalizedName,
+      };
+    })
+    .filter(Boolean);
 }
 
 function App() {
@@ -1034,7 +1080,7 @@ function App() {
       return;
     }
     const payload = await response.json();
-    setPropsList(payload);
+    setPropsList(normalizeFirmwareProps(payload));
   }
 
   async function fetchSystemLogs(filters = logFilters) {
@@ -1751,11 +1797,9 @@ function App() {
   }, [todayScheduleItems]);
 
   const usedPropsToday = useMemo(() => {
-    // Always include CP Unit TF and CP Unit BF (used for all games)
-    const cpUnits = propsList.filter((item) =>
-      ['CP Unit TF', 'CP Unit BF', 'CP_UNIT_TF', 'CP_UNIT_BF'].some(
-        (name) => (item.name || '').toLowerCase().includes(name.toLowerCase())
-      )
+    // Always include CP_Unit_TF and CP_Unit_BF when present.
+    const cpUnits = propsList.filter(
+      (item) => ALWAYS_INCLUDED_CP_NAMES.has(item.name) || item.name === 'CP_Unit'
     );
 
     // Collect props from schedule items (if they have props_needed field) and planned games
@@ -1769,7 +1813,7 @@ function App() {
       })
       .map((value) => String(value).toLowerCase());
 
-    // Combine CP units with any game-assigned props
+    // Combine always-on CP units with any game-assigned props.
     let result = [...cpUnits];
 
     if (plannedNeedles.length > 0) {
@@ -1780,13 +1824,12 @@ function App() {
       result = [...result, ...assigned];
     }
 
-    // If we have game-assigned props or CP units, use those; otherwise fall back to active props
+    // If we have game-assigned props or CP units, use those; otherwise show available firmware props.
     if (result.length > 0) {
       return result.slice(0, 12);
     }
 
-    const activeProps = propsList.filter((item) => (item.status || '').toLowerCase() !== 'offline');
-    return (activeProps.length > 0 ? activeProps : propsList).slice(0, 12);
+    return propsList.slice(0, 12);
   }, [propsList, plannedGames, todayScheduleItems]);
 
   const todayResultsPoints = useMemo(() => {
