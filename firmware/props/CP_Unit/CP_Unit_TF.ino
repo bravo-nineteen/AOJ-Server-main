@@ -1,4 +1,4 @@
-/*
+props/*
   AOJ Checkpoint / Spawn Area System - Heltec WiFi LoRa 32 V3
   -----------------------------------------------------------
   Hardware:
