@@ -19,8 +19,8 @@ class MissionControlStateResponse(BaseModel):
     red_team_score: int
     blue_team_score: int
     objectives: list[MissionControlObjective]
-    props_needed: list[str] = []
-    prop_settings: dict[str, dict[str, Any]] = {}
+    props_needed: list[str] = Field(default_factory=list)
+    prop_settings: dict[str, dict[str, Any]] = Field(default_factory=dict)
     event_feed: list[str]
     updated_at: str
 
@@ -31,9 +31,9 @@ class MissionControlCreateMissionRequest(BaseModel):
     game_mode: str = Field(..., min_length=1, max_length=80)
     main_timer_seconds: int = Field(default=1800, ge=1)
     phase_timer_seconds: int = Field(default=300, ge=0)
-    objectives: list[str] = []
-    props_needed: list[str] = []
-    prop_settings: dict[str, dict[str, Any]] = {}
+    objectives: list[str] = Field(default_factory=list)
+    props_needed: list[str] = Field(default_factory=list)
+    prop_settings: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class MissionControlScoreRequest(BaseModel):

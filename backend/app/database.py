@@ -64,6 +64,7 @@ def _ensure_schedule_columns() -> None:
         "completed_at": "DATETIME",
         "game_session_id": "INTEGER",
         "game_mode": "TEXT NOT NULL DEFAULT ''",
+        "props_needed": "TEXT NOT NULL DEFAULT '[]'",
         "created_at": "DATETIME",
         "updated_at": "DATETIME",
     }

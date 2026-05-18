@@ -1,4 +1,5 @@
 import asyncio
+import json
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -20,6 +21,8 @@ _IDLE_STATE: dict = {
     "red_team_score": 0,
     "blue_team_score": 0,
     "objectives": [],
+    "props_needed": [],
+    "prop_settings": {},
     "event_feed": [],
     "updated_at": "",
 }
@@ -74,6 +77,28 @@ class MissionControlService:
                 for idx, label in enumerate(payload.objectives)
             ]
 
+            props_needed = [str(item).strip() for item in payload.props_needed if str(item).strip()]
+            if len(props_needed) == 0:
+                custom_mode = (
+                    db.query(models.CustomGameMode)
+                    .filter(models.CustomGameMode.name == payload.game_mode)
+                    .order_by(models.CustomGameMode.id.desc())
+                    .first()
+                )
+                if custom_mode and custom_mode.required_props_json:
+                    try:
+                        parsed = json.loads(custom_mode.required_props_json)
+                        if isinstance(parsed, list):
+                            props_needed = [str(item).strip() for item in parsed if str(item).strip()]
+                    except json.JSONDecodeError:
+                        props_needed = []
+
+            prop_settings = {
+                str(name): settings
+                for name, settings in payload.prop_settings.items()
+                if str(name).strip()
+            }
+
             # Persist objectives to DB so they survive a server restart.
             for obj in objectives:
                 db_obj = models.MissionObjective(
@@ -96,6 +121,8 @@ class MissionControlService:
                     "red_team_score": 0,
                     "blue_team_score": 0,
                     "objectives": objectives,
+                    "props_needed": props_needed,
+                    "prop_settings": prop_settings,
                     "event_feed": [],
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
