@@ -1769,28 +1769,6 @@ function App() {
     return (activeProps.length > 0 ? activeProps : propsList).slice(0, 8);
   }, [propsList, plannedGames]);
 
-  const propStatusSummary = useMemo(() => {
-    const counts = {
-      online: 0,
-      armed: 0,
-      disarmed: 0,
-      alarm: 0,
-      offline: 0,
-      other: 0,
-    };
-
-    propsList.forEach((item) => {
-      const status = String(item.status || '').toLowerCase();
-      if (status in counts) {
-        counts[status] += 1;
-      } else {
-        counts.other += 1;
-      }
-    });
-
-    return counts;
-  }, [propsList]);
-
   const todayResultsPoints = useMemo(() => {
     const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
     const todayResults = resultsHistory.filter((r) => {
@@ -1939,7 +1917,8 @@ function App() {
               }}
               title={app.title}
             >
-              <span>{app.badge}</span>
+              <span className="dock-item-glyph">{app.badge}</span>
+              <span className="dock-item-label">{app.title}</span>
             </button>
           ))}
         </aside>
@@ -1947,7 +1926,6 @@ function App() {
         <aside className="launcher tactical-desktop desktop-canvas">
           <div className="launcher-head desktop-hint">
             <h2>Desktop</h2>
-            <p>Drag to rearrange shortcuts. Double tap style: open from dock for quick launch.</p>
           </div>
 
           <div className="desktop-grid-surface" ref={desktopSurfaceRef}>
@@ -1976,30 +1954,6 @@ function App() {
             })}
           </div>
 
-          <div className="desktop-widgets floating-widgets">
-            <section className="desktop-widget-card">
-              <h3>Props In Use</h3>
-              {usedPropsToday.length === 0 ? <p className="muted">No props active.</p> : null}
-              {usedPropsToday.slice(0, 5).map((item) => (
-                <div className="desktop-widget-row" key={item.id}>
-                  <strong>{item.name}</strong>
-                  <span>{item.status}</span>
-                </div>
-              ))}
-            </section>
-
-            <section className="desktop-widget-card">
-              <h3>Prop Status</h3>
-              <div className="desktop-widget-chips">
-                <span>Online {propStatusSummary.online}</span>
-                <span>Armed {propStatusSummary.armed}</span>
-                <span>Disarmed {propStatusSummary.disarmed}</span>
-                <span>Alarm {propStatusSummary.alarm}</span>
-                <span>Offline {propStatusSummary.offline}</span>
-              </div>
-            </section>
-          </div>
-
           <div className="launcher-footer">
             <button type="button" className="launch-btn reset-layout" onClick={resetDesktopLayout}>
               Reset Icon Layout
@@ -2013,7 +1967,6 @@ function App() {
               <div className="window-titlebar window-titlebar-desktop">
                 <div>
                   <span>{activeApp.title}</span>
-                  <small>{activeApp.subtitle}</small>
                 </div>
                 <div className="window-actions">
                   <button type="button" onClick={minimizeDesktopWindow} title="Minimize">_</button>

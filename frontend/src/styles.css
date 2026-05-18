@@ -183,20 +183,26 @@ button.indicator {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.28rem;
   min-height: 0;
 }
 
 .dock-item {
-  width: 42px;
-  height: 42px;
+  width: 100%;
+  min-height: 54px;
   border-radius: 10px;
   border: 1px solid rgba(142, 198, 151, 0.26);
   background: rgba(18, 30, 22, 0.9);
   color: var(--hud);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.22rem 0.15rem;
   font-family: 'Orbitron', sans-serif;
-  font-size: 0.66rem;
+  font-size: 0.52rem;
 }
 
 .dock-item.active,
@@ -204,6 +210,27 @@ button.indicator {
   border-color: var(--line-bright);
   transform: translateY(-1px);
   background: linear-gradient(160deg, rgba(182, 247, 132, 0.24), rgba(12, 23, 15, 0.92));
+}
+
+.dock-item-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 18px;
+  border-radius: 5px;
+  border: 1px solid rgba(182, 247, 132, 0.35);
+  background: rgba(12, 24, 16, 0.9);
+  letter-spacing: 0.06em;
+}
+
+.dock-item-label {
+  color: var(--text-main);
+  font-size: 0.45rem;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
 }
 
 .launcher {
@@ -226,10 +253,6 @@ button.indicator {
     radial-gradient(circle at 18% 20%, rgba(182, 247, 132, 0.1), transparent 34%),
     radial-gradient(circle at 84% 68%, rgba(123, 171, 134, 0.12), transparent 38%),
     linear-gradient(145deg, rgba(7, 16, 10, 0.94), rgba(5, 10, 7, 0.96));
-}
-
-.desktop-hint p {
-  font-size: 0.72rem;
 }
 
 .launcher h2 {
@@ -350,67 +373,6 @@ button.indicator {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.desktop-widgets {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.55rem;
-}
-
-.floating-widgets {
-  position: absolute;
-  right: 0.85rem;
-  top: 3.4rem;
-  width: min(240px, 42%);
-}
-
-.desktop-widget-card {
-  border: 1px solid rgba(76, 125, 92, 0.45);
-  border-radius: 9px;
-  background: rgba(10, 20, 13, 0.76);
-  backdrop-filter: blur(6px);
-  padding: 0.55rem;
-}
-
-.desktop-widget-card h3 {
-  margin: 0 0 0.45rem;
-  color: var(--hud);
-  font-family: 'Orbitron', sans-serif;
-  font-size: 0.72rem;
-  letter-spacing: 0.05em;
-}
-
-.desktop-widget-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  border: 1px solid rgba(76, 125, 92, 0.35);
-  border-radius: 7px;
-  background: rgba(15, 32, 19, 0.86);
-  padding: 0.35rem 0.45rem;
-  margin-bottom: 0.35rem;
-  font-size: 0.72rem;
-}
-
-.desktop-widget-row span {
-  color: var(--text-soft);
-}
-
-.desktop-widget-chips {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.3rem;
-}
-
-.desktop-widget-chips span {
-  border: 1px solid rgba(76, 125, 92, 0.35);
-  border-radius: 7px;
-  background: rgba(15, 32, 19, 0.86);
-  padding: 0.28rem 0.4rem;
-  font-size: 0.68rem;
-  text-align: center;
 }
 
 .launcher-footer {
@@ -1579,14 +1541,8 @@ button.indicator {
     grid-template-columns: 1fr;
   }
 
-  .desktop-widget-chips {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .floating-widgets {
-    position: static;
-    width: 100%;
-    margin-top: 0.4rem;
+  .dock-item {
+    min-width: 60px;
   }
 
   .aux-window,
