@@ -335,7 +335,7 @@ function normalizeFirmwarePropName(item) {
   if (lookup.includes('bf') || lookup.includes('bt')) {
     return 'CP_Unit_BF';
   }
-  return 'CP_Unit';
+  return null;
 }
 
 function normalizeFirmwareProps(list) {
@@ -1436,6 +1436,7 @@ function App() {
       details: scheduleForm.details,
       activity_type: scheduleForm.activity_type,
       game_mode: scheduleForm.activity_type === 'Game' ? scheduleForm.game_mode : '',
+      props_needed: scheduleForm.activity_type === 'Game' ? (scheduleForm.props_needed || []) : [],
       start_time: startIso,
       end_time: null,
       is_complete: scheduleForm.is_complete,
@@ -1484,6 +1485,7 @@ function App() {
       details: '',
       activity_type: 'Custom',
       game_mode: '',
+      props_needed: [],
       start_time: '',
       is_complete: false,
     });
@@ -1516,6 +1518,7 @@ function App() {
       details: item.details,
       activity_type: item.activity_type,
       game_mode: item.game_mode || '',
+      props_needed: item.props_needed || [],
       start_time: toTimeInputValue(item.start_time),
       is_complete: item.is_complete,
     });
@@ -1567,6 +1570,7 @@ function App() {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
+      required_props_json: missionForm.props_needed || [],
       active: true,
     };
     const response = await fetch(`${apiBase}/custom/game-modes`, {
@@ -1764,6 +1768,37 @@ function App() {
   const isSettings = activeApp.id === 'settings';
   const showLiveFeed = Boolean(uiPrefs.showLiveFeed);
 
+  const gameModeByName = useMemo(() => {
+    const rows = customGameModes.filter((mode) => mode && typeof mode.name === 'string');
+    return Object.fromEntries(rows.map((mode) => [mode.name, mode]));
+  }, [customGameModes]);
+
+  const propNameOptions = useMemo(() => {
+    return Array.from(new Set(propsList.map((item) => item.name).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [propsList]);
+
+  function getDefaultPropsForGameMode(modeName) {
+    const mode = gameModeByName[modeName];
+    if (!mode || !Array.isArray(mode.required_props_json)) {
+      return [];
+    }
+    return mode.required_props_json.filter(Boolean);
+  }
+
+  function buildDefaultPropSettings(propNames, mainMinutes, phaseMinutes) {
+    return Object.fromEntries(
+      (propNames || []).map((name) => [
+        name,
+        {
+          enabled: true,
+          game_time_seconds: Math.max(0, Number(mainMinutes) || 0) * 60,
+          phase_time_seconds: Math.max(0, Number(phaseMinutes) || 0) * 60,
+          notes: '',
+        },
+      ])
+    );
+  }
+
   const todayScheduleItems = useMemo(() => {
     const today = new Date().toDateString();
     const todays = scheduleItems.filter((item) => {
@@ -1795,15 +1830,17 @@ function App() {
       .map((item) => ({
         key: `schedule-${item.id}`,
         name: item.game_mode || item.title,
-        requiredProps: [],
+        requiredProps: (item.props_needed && item.props_needed.length > 0)
+          ? item.props_needed
+          : getDefaultPropsForGameMode(item.game_mode || item.title),
       }))
       .filter((g) => g.name)
       .slice(0, 6);
-  }, [todayScheduleItems]);
+  }, [todayScheduleItems, gameModeByName]);
 
   const usedPropsToday = useMemo(() => {
-    // Always include CP_Unit_TF and CP_Unit_BF when present.
-    const cpUnits = propsList.filter((item) => ALWAYS_INCLUDED_CP_NAMES.has(item.name));
+    // Always include CP_Unit_TF, CP_Unit_BF, and GM_Unit when present.
+    const alwaysOn = propsList.filter((item) => ALWAYS_INCLUDED_PROP_NAMES.has(item.name));
 
     // Collect props from schedule items (if they have props_needed field) and planned games
     const plannedNeedles = todayScheduleItems
@@ -1817,12 +1854,12 @@ function App() {
       .map((value) => String(value).toLowerCase());
 
     // Combine always-on CP units with any game-assigned props.
-    let result = [...cpUnits];
+    let result = [...alwaysOn];
 
     if (plannedNeedles.length > 0) {
       const assigned = propsList.filter((item) => {
         const hay = `${item.name} ${item.device_id} ${item.prop_type}`.toLowerCase();
-        return plannedNeedles.some((needle) => hay.includes(needle)) && !cpUnits.some((cp) => cp.id === item.id);
+        return plannedNeedles.some((needle) => hay.includes(needle)) && !alwaysOn.some((fixed) => fixed.id === item.id);
       });
       result = [...result, ...assigned];
     }
@@ -1900,6 +1937,15 @@ function App() {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
+
+    const selectedProps = (missionForm.props_needed || []).filter(Boolean);
+    const propSettings = Object.fromEntries(
+      selectedProps.map((name) => [name, {
+        ...(missionForm.prop_settings?.[name] || {}),
+        enabled: missionForm.prop_settings?.[name]?.enabled !== false,
+      }])
+    );
+
     postMissionAction('/mission-control/mission', {
       title: missionForm.title,
       description: missionForm.description,
@@ -1907,6 +1953,8 @@ function App() {
       main_timer_seconds: Number(missionForm.main_timer_minutes) * 60,
       phase_timer_seconds: Number(missionForm.phase_timer_minutes) * 60,
       objectives,
+      props_needed: selectedProps,
+      prop_settings: propSettings,
     });
   }
 
@@ -2173,13 +2221,23 @@ function App() {
                               className={selectedScheduleGame && selectedScheduleGame.id === item.id ? 'mc-game-item mc-game-item-active' : 'mc-game-item'}
                               onClick={() => {
                                 setSelectedScheduleGame(item);
+                                const modeName = item.game_mode || missionForm.game_mode;
+                                const selectedProps = (item.props_needed && item.props_needed.length > 0)
+                                  ? item.props_needed
+                                  : getDefaultPropsForGameMode(modeName);
                                 const nextForm = {
                                   title: item.title,
                                   description: item.details || '',
-                                  game_mode: item.game_mode || missionForm.game_mode,
+                                  game_mode: modeName,
                                   main_timer_minutes: missionForm.main_timer_minutes,
                                   phase_timer_minutes: missionForm.phase_timer_minutes,
                                   objectivesText: missionForm.objectivesText,
+                                  props_needed: selectedProps,
+                                  prop_settings: buildDefaultPropSettings(
+                                    selectedProps,
+                                    missionForm.main_timer_minutes,
+                                    missionForm.phase_timer_minutes
+                                  ),
                                 };
                                 setMissionForm(nextForm);
                                 // Auto-load the mission into Game Controls
@@ -2194,6 +2252,8 @@ function App() {
                                   main_timer_seconds: Number(nextForm.main_timer_minutes) * 60,
                                   phase_timer_seconds: Number(nextForm.phase_timer_minutes) * 60,
                                   objectives,
+                                  props_needed: nextForm.props_needed,
+                                  prop_settings: nextForm.prop_settings,
                                 });
                               }}
                             >
@@ -2208,9 +2268,20 @@ function App() {
                         Game Mode
                         <select
                           value={missionForm.game_mode}
-                          onChange={(event) =>
-                            setMissionForm((current) => ({ ...current, game_mode: event.target.value }))
-                          }
+                          onChange={(event) => {
+                            const modeName = event.target.value;
+                            const defaults = getDefaultPropsForGameMode(modeName);
+                            setMissionForm((current) => ({
+                              ...current,
+                              game_mode: modeName,
+                              props_needed: defaults,
+                              prop_settings: buildDefaultPropSettings(
+                                defaults,
+                                current.main_timer_minutes,
+                                current.phase_timer_minutes
+                              ),
+                            }));
+                          }}
                         >
                           {gameModeOptions.map((mode) => (
                             <option key={mode} value={mode}>
@@ -2261,6 +2332,142 @@ function App() {
                           }
                         />
                       </label>
+
+                      <div style={{ marginTop: '0.6rem' }}>
+                        <p className="schedule-meta" style={{ marginBottom: '0.35rem' }}>Mission Props</p>
+                        {propNameOptions.length === 0 ? <p className="muted">No firmware props available.</p> : null}
+                        <div style={{ display: 'grid', gap: '0.25rem', maxHeight: '10rem', overflowY: 'auto' }}>
+                          {propNameOptions.map((propName) => {
+                            const checked = (missionForm.props_needed || []).includes(propName);
+                            return (
+                              <label key={`mission-prop-${propName}`} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(event) => {
+                                    setMissionForm((current) => {
+                                      const existing = new Set(current.props_needed || []);
+                                      if (event.target.checked) {
+                                        existing.add(propName);
+                                      } else {
+                                        existing.delete(propName);
+                                      }
+                                      const nextProps = Array.from(existing);
+                                      const nextSettings = { ...(current.prop_settings || {}) };
+                                      if (event.target.checked) {
+                                        nextSettings[propName] = nextSettings[propName] || {
+                                          enabled: true,
+                                          game_time_seconds: Math.max(0, Number(current.main_timer_minutes) || 0) * 60,
+                                          phase_time_seconds: Math.max(0, Number(current.phase_timer_minutes) || 0) * 60,
+                                          notes: '',
+                                        };
+                                      } else {
+                                        delete nextSettings[propName];
+                                      }
+                                      return { ...current, props_needed: nextProps, prop_settings: nextSettings };
+                                    });
+                                  }}
+                                />
+                                <span>{propName}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {(missionForm.props_needed || []).length > 0 ? (
+                        <div style={{ marginTop: '0.7rem' }}>
+                          <p className="schedule-meta" style={{ marginBottom: '0.35rem' }}>Prop Settings</p>
+                          {(missionForm.props_needed || []).map((propName) => {
+                            const settings = missionForm.prop_settings?.[propName] || {};
+                            return (
+                              <div key={`mission-prop-settings-${propName}`} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '0.45rem', marginBottom: '0.35rem' }}>
+                                <strong>{propName}</strong>
+                                <label style={{ marginTop: '0.2rem' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={settings.enabled !== false}
+                                    onChange={(event) => {
+                                      setMissionForm((current) => ({
+                                        ...current,
+                                        prop_settings: {
+                                          ...(current.prop_settings || {}),
+                                          [propName]: {
+                                            ...(current.prop_settings?.[propName] || {}),
+                                            enabled: event.target.checked,
+                                          },
+                                        },
+                                      }));
+                                    }}
+                                  />
+                                  Enabled
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' }}>
+                                  <label>
+                                    Game Time (sec)
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={settings.game_time_seconds ?? Number(missionForm.main_timer_minutes) * 60}
+                                      onChange={(event) => {
+                                        setMissionForm((current) => ({
+                                          ...current,
+                                          prop_settings: {
+                                            ...(current.prop_settings || {}),
+                                            [propName]: {
+                                              ...(current.prop_settings?.[propName] || {}),
+                                              game_time_seconds: Number(event.target.value) || 0,
+                                            },
+                                          },
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                  <label>
+                                    Phase Time (sec)
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={settings.phase_time_seconds ?? Number(missionForm.phase_timer_minutes) * 60}
+                                      onChange={(event) => {
+                                        setMissionForm((current) => ({
+                                          ...current,
+                                          prop_settings: {
+                                            ...(current.prop_settings || {}),
+                                            [propName]: {
+                                              ...(current.prop_settings?.[propName] || {}),
+                                              phase_time_seconds: Number(event.target.value) || 0,
+                                            },
+                                          },
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                                <label>
+                                  Notes
+                                  <input
+                                    value={settings.notes || ''}
+                                    onChange={(event) => {
+                                      setMissionForm((current) => ({
+                                        ...current,
+                                        prop_settings: {
+                                          ...(current.prop_settings || {}),
+                                          [propName]: {
+                                            ...(current.prop_settings?.[propName] || {}),
+                                            notes: event.target.value,
+                                          },
+                                        },
+                                      }));
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
                       <button type="button" onClick={handleCreateMission}>Create Mission</button>
                       <button type="button" onClick={saveMissionAsPreset} style={{ marginLeft: '0.5rem' }}>
                         Save as Preset
@@ -2456,20 +2663,54 @@ function App() {
                         </select>
                       </label>
                       {scheduleForm.activity_type === 'Game' ? (
-                        <label>
-                          Game Mode
-                          <select
-                            value={scheduleForm.game_mode}
-                            onChange={(event) =>
-                              setScheduleForm((current) => ({ ...current, game_mode: event.target.value }))
-                            }
-                          >
-                            <option value="">— none —</option>
-                            {gameModeOptions.map((mode) => (
-                              <option key={mode} value={mode}>{mode}</option>
-                            ))}
-                          </select>
-                        </label>
+                        <>
+                          <label>
+                            Game Mode
+                            <select
+                              value={scheduleForm.game_mode}
+                              onChange={(event) => {
+                                const modeName = event.target.value;
+                                const defaults = getDefaultPropsForGameMode(modeName);
+                                setScheduleForm((current) => ({
+                                  ...current,
+                                  game_mode: modeName,
+                                  props_needed: defaults,
+                                }));
+                              }}
+                            >
+                              <option value="">— none —</option>
+                              {gameModeOptions.map((mode) => (
+                                <option key={mode} value={mode}>{mode}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <div>
+                            <p className="schedule-meta" style={{ marginBottom: '0.3rem' }}>Props Needed</p>
+                            {propNameOptions.length === 0 ? <p className="muted">No firmware props available.</p> : null}
+                            <div style={{ display: 'grid', gap: '0.22rem', maxHeight: '8.5rem', overflowY: 'auto' }}>
+                              {propNameOptions.map((propName) => (
+                                <label key={`schedule-prop-${propName}`} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={(scheduleForm.props_needed || []).includes(propName)}
+                                    onChange={(event) => {
+                                      setScheduleForm((current) => {
+                                        const next = new Set(current.props_needed || []);
+                                        if (event.target.checked) {
+                                          next.add(propName);
+                                        } else {
+                                          next.delete(propName);
+                                        }
+                                        return { ...current, props_needed: Array.from(next) };
+                                      });
+                                    }}
+                                  />
+                                  <span>{propName}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </>
                       ) : null}
                       <label>
                         Start Time
@@ -2507,6 +2748,7 @@ function App() {
                               details: '',
                               activity_type: 'Custom',
                               game_mode: '',
+                              props_needed: [],
                               start_time: '',
                               is_complete: false,
                             });
@@ -2554,6 +2796,9 @@ function App() {
                             {militaryTime(item.start_time)}
                           </p>
                           <p className="schedule-meta">{item.details || 'No details'}</p>
+                          {item.activity_type === 'Game' && Array.isArray(item.props_needed) && item.props_needed.length > 0 ? (
+                            <p className="schedule-meta">Props: {item.props_needed.join(', ')}</p>
+                          ) : null}
                           <p className="schedule-meta">Status: {item.is_complete ? 'Complete' : 'Pending'}</p>
                           <div className="schedule-item-actions">
                             <button type="button" onClick={() => editScheduleItem(item)}>Edit</button>

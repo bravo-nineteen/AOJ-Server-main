@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,8 @@ class MissionControlStateResponse(BaseModel):
     red_team_score: int
     blue_team_score: int
     objectives: list[MissionControlObjective]
+    props_needed: list[str] = []
+    prop_settings: dict[str, dict[str, Any]] = {}
     event_feed: list[str]
     updated_at: str
 
@@ -30,6 +32,8 @@ class MissionControlCreateMissionRequest(BaseModel):
     main_timer_seconds: int = Field(default=1800, ge=1)
     phase_timer_seconds: int = Field(default=300, ge=0)
     objectives: list[str] = []
+    props_needed: list[str] = []
+    prop_settings: dict[str, dict[str, Any]] = {}
 
 
 class MissionControlScoreRequest(BaseModel):
