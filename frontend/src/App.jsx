@@ -1751,23 +1751,43 @@ function App() {
   }, [todayScheduleItems]);
 
   const usedPropsToday = useMemo(() => {
-    const plannedNeedles = plannedGames
-      .flatMap((game) => game.requiredProps || [])
+    // Always include CP Unit TF and CP Unit BF (used for all games)
+    const cpUnits = propsList.filter((item) =>
+      ['CP Unit TF', 'CP Unit BF', 'CP_UNIT_TF', 'CP_UNIT_BF'].some(
+        (name) => (item.name || '').toLowerCase().includes(name.toLowerCase())
+      )
+    );
+
+    // Collect props from schedule items (if they have props_needed field) and planned games
+    const plannedNeedles = todayScheduleItems
+      .filter((item) => item.activity_type === 'Game')
+      .flatMap((item) => {
+        const scheduled = item.props_needed || [];
+        const game = plannedGames.find((g) => g.name === (item.game_mode || item.title));
+        const gameDef = game ? (game.requiredProps || []) : [];
+        return [...scheduled, ...gameDef];
+      })
       .map((value) => String(value).toLowerCase());
+
+    // Combine CP units with any game-assigned props
+    let result = [...cpUnits];
 
     if (plannedNeedles.length > 0) {
       const assigned = propsList.filter((item) => {
         const hay = `${item.name} ${item.device_id} ${item.prop_type}`.toLowerCase();
-        return plannedNeedles.some((needle) => hay.includes(needle));
+        return plannedNeedles.some((needle) => hay.includes(needle)) && !cpUnits.some((cp) => cp.id === item.id);
       });
-      if (assigned.length > 0) {
-        return assigned.slice(0, 8);
-      }
+      result = [...result, ...assigned];
+    }
+
+    // If we have game-assigned props or CP units, use those; otherwise fall back to active props
+    if (result.length > 0) {
+      return result.slice(0, 12);
     }
 
     const activeProps = propsList.filter((item) => (item.status || '').toLowerCase() !== 'offline');
-    return (activeProps.length > 0 ? activeProps : propsList).slice(0, 8);
-  }, [propsList, plannedGames]);
+    return (activeProps.length > 0 ? activeProps : propsList).slice(0, 12);
+  }, [propsList, plannedGames, todayScheduleItems]);
 
   const todayResultsPoints = useMemo(() => {
     const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local

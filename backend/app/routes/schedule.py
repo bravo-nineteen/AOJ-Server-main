@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+import json
 
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,7 @@ def add_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depends
 
     item_data = payload.model_dump()
     item_data["end_time"] = resolved_end
+    item_data["props_needed"] = json.dumps(payload.props_needed or [])
     item = models.ScheduleItem(**item_data)
     db.add(item)
     db.commit()
@@ -59,6 +61,7 @@ def edit_schedule_item(
 
     update_data = payload.model_dump()
     update_data["end_time"] = resolved_end
+    update_data["props_needed"] = json.dumps(payload.props_needed or [])
     for key, value in update_data.items():
         setattr(item, key, value)
     item.completed_at = datetime.now(timezone.utc) if payload.is_complete else None

@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Literal
+import json
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class ScheduleItemBase(BaseModel):
@@ -14,6 +15,7 @@ class ScheduleItemBase(BaseModel):
     start_time: datetime
     end_time: datetime | None = None
     game_mode: str = ""
+    props_needed: list[str] = []
 
 
 class ScheduleItemCreate(ScheduleItemBase):
@@ -26,6 +28,16 @@ class ScheduleItemRead(ScheduleItemBase):
     completed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+    
+    @field_validator('props_needed', mode='before')
+    @classmethod
+    def deserialize_props(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return v or []
 
 
 class ScheduleItemUpdate(BaseModel):
@@ -39,6 +51,7 @@ class ScheduleItemUpdate(BaseModel):
     end_time: datetime | None = None
     game_mode: str = ""
     is_complete: bool = False
+    props_needed: list[str] = []
 
 
 class ScheduleOverviewResponse(BaseModel):
