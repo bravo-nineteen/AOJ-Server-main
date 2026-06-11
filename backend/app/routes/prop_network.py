@@ -14,6 +14,31 @@ from app.services.log_service import log_action
 
 router = APIRouter(prefix="/api/props", tags=["Prop Network"])
 
+FIRMWARE_PROP_TYPE_TO_NAME = {
+    "Bomb": "prop_bomb",
+    "Bomb Vest": "Bomb_Vest",
+    "Briefcase Bomb": "Briefcase_Bomb",
+    "Domination Point": "domination_point",
+    "Respawn Station": "respawn_station",
+    "Game Master Unit": "GM_Unit",
+    "Control Panel Unit": "CP_Unit",
+}
+
+
+def _canonical_firmware_name(prop_type: str, name: str, device_id: str) -> str | None:
+    base = FIRMWARE_PROP_TYPE_TO_NAME.get(prop_type)
+    if not base:
+        return None
+    if base != "CP_Unit":
+        return base
+
+    lookup = f"{name} {device_id}".lower()
+    if "tf" in lookup:
+        return "CP_Unit_TF"
+    if "bf" in lookup or "bt" in lookup:
+        return "CP_Unit_BF"
+    return None
+
 
 def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
@@ -21,7 +46,27 @@ def _hash_token(raw_token: str) -> str:
 
 @router.get("", response_model=list[schemas.PropRead])
 def list_props(db: Session = Depends(get_db)):
-    return db.query(models.Prop).order_by(models.Prop.id.desc()).all()
+    items = db.query(models.Prop).order_by(models.Prop.id.desc()).all()
+    output = []
+    changed = False
+
+    for item in items:
+        canonical_name = _canonical_firmware_name(
+            str(item.prop_type.value),
+            item.name,
+            item.device_id,
+        )
+        if not canonical_name:
+            continue
+        if item.name != canonical_name:
+            item.name = canonical_name
+            changed = True
+        output.append(item)
+
+    if changed:
+        db.commit()
+
+    return output
 
 
 @router.post("", response_model=schemas.PropRead)
@@ -295,22 +340,33 @@ async def test_relay(prop_id: int, db: Session = Depends(get_db)):
 async def initialize_all_props(db: Session = Depends(get_db)):
     """Initialize all built-in firmware devices."""
     devices = [
-        {"device_id": "BD-001", "name": "Main Bomb", "prop_type": "Bomb", "location": "Arena Center"},
-        {"device_id": "VEST-001", "name": "Bomb Vest", "prop_type": "Bomb Vest", "location": "Player Loadout"},
-        {"device_id": "CASE-001", "name": "Briefcase Bomb", "prop_type": "Briefcase Bomb", "location": "Mission Control"},
-        {"device_id": "DOM-001", "name": "Domination Point A", "prop_type": "Domination Point", "location": "Arena North"},
-        {"device_id": "DOM-002", "name": "Domination Point B", "prop_type": "Domination Point", "location": "Arena South"},
-        {"device_id": "RESP-001", "name": "Respawn Station 1", "prop_type": "Respawn Station", "location": "Team Alpha Spawn"},
-        {"device_id": "RESP-002", "name": "Respawn Station 2", "prop_type": "Respawn Station", "location": "Team Bravo Spawn"},
-        {"device_id": "GM-001", "name": "Game Master Unit", "prop_type": "Game Master Unit", "location": "Control Room"},
-        {"device_id": "CP-001", "name": "Control Panel Unit", "prop_type": "Control Panel Unit", "location": "Mission Control"},
+        {"device_id": "BD-001", "name": "prop_bomb", "prop_type": "Bomb", "location": "Arena Center"},
+        {"device_id": "VEST-001", "name": "Bomb_Vest", "prop_type": "Bomb Vest", "location": "Player Loadout"},
+        {"device_id": "CASE-001", "name": "Briefcase_Bomb", "prop_type": "Briefcase Bomb", "location": "Mission Control"},
+        {"device_id": "DOM-001", "name": "domination_point", "prop_type": "Domination Point", "location": "Arena North"},
+        {"device_id": "DOM-002", "name": "domination_point", "prop_type": "Domination Point", "location": "Arena South"},
+        {"device_id": "RESP-001", "name": "respawn_station", "prop_type": "Respawn Station", "location": "Team Alpha Spawn"},
+        {"device_id": "RESP-002", "name": "respawn_station", "prop_type": "Respawn Station", "location": "Team Bravo Spawn"},
+        {"device_id": "GM-001", "name": "GM_Unit", "prop_type": "Game Master Unit", "location": "Control Room"},
+        {"device_id": "CP-TF-001", "name": "CP_Unit_TF", "prop_type": "Control Panel Unit", "location": "Mission Control"},
+        {"device_id": "CP-BF-001", "name": "CP_Unit_BF", "prop_type": "Control Panel Unit", "location": "Mission Control"},
     ]
 
     created = []
     existing = []
+    updated = []
     for device in devices:
         existing_prop = db.query(models.Prop).filter(models.Prop.device_id == device["device_id"]).first()
         if existing_prop:
+            changed = False
+            if existing_prop.name != device["name"]:
+                existing_prop.name = device["name"]
+                changed = True
+            if str(existing_prop.prop_type.value) != device["prop_type"]:
+                existing_prop.prop_type = models.PropType(device["prop_type"])
+                changed = True
+            if changed:
+                updated.append(existing_prop.device_id)
             existing.append(existing_prop.device_id)
         else:
             prop = models.Prop(**device, status="offline")
@@ -324,12 +380,16 @@ async def initialize_all_props(db: Session = Depends(get_db)):
         level=models.LogLevel.info,
         category=models.LogCategory.prop,
         source="prop_init",
-        message=f"Initialized devices - Created: {len(created)}, Already existed: {len(existing)}",
+        message=(
+            f"Initialized devices - Created: {len(created)}, Updated: {len(updated)}, "
+            f"Already existed: {len(existing)}"
+        ),
     )
 
     return {
         "status": "initialized",
         "created": created,
+        "updated": updated,
         "existing": existing,
         "total": len(devices),
     }

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+import json
 
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,12 @@ from app.database import get_db
 from app.services.log_service import log_action
 
 router = APIRouter(prefix="/api/schedule", tags=["Schedule"])
+
+
+def _to_utc_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 @router.get("/items", response_model=list[schemas.ScheduleItemRead])
@@ -32,6 +39,7 @@ def add_schedule_item(payload: schemas.ScheduleItemCreate, db: Session = Depends
 
     item_data = payload.model_dump()
     item_data["end_time"] = resolved_end
+    item_data["props_needed"] = json.dumps(payload.props_needed or [])
     item = models.ScheduleItem(**item_data)
     db.add(item)
     db.commit()
@@ -59,6 +67,7 @@ def edit_schedule_item(
 
     update_data = payload.model_dump()
     update_data["end_time"] = resolved_end
+    update_data["props_needed"] = json.dumps(payload.props_needed or [])
     for key, value in update_data.items():
         setattr(item, key, value)
     item.completed_at = datetime.now(timezone.utc) if payload.is_complete else None
@@ -124,15 +133,21 @@ def get_schedule_overview(db: Session = Depends(get_db)):
         .all()
     )
 
-    current_candidates = [item for item in items if not item.is_complete and item.start_time <= now]
+    now_cmp = _to_utc_naive(now)
+
+    current_candidates = [
+        item
+        for item in items
+        if not item.is_complete and _to_utc_naive(item.start_time) <= now_cmp
+    ]
     current = current_candidates[-1] if current_candidates else None
     next_item = next(
-        (item for item in items if not item.is_complete and item.start_time > now),
+        (item for item in items if not item.is_complete and _to_utc_naive(item.start_time) > now_cmp),
         None,
     )
 
     delay_warning = None
-    if current and next_item and now > next_item.start_time:
+    if current and next_item and now_cmp > _to_utc_naive(next_item.start_time):
         delay_warning = f"{current.title} appears to be running behind the next agenda item"
 
     return schemas.ScheduleOverviewResponse(

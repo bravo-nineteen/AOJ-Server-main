@@ -6,16 +6,134 @@ import { AdminThemeEditor } from './components/AdminThemeEditor';
 import { AdminAISettings } from './components/AdminAISettings';
 
 const APPS = [
-  { id: 'overview', title: 'Overview', subtitle: 'Today plan, team posture, and IoT readiness' },
-  { id: 'mission-control', title: 'Mission Control', subtitle: 'Live objectives, results, and squad directives' },
-  { id: 'prop-network', title: 'Prop Network', subtitle: 'Field devices, relays, and trigger nodes' },
-  { id: 'schedule', title: 'Schedule', subtitle: 'Operations timeline and event sequencing' },
-  { id: 'system-monitor', title: 'System Monitor', subtitle: 'Runtime health and resource telemetry' },
-  { id: 'ai-assistant', title: 'AI Assistant', subtitle: 'Command aide for planning and analysis' },
-  { id: 'update-center', title: 'Update Center', subtitle: 'Node sync, package state, firmware rollout' },
-  { id: 'logs', title: 'Logs', subtitle: 'Audit stream and anomaly events' },
-  { id: 'settings', title: 'Settings', subtitle: 'Teams, game modes, themes, AI, and system controls' },
+  { id: 'overview', title: 'Overview', subtitle: 'Today plan, team posture, and IoT readiness', badge: 'OV' },
+  { id: 'mission-control', title: 'Mission Control', subtitle: 'Live objectives, results, and squad directives', badge: 'MC' },
+  { id: 'prop-network', title: 'Prop Network', subtitle: 'Field devices, relays, and trigger nodes', badge: 'PN' },
+  { id: 'schedule', title: 'Schedule', subtitle: 'Operations timeline and event sequencing', badge: 'SC' },
+  { id: 'system-monitor', title: 'System Monitor', subtitle: 'Runtime health and resource telemetry', badge: 'SM' },
+  { id: 'ai-assistant', title: 'AI Assistant', subtitle: 'Command aide for planning and analysis', badge: 'AI' },
+  { id: 'update-center', title: 'Update Center', subtitle: 'Node sync, package state, firmware rollout', badge: 'UP' },
+  { id: 'logs', title: 'Logs', subtitle: 'Audit stream and anomaly events', badge: 'LG' },
+  { id: 'settings', title: 'Settings', subtitle: 'Teams, game modes, themes, AI, and system controls', badge: 'ST' },
 ];
+
+const DESKTOP_LAYOUT_COLUMNS = 3;
+const DESKTOP_LAYOUT_ROWS = 3;
+const DESKTOP_LAYOUT_STORAGE_KEY = 'aoj-command-os.desktop-layout.v1';
+const UI_PREFS_STORAGE_KEY = 'aoj-command-os.ui-prefs.v1';
+
+const DEFAULT_UI_PREFS = {
+  showLiveFeed: false,
+};
+
+function createDefaultDesktopLayout() {
+  return APPS.reduce((layout, app, index) => {
+    layout[app.id] = {
+      col: index % DESKTOP_LAYOUT_COLUMNS,
+      row: Math.floor(index / DESKTOP_LAYOUT_COLUMNS),
+    };
+    return layout;
+  }, {});
+}
+
+function clampCell(value, max) {
+  return Math.max(0, Math.min(max, value));
+}
+
+function normalizeDesktopLayout(layout) {
+  const fallback = createDefaultDesktopLayout();
+  if (!layout || typeof layout !== 'object') {
+    return fallback;
+  }
+
+  const normalized = { ...fallback };
+  const taken = new Set();
+
+  APPS.forEach((app) => {
+    const item = layout[app.id];
+    const col = clampCell(Number(item?.col ?? fallback[app.id].col), DESKTOP_LAYOUT_COLUMNS - 1);
+    const row = clampCell(Number(item?.row ?? fallback[app.id].row), DESKTOP_LAYOUT_ROWS - 1);
+    const key = `${col}:${row}`;
+    if (!taken.has(key)) {
+      normalized[app.id] = { col, row };
+      taken.add(key);
+    }
+  });
+
+  APPS.forEach((app) => {
+    const current = normalized[app.id];
+    let key = `${current.col}:${current.row}`;
+    if (taken.has(key)) {
+      return;
+    }
+    for (let row = 0; row < DESKTOP_LAYOUT_ROWS; row += 1) {
+      for (let col = 0; col < DESKTOP_LAYOUT_COLUMNS; col += 1) {
+        key = `${col}:${row}`;
+        if (!taken.has(key)) {
+          normalized[app.id] = { col, row };
+          taken.add(key);
+          return;
+        }
+      }
+    }
+  });
+
+  return normalized;
+}
+
+function loadDesktopLayout() {
+  if (typeof window === 'undefined') {
+    return createDefaultDesktopLayout();
+  }
+
+  try {
+    const raw = window.localStorage.getItem(DESKTOP_LAYOUT_STORAGE_KEY);
+    if (!raw) {
+      return createDefaultDesktopLayout();
+    }
+    return normalizeDesktopLayout(JSON.parse(raw));
+  } catch {
+    return createDefaultDesktopLayout();
+  }
+}
+
+function loadUiPrefs() {
+  if (typeof window === 'undefined') {
+    return { ...DEFAULT_UI_PREFS };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(UI_PREFS_STORAGE_KEY);
+    if (!raw) {
+      return { ...DEFAULT_UI_PREFS };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_UI_PREFS,
+      ...parsed,
+    };
+  } catch {
+    return { ...DEFAULT_UI_PREFS };
+  }
+}
+
+function swapDesktopCell(layout, movingAppId, targetCol, targetRow) {
+  const next = { ...layout };
+  const source = next[movingAppId] || { col: 0, row: 0 };
+  const targetKey = `${targetCol}:${targetRow}`;
+  const occupiedApp = APPS.find((app) => {
+    const slot = next[app.id];
+    return app.id !== movingAppId && slot && `${slot.col}:${slot.row}` === targetKey;
+  });
+
+  next[movingAppId] = { col: targetCol, row: targetRow };
+
+  if (occupiedApp) {
+    next[occupiedApp.id] = source;
+  }
+
+  return normalizeDesktopLayout(next);
+}
 
 const WINDOW_CONTENT = {
   'prop-network': ['12 props registered on subnet', '2 relays in maintenance state', 'Latency envelope: 18ms average'],
@@ -37,6 +155,8 @@ const DEFAULT_MISSION_STATE = {
   red_team_score: 0,
   blue_team_score: 0,
   objectives: [],
+  props_needed: [],
+  prop_settings: {},
   event_feed: [],
   updated_at: '',
 };
@@ -56,12 +176,23 @@ const ACTIVITY_TYPES = [
 const WINNER_OPTIONS = ['Red', 'Blue', 'Draw', 'Cancelled'];
 const PROP_TYPES = [
   'Bomb',
+  'Bomb Vest',
+  'Briefcase Bomb',
   'Domination Point',
   'Respawn Station',
-  'Alarm',
-  'Sensor',
-  'Custom',
+  'Game Master Unit',
+  'Control Panel Unit',
 ];
+const FIRMWARE_PROP_TYPE_TO_NAME = {
+  Bomb: 'prop_bomb',
+  'Bomb Vest': 'Bomb_Vest',
+  'Briefcase Bomb': 'Briefcase_Bomb',
+  'Domination Point': 'domination_point',
+  'Respawn Station': 'respawn_station',
+  'Game Master Unit': 'GM_Unit',
+  'Control Panel Unit': 'CP_Unit',
+};
+const ALWAYS_INCLUDED_PROP_NAMES = new Set(['CP_Unit_TF', 'CP_Unit_BF', 'GM_Unit']);
 const LOG_LEVELS = ['ALL', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const LOG_CATEGORIES = ['ALL', 'SYSTEM', 'MISSION', 'PROP', 'LORA', 'WIFI', 'AI', 'UPDATE'];
 const AI_QUICK_PROMPTS = [
@@ -187,6 +318,41 @@ function formatFeedTime(value = new Date()) {
   });
 }
 
+function normalizeFirmwarePropName(item) {
+  const canonical = FIRMWARE_PROP_TYPE_TO_NAME[item.prop_type];
+  if (!canonical) {
+    return null;
+  }
+
+  if (canonical !== 'CP_Unit') {
+    return canonical;
+  }
+
+  const lookup = `${item.name || ''} ${item.device_id || ''}`.toLowerCase();
+  if (lookup.includes('tf')) {
+    return 'CP_Unit_TF';
+  }
+  if (lookup.includes('bf') || lookup.includes('bt')) {
+    return 'CP_Unit_BF';
+  }
+  return null;
+}
+
+function normalizeFirmwareProps(list) {
+  return list
+    .map((item) => {
+      const normalizedName = normalizeFirmwarePropName(item);
+      if (!normalizedName) {
+        return null;
+      }
+      return {
+        ...item,
+        name: normalizedName,
+      };
+    })
+    .filter(Boolean);
+}
+
 function App() {
   const host = window.location.hostname || 'localhost';
   const isSecure = window.location.protocol === 'https:';
@@ -229,6 +395,12 @@ function App() {
   const [networkStatus, setNetworkStatus] = useState('CONNECTING');
   const [events, setEvents] = useState([]);
   const [selectedApp, setSelectedApp] = useState(APPS[0].id);
+  const [windowOpen, setWindowOpen] = useState(true);
+  const [windowMinimized, setWindowMinimized] = useState(false);
+  const [desktopLayout, setDesktopLayout] = useState(() => loadDesktopLayout());
+  const [draggedAppId, setDraggedAppId] = useState(null);
+  const [hoverCell, setHoverCell] = useState(null);
+  const [uiPrefs, setUiPrefs] = useState(() => loadUiPrefs());
   const [clock, setClock] = useState(new Date());
   const [currentTheme, setCurrentTheme] = useState(null);
   const [customTeams, setCustomTeams] = useState([]);
@@ -247,6 +419,8 @@ function App() {
     main_timer_minutes: 30,
     phase_timer_minutes: 5,
     objectivesText: 'Capture Relay,Hold HQ,Extract VIP',
+    props_needed: [],
+    prop_settings: {},
   });
   const [scheduleItems, setScheduleItems] = useState([]);
   const [scheduleOverview, setScheduleOverview] = useState({
@@ -261,6 +435,7 @@ function App() {
     details: 'Operator brief and radio checks.',
     activity_type: 'Safety Brief',
     game_mode: '',
+    props_needed: [],
     start_time: '',
     is_complete: false,
   });
@@ -334,6 +509,10 @@ function App() {
   const recognitionRef = useRef(null);
   const currentAudioRef = useRef(null);
   const currentAudioUrlRef = useRef(null);
+  const desktopSurfaceRef = useRef(null);
+  const desktopLayoutRef = useRef(desktopLayout);
+  const desktopDragRef = useRef(null);
+  const suppressDesktopClickRef = useRef(false);
 
   const speechRecognitionCtor = useMemo(() => {
     return window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -343,6 +522,146 @@ function App() {
   const speechOutputSupported = typeof window.Audio !== 'undefined';
   const aiVoiceInputEnabled = aiAudioSettings.voice_enabled && aiAudioSettings.speech_to_text_enabled;
   const aiVoiceOutputEnabled = aiAudioSettings.voice_enabled && aiAudioSettings.text_to_speech_enabled;
+
+  useEffect(() => {
+    desktopLayoutRef.current = desktopLayout;
+    try {
+      window.localStorage.setItem(DESKTOP_LAYOUT_STORAGE_KEY, JSON.stringify(desktopLayout));
+    } catch {
+      // Ignore storage failures on restricted browsers.
+    }
+  }, [desktopLayout]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify(uiPrefs));
+    } catch {
+      // Ignore storage failures on restricted browsers.
+    }
+  }, [uiPrefs]);
+
+  useEffect(() => {
+    function handlePointerMove(event) {
+      const drag = desktopDragRef.current;
+      const surface = desktopSurfaceRef.current;
+      if (!drag || !surface) {
+        return;
+      }
+
+      const dx = Math.abs(event.clientX - drag.startX);
+      const dy = Math.abs(event.clientY - drag.startY);
+      if (Math.max(dx, dy) > 8) {
+        drag.moved = true;
+      }
+
+      const rect = surface.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return;
+      }
+
+      const cellWidth = rect.width / DESKTOP_LAYOUT_COLUMNS;
+      const cellHeight = rect.height / DESKTOP_LAYOUT_ROWS;
+      const targetCol = clampCell(Math.floor((event.clientX - rect.left) / cellWidth), DESKTOP_LAYOUT_COLUMNS - 1);
+      const targetRow = clampCell(Math.floor((event.clientY - rect.top) / cellHeight), DESKTOP_LAYOUT_ROWS - 1);
+      drag.target = { col: targetCol, row: targetRow };
+      setHoverCell(drag.target);
+    }
+
+    function handlePointerUp() {
+      const drag = desktopDragRef.current;
+      if (!drag) {
+        return;
+      }
+
+      if (drag.moved && drag.target) {
+        suppressDesktopClickRef.current = true;
+        setDesktopLayout((current) => swapDesktopCell(current, drag.appId, drag.target.col, drag.target.row));
+        window.setTimeout(() => {
+          suppressDesktopClickRef.current = false;
+        }, 0);
+      }
+
+      desktopDragRef.current = null;
+      setDraggedAppId(null);
+      setHoverCell(null);
+    }
+
+    if (!draggedAppId) {
+      return undefined;
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [draggedAppId]);
+
+  function handleDesktopPointerDown(event, appId) {
+    if (event.button !== 0 && event.pointerType !== 'touch') {
+      return;
+    }
+
+    const surface = desktopSurfaceRef.current;
+    if (!surface) {
+      return;
+    }
+
+    event.preventDefault();
+    const origin = desktopLayoutRef.current[appId] || { col: 0, row: 0 };
+    desktopDragRef.current = {
+      appId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      origin,
+      target: origin,
+    };
+    setDraggedAppId(appId);
+    setHoverCell(origin);
+  }
+
+  function handleDesktopIconClick(event, appId) {
+    if (suppressDesktopClickRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    setSelectedApp(appId);
+    setWindowOpen(true);
+    setWindowMinimized(false);
+  }
+
+  function resetDesktopLayout() {
+    setDesktopLayout(createDefaultDesktopLayout());
+  }
+
+  function openDesktopWindow(appId) {
+    setSelectedApp(appId);
+    setWindowOpen(true);
+    setWindowMinimized(false);
+  }
+
+  function closeDesktopWindow() {
+    setWindowOpen(false);
+    setWindowMinimized(false);
+  }
+
+  function minimizeDesktopWindow() {
+    if (!windowOpen) {
+      return;
+    }
+    setWindowMinimized(true);
+  }
+
+  function restoreDesktopWindow() {
+    setWindowOpen(true);
+    setWindowMinimized(false);
+  }
 
   const redTeamLabel = customTeams[0]?.name || 'Red Team';
   const blueTeamLabel = customTeams[1]?.name || 'Blue Team';
@@ -766,7 +1085,7 @@ function App() {
       return;
     }
     const payload = await response.json();
-    setPropsList(payload);
+    setPropsList(normalizeFirmwareProps(payload));
   }
 
   async function fetchSystemLogs(filters = logFilters) {
@@ -1117,6 +1436,7 @@ function App() {
       details: scheduleForm.details,
       activity_type: scheduleForm.activity_type,
       game_mode: scheduleForm.activity_type === 'Game' ? scheduleForm.game_mode : '',
+      props_needed: scheduleForm.activity_type === 'Game' ? (scheduleForm.props_needed || []) : [],
       start_time: startIso,
       end_time: null,
       is_complete: scheduleForm.is_complete,
@@ -1165,6 +1485,7 @@ function App() {
       details: '',
       activity_type: 'Custom',
       game_mode: '',
+      props_needed: [],
       start_time: '',
       is_complete: false,
     });
@@ -1197,6 +1518,7 @@ function App() {
       details: item.details,
       activity_type: item.activity_type,
       game_mode: item.game_mode || '',
+      props_needed: item.props_needed || [],
       start_time: toTimeInputValue(item.start_time),
       is_complete: item.is_complete,
     });
@@ -1248,6 +1570,7 @@ function App() {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
+      required_props_json: missionForm.props_needed || [],
       active: true,
     };
     const response = await fetch(`${apiBase}/custom/game-modes`, {
@@ -1443,6 +1766,38 @@ function App() {
   const isAIAssistant = activeApp.id === 'ai-assistant';
   const isUpdateCenter = activeApp.id === 'update-center';
   const isSettings = activeApp.id === 'settings';
+  const showLiveFeed = Boolean(uiPrefs.showLiveFeed);
+
+  const gameModeByName = useMemo(() => {
+    const rows = customGameModes.filter((mode) => mode && typeof mode.name === 'string');
+    return Object.fromEntries(rows.map((mode) => [mode.name, mode]));
+  }, [customGameModes]);
+
+  const propNameOptions = useMemo(() => {
+    return Array.from(new Set(propsList.map((item) => item.name).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [propsList]);
+
+  function getDefaultPropsForGameMode(modeName) {
+    const mode = gameModeByName[modeName];
+    if (!mode || !Array.isArray(mode.required_props_json)) {
+      return [];
+    }
+    return mode.required_props_json.filter(Boolean);
+  }
+
+  function buildDefaultPropSettings(propNames, mainMinutes, phaseMinutes) {
+    return Object.fromEntries(
+      (propNames || []).map((name) => [
+        name,
+        {
+          enabled: true,
+          game_time_seconds: Math.max(0, Number(mainMinutes) || 0) * 60,
+          phase_time_seconds: Math.max(0, Number(phaseMinutes) || 0) * 60,
+          notes: '',
+        },
+      ])
+    );
+  }
 
   const todayScheduleItems = useMemo(() => {
     const today = new Date().toDateString();
@@ -1475,30 +1830,47 @@ function App() {
       .map((item) => ({
         key: `schedule-${item.id}`,
         name: item.game_mode || item.title,
-        requiredProps: [],
+        requiredProps: (item.props_needed && item.props_needed.length > 0)
+          ? item.props_needed
+          : getDefaultPropsForGameMode(item.game_mode || item.title),
       }))
       .filter((g) => g.name)
       .slice(0, 6);
-  }, [todayScheduleItems]);
+  }, [todayScheduleItems, gameModeByName]);
 
   const usedPropsToday = useMemo(() => {
-    const plannedNeedles = plannedGames
-      .flatMap((game) => game.requiredProps || [])
+    // Always include CP_Unit_TF, CP_Unit_BF, and GM_Unit when present.
+    const alwaysOn = propsList.filter((item) => ALWAYS_INCLUDED_PROP_NAMES.has(item.name));
+
+    // Collect props from schedule items (if they have props_needed field) and planned games
+    const plannedNeedles = todayScheduleItems
+      .filter((item) => item.activity_type === 'Game')
+      .flatMap((item) => {
+        const scheduled = item.props_needed || [];
+        const game = plannedGames.find((g) => g.name === (item.game_mode || item.title));
+        const gameDef = game ? (game.requiredProps || []) : [];
+        return [...scheduled, ...gameDef];
+      })
       .map((value) => String(value).toLowerCase());
+
+    // Combine always-on CP units with any game-assigned props.
+    let result = [...alwaysOn];
 
     if (plannedNeedles.length > 0) {
       const assigned = propsList.filter((item) => {
         const hay = `${item.name} ${item.device_id} ${item.prop_type}`.toLowerCase();
-        return plannedNeedles.some((needle) => hay.includes(needle));
+        return plannedNeedles.some((needle) => hay.includes(needle)) && !alwaysOn.some((fixed) => fixed.id === item.id);
       });
-      if (assigned.length > 0) {
-        return assigned.slice(0, 8);
-      }
+      result = [...result, ...assigned];
     }
 
-    const activeProps = propsList.filter((item) => (item.status || '').toLowerCase() !== 'offline');
-    return (activeProps.length > 0 ? activeProps : propsList).slice(0, 8);
-  }, [propsList, plannedGames]);
+    // If we have game-assigned props or CP units, use those; otherwise show available firmware props.
+    if (result.length > 0) {
+      return result.slice(0, 12);
+    }
+
+    return propsList.slice(0, 12);
+  }, [propsList, plannedGames, todayScheduleItems]);
 
   const todayResultsPoints = useMemo(() => {
     const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
@@ -1565,6 +1937,15 @@ function App() {
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
+
+    const selectedProps = (missionForm.props_needed || []).filter(Boolean);
+    const propSettings = Object.fromEntries(
+      selectedProps.map((name) => [name, {
+        ...(missionForm.prop_settings?.[name] || {}),
+        enabled: missionForm.prop_settings?.[name]?.enabled !== false,
+      }])
+    );
+
     postMissionAction('/mission-control/mission', {
       title: missionForm.title,
       description: missionForm.description,
@@ -1572,6 +1953,8 @@ function App() {
       main_timer_seconds: Number(missionForm.main_timer_minutes) * 60,
       phase_timer_seconds: Number(missionForm.phase_timer_minutes) * 60,
       objectives,
+      props_needed: selectedProps,
+      prop_settings: propSettings,
     });
   }
 
@@ -1610,9 +1993,11 @@ function App() {
 
   return (
     <div className="desktop-shell">
-      <header className="top-bar">
+      <header className="top-bar desktop-panel">
         <div className="brand-block">
-          <span className="brand-mark">AOJ</span>
+          <button type="button" className="brand-mark desktop-activities" onClick={() => openDesktopWindow('overview')}>
+            Activities
+          </button>
           <div>
             <h1>Command OS</h1>
             <p>AOJ Tactical Field Console</p>
@@ -1623,40 +2008,39 @@ function App() {
           <div className={`indicator net-${networkStatus.toLowerCase()}`}>
             Network {networkStatus}
           </div>
-          <button type="button" className="indicator" onClick={() => setSelectedApp('logs')}>
+          <button type="button" className="indicator" onClick={() => openDesktopWindow('logs')}>
             Alerts {alertCount}
           </button>
-          <button type="button" className="indicator" onClick={() => setSelectedApp('prop-network')}>
+          <button type="button" className="indicator" onClick={() => openDesktopWindow('prop-network')}>
             Devices {connectedDeviceCount}
           </button>
           <div className="clock">{militaryTime(clock)}</div>
         </div>
       </header>
 
-      <main className="desktop-grid">
-        <aside className="launcher">
-          <h2>Launcher</h2>
-          <nav>
-            {APPS.map((app) => (
-              <button
-                key={app.id}
-                className={app.id === selectedApp ? 'launch-btn active' : 'launch-btn'}
-                onClick={() => setSelectedApp(app.id)}
-                type="button"
-              >
-                {app.title}
-              </button>
-            ))}
-          </nav>
+      <main className="desktop-grid linux-desktop-grid">
+        <aside className="desktop-dock" aria-label="Application Dock">
+          {APPS.map((app) => (
+            <button
+              key={`dock-${app.id}`}
+              type="button"
+              className={`dock-item${selectedApp === app.id ? ' active' : ''}`}
+              onClick={() => {
+                setSelectedApp(app.id);
+                openDesktopWindow(app.id);
+              }}
+              title={app.title}
+            >
+              <span className="dock-item-glyph">{app.badge}</span>
+              <span className="dock-item-label">{app.title}</span>
+            </button>
+          ))}
         </aside>
 
-        <section className="window-stack">
-          <article className="window primary-window">
-            <div className="window-titlebar">
-              <span>{activeApp.title}</span>
-              <small>{activeApp.subtitle}</small>
-            </div>
-            <div className="window-content">
+        <section className={`window-stack${showLiveFeed ? ' with-feed' : ''}`}>
+          {windowOpen && !windowMinimized ? (
+            <article className="window primary-window">
+              <div className="window-content">
               {isOverview ? (
                 <section className="overview-module">
                   <div className="overview-grid">
@@ -1837,13 +2221,23 @@ function App() {
                               className={selectedScheduleGame && selectedScheduleGame.id === item.id ? 'mc-game-item mc-game-item-active' : 'mc-game-item'}
                               onClick={() => {
                                 setSelectedScheduleGame(item);
+                                const modeName = item.game_mode || missionForm.game_mode;
+                                const selectedProps = (item.props_needed && item.props_needed.length > 0)
+                                  ? item.props_needed
+                                  : getDefaultPropsForGameMode(modeName);
                                 const nextForm = {
                                   title: item.title,
                                   description: item.details || '',
-                                  game_mode: item.game_mode || missionForm.game_mode,
+                                  game_mode: modeName,
                                   main_timer_minutes: missionForm.main_timer_minutes,
                                   phase_timer_minutes: missionForm.phase_timer_minutes,
                                   objectivesText: missionForm.objectivesText,
+                                  props_needed: selectedProps,
+                                  prop_settings: buildDefaultPropSettings(
+                                    selectedProps,
+                                    missionForm.main_timer_minutes,
+                                    missionForm.phase_timer_minutes
+                                  ),
                                 };
                                 setMissionForm(nextForm);
                                 // Auto-load the mission into Game Controls
@@ -1858,6 +2252,8 @@ function App() {
                                   main_timer_seconds: Number(nextForm.main_timer_minutes) * 60,
                                   phase_timer_seconds: Number(nextForm.phase_timer_minutes) * 60,
                                   objectives,
+                                  props_needed: nextForm.props_needed,
+                                  prop_settings: nextForm.prop_settings,
                                 });
                               }}
                             >
@@ -1872,9 +2268,20 @@ function App() {
                         Game Mode
                         <select
                           value={missionForm.game_mode}
-                          onChange={(event) =>
-                            setMissionForm((current) => ({ ...current, game_mode: event.target.value }))
-                          }
+                          onChange={(event) => {
+                            const modeName = event.target.value;
+                            const defaults = getDefaultPropsForGameMode(modeName);
+                            setMissionForm((current) => ({
+                              ...current,
+                              game_mode: modeName,
+                              props_needed: defaults,
+                              prop_settings: buildDefaultPropSettings(
+                                defaults,
+                                current.main_timer_minutes,
+                                current.phase_timer_minutes
+                              ),
+                            }));
+                          }}
                         >
                           {gameModeOptions.map((mode) => (
                             <option key={mode} value={mode}>
@@ -1925,6 +2332,142 @@ function App() {
                           }
                         />
                       </label>
+
+                      <div style={{ marginTop: '0.6rem' }}>
+                        <p className="schedule-meta" style={{ marginBottom: '0.35rem' }}>Mission Props</p>
+                        {propNameOptions.length === 0 ? <p className="muted">No firmware props available.</p> : null}
+                        <div style={{ display: 'grid', gap: '0.25rem', maxHeight: '10rem', overflowY: 'auto' }}>
+                          {propNameOptions.map((propName) => {
+                            const checked = (missionForm.props_needed || []).includes(propName);
+                            return (
+                              <label key={`mission-prop-${propName}`} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(event) => {
+                                    setMissionForm((current) => {
+                                      const existing = new Set(current.props_needed || []);
+                                      if (event.target.checked) {
+                                        existing.add(propName);
+                                      } else {
+                                        existing.delete(propName);
+                                      }
+                                      const nextProps = Array.from(existing);
+                                      const nextSettings = { ...(current.prop_settings || {}) };
+                                      if (event.target.checked) {
+                                        nextSettings[propName] = nextSettings[propName] || {
+                                          enabled: true,
+                                          game_time_seconds: Math.max(0, Number(current.main_timer_minutes) || 0) * 60,
+                                          phase_time_seconds: Math.max(0, Number(current.phase_timer_minutes) || 0) * 60,
+                                          notes: '',
+                                        };
+                                      } else {
+                                        delete nextSettings[propName];
+                                      }
+                                      return { ...current, props_needed: nextProps, prop_settings: nextSettings };
+                                    });
+                                  }}
+                                />
+                                <span>{propName}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {(missionForm.props_needed || []).length > 0 ? (
+                        <div style={{ marginTop: '0.7rem' }}>
+                          <p className="schedule-meta" style={{ marginBottom: '0.35rem' }}>Prop Settings</p>
+                          {(missionForm.props_needed || []).map((propName) => {
+                            const settings = missionForm.prop_settings?.[propName] || {};
+                            return (
+                              <div key={`mission-prop-settings-${propName}`} style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '0.45rem', marginBottom: '0.35rem' }}>
+                                <strong>{propName}</strong>
+                                <label style={{ marginTop: '0.2rem' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={settings.enabled !== false}
+                                    onChange={(event) => {
+                                      setMissionForm((current) => ({
+                                        ...current,
+                                        prop_settings: {
+                                          ...(current.prop_settings || {}),
+                                          [propName]: {
+                                            ...(current.prop_settings?.[propName] || {}),
+                                            enabled: event.target.checked,
+                                          },
+                                        },
+                                      }));
+                                    }}
+                                  />
+                                  Enabled
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' }}>
+                                  <label>
+                                    Game Time (sec)
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={settings.game_time_seconds ?? Number(missionForm.main_timer_minutes) * 60}
+                                      onChange={(event) => {
+                                        setMissionForm((current) => ({
+                                          ...current,
+                                          prop_settings: {
+                                            ...(current.prop_settings || {}),
+                                            [propName]: {
+                                              ...(current.prop_settings?.[propName] || {}),
+                                              game_time_seconds: Number(event.target.value) || 0,
+                                            },
+                                          },
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                  <label>
+                                    Phase Time (sec)
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={settings.phase_time_seconds ?? Number(missionForm.phase_timer_minutes) * 60}
+                                      onChange={(event) => {
+                                        setMissionForm((current) => ({
+                                          ...current,
+                                          prop_settings: {
+                                            ...(current.prop_settings || {}),
+                                            [propName]: {
+                                              ...(current.prop_settings?.[propName] || {}),
+                                              phase_time_seconds: Number(event.target.value) || 0,
+                                            },
+                                          },
+                                        }));
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                                <label>
+                                  Notes
+                                  <input
+                                    value={settings.notes || ''}
+                                    onChange={(event) => {
+                                      setMissionForm((current) => ({
+                                        ...current,
+                                        prop_settings: {
+                                          ...(current.prop_settings || {}),
+                                          [propName]: {
+                                            ...(current.prop_settings?.[propName] || {}),
+                                            notes: event.target.value,
+                                          },
+                                        },
+                                      }));
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
                       <button type="button" onClick={handleCreateMission}>Create Mission</button>
                       <button type="button" onClick={saveMissionAsPreset} style={{ marginLeft: '0.5rem' }}>
                         Save as Preset
@@ -2120,20 +2663,54 @@ function App() {
                         </select>
                       </label>
                       {scheduleForm.activity_type === 'Game' ? (
-                        <label>
-                          Game Mode
-                          <select
-                            value={scheduleForm.game_mode}
-                            onChange={(event) =>
-                              setScheduleForm((current) => ({ ...current, game_mode: event.target.value }))
-                            }
-                          >
-                            <option value="">— none —</option>
-                            {gameModeOptions.map((mode) => (
-                              <option key={mode} value={mode}>{mode}</option>
-                            ))}
-                          </select>
-                        </label>
+                        <>
+                          <label>
+                            Game Mode
+                            <select
+                              value={scheduleForm.game_mode}
+                              onChange={(event) => {
+                                const modeName = event.target.value;
+                                const defaults = getDefaultPropsForGameMode(modeName);
+                                setScheduleForm((current) => ({
+                                  ...current,
+                                  game_mode: modeName,
+                                  props_needed: defaults,
+                                }));
+                              }}
+                            >
+                              <option value="">— none —</option>
+                              {gameModeOptions.map((mode) => (
+                                <option key={mode} value={mode}>{mode}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <div>
+                            <p className="schedule-meta" style={{ marginBottom: '0.3rem' }}>Props Needed</p>
+                            {propNameOptions.length === 0 ? <p className="muted">No firmware props available.</p> : null}
+                            <div style={{ display: 'grid', gap: '0.22rem', maxHeight: '8.5rem', overflowY: 'auto' }}>
+                              {propNameOptions.map((propName) => (
+                                <label key={`schedule-prop-${propName}`} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={(scheduleForm.props_needed || []).includes(propName)}
+                                    onChange={(event) => {
+                                      setScheduleForm((current) => {
+                                        const next = new Set(current.props_needed || []);
+                                        if (event.target.checked) {
+                                          next.add(propName);
+                                        } else {
+                                          next.delete(propName);
+                                        }
+                                        return { ...current, props_needed: Array.from(next) };
+                                      });
+                                    }}
+                                  />
+                                  <span>{propName}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </>
                       ) : null}
                       <label>
                         Start Time
@@ -2171,6 +2748,7 @@ function App() {
                               details: '',
                               activity_type: 'Custom',
                               game_mode: '',
+                              props_needed: [],
                               start_time: '',
                               is_complete: false,
                             });
@@ -2218,6 +2796,9 @@ function App() {
                             {militaryTime(item.start_time)}
                           </p>
                           <p className="schedule-meta">{item.details || 'No details'}</p>
+                          {item.activity_type === 'Game' && Array.isArray(item.props_needed) && item.props_needed.length > 0 ? (
+                            <p className="schedule-meta">Props: {item.props_needed.join(', ')}</p>
+                          ) : null}
                           <p className="schedule-meta">Status: {item.is_complete ? 'Complete' : 'Pending'}</p>
                           <div className="schedule-item-actions">
                             <button type="button" onClick={() => editScheduleItem(item)}>Edit</button>
@@ -3109,11 +3690,34 @@ function App() {
                   </nav>
                   <div className="settings-panel">
                     {settingsTab === 'general' ? (
-                      <ul>
-                        {WINDOW_CONTENT['settings'].map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
+                      <div className="settings-general-grid">
+                        <div className="settings-general-card">
+                          <h3>Workspace Layout</h3>
+                          <label className="settings-toggle-row">
+                            <input
+                              type="checkbox"
+                              checked={showLiveFeed}
+                              onChange={(event) =>
+                                setUiPrefs((current) => ({
+                                  ...current,
+                                  showLiveFeed: event.target.checked,
+                                }))
+                              }
+                            />
+                            <span>Show Live Feed panel</span>
+                          </label>
+                          <p className="muted">When off, the workspace uses a cleaner single-panel layout.</p>
+                        </div>
+
+                        <div className="settings-general-card">
+                          <h3>System Profile</h3>
+                          <ul>
+                            {WINDOW_CONTENT['settings'].map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
                     ) : settingsTab === 'teams' ? (
                       <AdminCustomTeams apiBase={apiBase} />
                     ) : settingsTab === 'game-modes' ? (
@@ -3134,25 +3738,48 @@ function App() {
                   ))}
                 </ul>
               )}
-            </div>
-          </article>
+              </div>
+            </article>
+          ) : (
+            <article className="window primary-window desktop-empty-window">
+              <div className="window-titlebar">
+                <span>Desktop Workspace</span>
+                <small>Open a module icon to launch a window</small>
+              </div>
+              <div className="window-content">
+                <p className="muted">No active window. Select any icon from Tactical Desktop.</p>
+              </div>
+            </article>
+          )}
 
-          <article className="window aux-window">
-            <div className="window-titlebar">
-              <span>Live Feed</span>
-              <small>WebSocket Stream</small>
-            </div>
-            <div className="window-content">
-              {events.length === 0 ? <p className="muted">Awaiting field telemetry...</p> : null}
-              <ul className="live-feed-list">
-                {events.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          </article>
+          {showLiveFeed ? (
+            <article className="window aux-window">
+              <div className="window-titlebar">
+                <span>Live Feed</span>
+                <small>WebSocket Stream</small>
+              </div>
+              <div className="window-content">
+                {events.length === 0 ? <p className="muted">Awaiting field telemetry...</p> : null}
+                <ul className="live-feed-list">
+                  {events.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            </article>
+          ) : null}
         </section>
       </main>
+
+      <footer className="desktop-taskbar">
+        <button
+          type="button"
+          className={`taskbar-window${windowOpen && !windowMinimized ? ' active' : ''}`}
+          onClick={restoreDesktopWindow}
+        >
+          {activeApp.title}
+        </button>
+      </footer>
     </div>
   );
 }
