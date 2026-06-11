@@ -5,8 +5,7 @@
  *
  * Behavior:
  * - LoRa command control via AOJ protocol.
- * - 10 second buzzer countdown, then 3 second relay horn pulse for GAME_START/GAME_END.
- * - Immediate 3 second relay horn pulse for bomb/alarm events.
+ * - Immediate 3 second relay horn pulse for GAME_START/GAME_END/bomb/alarm events.
  * - Optional dedicated WiFi remote activation endpoint (separate SSID/pass/token settings).
  *
  */
@@ -15,7 +14,7 @@
 
 #define DEVICE_ID          "GM_Unit"
 #define PROP_TYPE          "GMSirenV3"
-#define FW_VERSION         "1.0.0"
+#define FW_VERSION         "1.1.2"
 
 // AOJ WiFi status transport is optional and disabled by default here.
 #define USE_WIFI           0
@@ -40,9 +39,6 @@
 // -----------------------------------------------------------------------------
 // Siren behavior
 // -----------------------------------------------------------------------------
-#define COUNTDOWN_SECONDS        10
-#define COUNTDOWN_BEEP_MS        110
-#define FINAL_BEEP_MS            300
 #define HORN_PULSE_MS            3000UL
 #define HEARTBEAT_INTERVAL_MS    30000UL
 
@@ -60,10 +56,7 @@ AojLoRa lora;
 AojWiFi aojWifi;
 WebServer remoteServer(REMOTE_HTTP_PORT);
 
-bool countdownActive = false;
 bool hornActive = false;
-unsigned long countdownStartMs = 0;
-int lastCountdownSecond = -1;
 unsigned long hornStartMs = 0;
 unsigned long hornPulseDurationMs = HORN_PULSE_MS;
 unsigned long lastHeartbeatMs = 0;
@@ -102,7 +95,6 @@ void sendStatus() {
   int rssi = loraReady ? lora.rssiPercent() : 0;
 
   String state = "online";
-  if (countdownActive) state = "countdown";
   if (hornActive) state = "alarm";
 
   String value = state + ":" +
@@ -127,37 +119,6 @@ void startHornPulse(const String &source, unsigned long durationMs) {
 
 void startHornPulse(const String &source) {
   startHornPulse(source, HORN_PULSE_MS);
-}
-
-void startCountdownThenHorn(const String &source) {
-  countdownActive = true;
-  countdownStartMs = millis();
-  lastCountdownSecond = -1;
-  lastTriggerSource = source;
-  lastAction = "countdown";
-  sendEvent("SIREN", "COUNTDOWN:" + source);
-}
-
-void processCountdown() {
-  if (!countdownActive) return;
-
-  unsigned long elapsedMs = millis() - countdownStartMs;
-  int elapsedSeconds = (int)(elapsedMs / 1000UL);
-
-  if (elapsedSeconds != lastCountdownSecond && elapsedSeconds < COUNTDOWN_SECONDS) {
-    int remaining = COUNTDOWN_SECONDS - elapsedSeconds;
-    if (remaining <= 1) {
-      beep(FINAL_BEEP_MS);
-    } else {
-      beep(COUNTDOWN_BEEP_MS);
-    }
-    lastCountdownSecond = elapsedSeconds;
-  }
-
-  if (elapsedMs >= (unsigned long)COUNTDOWN_SECONDS * 1000UL) {
-    countdownActive = false;
-    startHornPulse(lastTriggerSource);
-  }
 }
 
 void processHorn() {
@@ -212,11 +173,6 @@ void handleRemoteHornTest() {
   remoteServer.send(200, "application/json", "{\"ok\":true,\"test\":\"horn\",\"ms\":" + String(durationMs) + "}");
 }
 
-void handleRemoteCountdownTest() {
-  startCountdownThenHorn("wifi-test");
-  remoteServer.send(200, "application/json", "{\"ok\":true,\"test\":\"countdown\"}");
-}
-
 void handleRemoteLoRaTest() {
   if (!loraReady) {
     beep(300);
@@ -245,23 +201,13 @@ void triggerIfAuthorized() {
     return;
   }
 
-  String mode = remoteServer.hasArg("mode") ? remoteServer.arg("mode") : "horn";
-  mode.toLowerCase();
-
-  if (mode == "countdown") {
-    startCountdownThenHorn("wifi");
-    remoteServer.send(200, "application/json", "{\"ok\":true,\"mode\":\"countdown\"}");
-    return;
-  }
-
   startHornPulse("wifi");
   remoteServer.send(200, "application/json", "{\"ok\":true,\"mode\":\"horn\"}");
 }
 
 void handleRemoteStatus() {
   String payload = "{\"device_id\":\"" + String(DEVICE_ID) +
-                   "\",\"countdown\":" + String(countdownActive ? "true" : "false") +
-                   ",\"horn\":" + String(hornActive ? "true" : "false") +
+                   "\",\"horn\":" + String(hornActive ? "true" : "false") +
                    ",\"last_trigger\":\"" + lastTriggerSource + "\"}";
   remoteServer.send(200, "application/json", payload);
 }
@@ -317,7 +263,6 @@ String remotePage() {
 
   page += "<div class='panel'><h2>Status</h2><div class='row'>";
   page += "<div class='stat'><div class='label'>Device</div><div class='value' id='deviceId'>" + String(DEVICE_ID) + "</div></div>";
-  page += "<div class='stat'><div class='label'>Countdown</div><div class='value' id='countdownState'>-</div></div>";
   page += "<div class='stat'><div class='label'>Horn Relay</div><div class='value' id='hornState'>-</div></div>";
   page += "<div class='stat'><div class='label'>Last Trigger</div><div class='value' id='lastTrigger'>-</div></div>";
   page += "</div>";
@@ -327,7 +272,6 @@ String remotePage() {
   page += "<button class='secondary' onclick='runTest(\"/test/wifi\")'>WiFi Test</button>";
   page += "<button onclick='runTest(\"/test/buzzer?ms=150\")'>Buzzer 150 ms</button>";
   page += "<button onclick='runTest(\"/test/relay?ms=3000\")'>Relay/Horn 3 s</button>";
-  page += "<button class='warn' onclick='runTest(\"/test/countdown\")'>Countdown then Horn</button>";
   page += "<button class='secondary' onclick='runTest(\"/test/lora\")'>LoRa TX Test</button>";
   page += "</div>";
 
@@ -369,7 +313,6 @@ async function refreshStatus() {
     const res = await fetch('/status');
     const data = await res.json();
     document.getElementById('deviceId').textContent = data.device_id || '-';
-    document.getElementById('countdownState').textContent = data.countdown ? 'ACTIVE' : 'IDLE';
     document.getElementById('hornState').textContent = data.horn ? 'ON' : 'OFF';
     document.getElementById('lastTrigger').textContent = data.last_trigger || '-';
   } catch (err) {
@@ -411,8 +354,6 @@ void setupRemoteServer() {
     remoteServer.on("/test/wifi", HTTP_GET, handleRemoteWifiTest);
     remoteServer.on("/test/buzzer", HTTP_GET, handleRemoteBuzzerTest);
     remoteServer.on("/test/buzzer", HTTP_POST, handleRemoteBuzzerTest);
-    remoteServer.on("/test/countdown", HTTP_GET, handleRemoteCountdownTest);
-    remoteServer.on("/test/countdown", HTTP_POST, handleRemoteCountdownTest);
     remoteServer.on("/test/horn", HTTP_GET, handleRemoteHornTest);
     remoteServer.on("/test/horn", HTTP_POST, handleRemoteHornTest);
     remoteServer.on("/test/relay", HTTP_GET, handleRemoteHornTest);
@@ -440,8 +381,6 @@ void setupRemoteServer() {
       remoteServer.on("/test/wifi", HTTP_GET, handleRemoteWifiTest);
       remoteServer.on("/test/buzzer", HTTP_GET, handleRemoteBuzzerTest);
       remoteServer.on("/test/buzzer", HTTP_POST, handleRemoteBuzzerTest);
-      remoteServer.on("/test/countdown", HTTP_GET, handleRemoteCountdownTest);
-      remoteServer.on("/test/countdown", HTTP_POST, handleRemoteCountdownTest);
       remoteServer.on("/test/horn", HTTP_GET, handleRemoteHornTest);
       remoteServer.on("/test/horn", HTTP_POST, handleRemoteHornTest);
       remoteServer.on("/test/relay", HTTP_GET, handleRemoteHornTest);
@@ -474,13 +413,13 @@ void handleLoRaCommand(const AOJFrame &frame) {
 
   if (command == "GAME_START" || command == "START" || command == "ROUND_START") {
     sendAck(frame.messageId);
-    startCountdownThenHorn("lora-game-start");
+    startHornPulse("lora-game-start");
     return;
   }
 
   if (command == "GAME_END" || command == "GAME_OVER" || command == "END" || command == "GAMEOVER") {
     sendAck(frame.messageId);
-    startCountdownThenHorn("lora-game-end");
+    startHornPulse("lora-game-end");
     return;
   }
 
@@ -495,9 +434,7 @@ void handleLoRaCommand(const AOJFrame &frame) {
     String testValue = frame.value;
     testValue.toUpperCase();
 
-    if (testValue == "COUNTDOWN") {
-      startCountdownThenHorn("lora-test");
-    } else if (testValue == "BUZZ" || testValue == "BUZZER" || testValue == "BUZZER_TEST") {
+    if (testValue == "BUZZ" || testValue == "BUZZER" || testValue == "BUZZER_TEST") {
       beep(150);
       lastAction = "buzzer-test";
       sendEvent("SIREN", "BUZZER_TEST:150");
@@ -563,7 +500,6 @@ void loop() {
   }
 #endif
 
-  processCountdown();
   processHorn();
 
   if (millis() - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS) {
